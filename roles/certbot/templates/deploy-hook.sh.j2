@@ -1,0 +1,42 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# Certbot deploy hook - Fix permissions for Dovecot after certificate renewal
+
+set -e
+
+DOMAIN="${RENEWED_DOMAINS:-all}"
+LINEAGE="${RENEWED_LINEAGE:-/etc/letsencrypt/live}"
+
+LOGFILE="/var/log/certbot-deploy-hook.log"
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOGFILE"
+}
+
+log "=== Certbot Deploy Hook Started ==="
+log "Certificate deployed for domain(s): $DOMAIN"
+
+# Fix Let's Encrypt base directory permissions
+log "Fixing /etc/letsencrypt permissions..."
+chmod 750 /etc/letsencrypt/live /etc/letsencrypt/archive 2>/dev/null || true
+chgrp ssl-cert /etc/letsencrypt/live /etc/letsencrypt/archive 2>/dev/null || true
+
+# Fix specific domain directory if provided
+if [ -n "$LINEAGE" ] && [ -d "$LINEAGE" ]; then
+    log "Fixing permissions for $LINEAGE"
+    chmod 750 "$LINEAGE" 2>/dev/null || true
+    chgrp ssl-cert "$LINEAGE" 2>/dev/null || true
+fi
+
+# Ensure dovecot user is in ssl-cert group
+if ! groups dovecot 2>/dev/null | grep -q ssl-cert; then
+    log "Adding dovecot to ssl-cert group..."
+    usermod -aG ssl-cert dovecot
+    log "Dovecot added to ssl-cert group"
+else
+    log "Dovecot already in ssl-cert group"
+fi
+
+log "Deploy hook completed successfully"
+log "=== Certbot Deploy Hook Finished ==="
+exit 0

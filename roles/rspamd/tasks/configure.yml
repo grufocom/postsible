@@ -1,0 +1,204 @@
+---
+# roles/rspamd/tasks/configure.yml
+
+# Generate password hashes for WebUI
+- name: Check if rspamd is installed (for password hashing)
+  command: which rspamadm
+  register: rspamadm_check
+  changed_when: false
+  failed_when: false
+
+- name: Generate rspamd WebUI password hash
+  shell: "rspamadm pw --encrypt --password '{{ vault_rspamd_webui_password }}'"
+  register: rspamd_webui_password_hash_result
+  changed_when: false
+  no_log: true
+  when: rspamadm_check.rc == 0
+
+- name: Set WebUI password hash fact
+  set_fact:
+    rspamd_webui_password_hash: "{{ rspamd_webui_password_hash_result.stdout }}"
+    rspamd_webui_enable_password_hash: "{{ rspamd_webui_password_hash_result.stdout }}"
+  no_log: true
+  when: rspamadm_check.rc == 0
+
+# Redis Backend Configuration
+- name: Configure Redis backend for rspamd
+  template:
+    src: redis.conf.rspamd.j2
+    dest: /etc/rspamd/local.d/redis.conf
+    owner: _rspamd
+    group: _rspamd
+    mode: '0644'
+  notify: restart rspamd
+
+# Worker Configuration
+- name: Configure rspamd worker
+  template:
+    src: worker-normal.inc.j2
+    dest: /etc/rspamd/local.d/worker-normal.inc
+    owner: _rspamd
+    group: _rspamd
+    mode: '0644'
+  notify: restart rspamd
+
+- name: Configure rspamd controller worker
+  template:
+    src: worker-controller.inc.j2
+    dest: /etc/rspamd/local.d/worker-controller.inc
+    owner: _rspamd
+    group: _rspamd
+    mode: '0644'
+  notify: restart rspamd
+
+# Proxy Configuration
+- name: Configure rspamd proxy worker
+  template:
+    src: worker-proxy.inc.j2
+    dest: /etc/rspamd/local.d/worker-proxy.inc
+    owner: root
+    group: _rspamd
+    mode: '0644'
+  notify: restart rspamd
+  tags: rspamd
+
+# Logging Configuration
+- name: Configure rspamd logging
+  template:
+    src: logging.inc.j2
+    dest: /etc/rspamd/local.d/logging.inc
+    owner: _rspamd
+    group: _rspamd
+    mode: '0644'
+  notify: restart rspamd
+
+# Options Configuration
+- name: Configure rspamd options
+  template:
+    src: options.inc.j2
+    dest: /etc/rspamd/local.d/options.inc
+    owner: _rspamd
+    group: _rspamd
+    mode: '0644'
+  notify: restart rspamd
+
+# Milter Headers Configuration
+- name: Configure milter headers
+  template:
+    src: milter_headers.conf.j2
+    dest: /etc/rspamd/local.d/milter_headers.conf
+    owner: _rspamd
+    group: _rspamd
+    mode: '0644'
+  notify: restart rspamd
+
+# Actions Configuration
+- name: Configure rspamd actions
+  template:
+    src: actions.conf.j2
+    dest: /etc/rspamd/local.d/actions.conf
+    owner: _rspamd
+    group: _rspamd
+    mode: '0644'
+  notify: restart rspamd
+
+# Metrics Configuration
+- name: Configure rspamd metrics
+  template:
+    src: metrics.conf.j2
+    dest: /etc/rspamd/local.d/metrics.conf
+    owner: _rspamd
+    group: _rspamd
+    mode: '0644'
+  notify: restart rspamd
+
+# Classifier Bayes Configuration
+- name: Configure Bayes classifier
+  template:
+    src: classifier-bayes.conf.j2
+    dest: /etc/rspamd/local.d/classifier-bayes.conf
+    owner: _rspamd
+    group: _rspamd
+    mode: '0644'
+  notify: restart rspamd
+
+# Statistics Configuration
+- name: Remove deprecated statistic.conf (conflicts with classifier-bayes.conf)
+  file:
+    path: /etc/rspamd/local.d/statistic.conf
+    state: absent
+  tags: rspamd
+
+# Neural Network Configuration
+- name: Configure neural network module
+  template:
+    src: neural.conf.j2
+    dest: /etc/rspamd/local.d/neural.conf
+    owner: _rspamd
+    group: _rspamd
+    mode: '0644'
+  notify: restart rspamd
+  when: rspamd_enable_neural | default(true)
+
+# Greylist Configuration
+- name: Configure greylist module
+  template:
+    src: greylist.conf.j2
+    dest: /etc/rspamd/local.d/greylist.conf
+    owner: _rspamd
+    group: _rspamd
+    mode: '0644'
+  notify: restart rspamd
+  when: rspamd_enable_greylist | default(true)
+
+- name: Create empty greylist whitelist files (to prevent map errors)
+  file:
+    path: "{{ item }}"
+    state: touch
+    owner: _rspamd
+    group: _rspamd
+    mode: '0644'
+  loop:
+    - /etc/rspamd/local.d/greylist-whitelist-domains.inc
+    - /etc/rspamd/local.d/greylist-whitelist-domains.inc.local
+  tags: rspamd
+
+# Ratelimit Configuration
+- name: Configure ratelimit module
+  template:
+    src: ratelimit.conf.j2
+    dest: /etc/rspamd/local.d/ratelimit.conf
+    owner: _rspamd
+    group: _rspamd
+    mode: '0644'
+  notify: restart rspamd
+  when: rspamd_enable_ratelimit | default(true)
+
+# Redis config
+- name: Configure rspamd Redis connection
+  template:
+    src: redis-local.conf.j2
+    dest: /etc/rspamd/local.d/redis.conf
+    owner: root
+    group: _rspamd
+    mode: '0644'
+  notify: restart rspamd
+  tags: rspamd
+
+# Create log directory
+- name: Create rspamd log directory
+  file:
+    path: /var/log/rspamd
+    state: directory
+    owner: _rspamd
+    group: _rspamd
+    mode: '0755'
+
+# Logrotate Configuration
+- name: Configure logrotate for rspamd
+  template:
+    src: rspamd.logrotate.j2
+    dest: /etc/logrotate.d/rspamd
+    owner: root
+    group: root
+    mode: '0644'

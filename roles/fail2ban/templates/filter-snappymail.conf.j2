@@ -1,0 +1,12 @@
+# Fail2ban SnappyMail filter
+# Managed by Ansible - DO NOT EDIT MANUALLY
+
+[Definition]
+# Match login failures in SnappyMail logs
+# Example log format: [2026-01-03 15:30:45] [ERROR] Auth failed for user@domain.com from 1.2.3.4
+
+failregex = ^\[\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\].*(?:Auth failed|Authentication failed|Login failed).*from\s+<HOST>
+            ^\[\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\].*\[ERROR\].*Auth.*<HOST>
+            ^\[\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\].*Invalid.*credentials.*<HOST>
+
+ignoreregex =

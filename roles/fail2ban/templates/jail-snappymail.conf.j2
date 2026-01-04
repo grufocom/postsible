@@ -1,0 +1,11 @@
+# Fail2ban SnappyMail jail configuration
+# Managed by Ansible - DO NOT EDIT MANUALLY
+
+[snappymail]
+enabled = true
+port = http,https
+filter = snappymail
+logpath = /var/www/snappymail-data/_data_/_default_/logs/log-*.txt
+maxretry = {{ fail2ban_snappymail_maxretry | default('5') }}
+bantime = {{ fail2ban_snappymail_bantime | default(fail2ban_bantime | default('3600')) }}
+findtime = {{ fail2ban_findtime | default('600') }}

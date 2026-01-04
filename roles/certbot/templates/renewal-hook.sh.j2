@@ -1,0 +1,26 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# Certbot post-renewal hook - Reload services after certificate renewal
+
+set -e
+
+LOGFILE="/var/log/certbot-renewal-hook.log"
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOGFILE"
+}
+
+log "Certificate renewal detected - Reloading services..."
+
+{% for service in certbot_reload_services %}
+if systemctl is-active --quiet {{ service }}; then
+    log "Reloading {{ service }}..."
+    systemctl reload {{ service }} && log "{{ service }} reloaded successfully" || log "ERROR: Failed to reload {{ service }}"
+else
+    log "WARNING: {{ service }} is not running, skipping reload"
+fi
+
+{% endfor %}
+
+log "Post-renewal hook completed"
+exit 0

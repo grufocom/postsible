@@ -1,0 +1,6 @@
+# {{ ansible_managed }}
+user = {{ mariadb_user }}
+password = {{ mariadb_password }}
+hosts = 127.0.0.1
+dbname = {{ mariadb_database }}
+query = SELECT email FROM virtual_users WHERE email='%s' AND enabled=1

@@ -1,0 +1,105 @@
+---
+# roles/nginx/tasks/ssl-detection.yml
+# Intelligent SSL certificate detection for nginx
+
+- name: Check if Let's Encrypt certificate exists for server name
+  stat:
+    path: "/etc/letsencrypt/live/{{ nginx_server_name }}/fullchain.pem"
+  register: letsencrypt_server_cert
+
+- name: Check if Let's Encrypt certificate exists for webmail domain
+  stat:
+    path: "/etc/letsencrypt/live/{{ nginx_webmail_server_name }}/fullchain.pem"
+  register: letsencrypt_webmail_cert
+
+- name: Check if Let's Encrypt certificate exists for primary domain
+  stat:
+    path: "/etc/letsencrypt/live/{{ mail_primary_domain }}/fullchain.pem"
+  register: letsencrypt_primary_cert
+
+- name: Check if custom SSL certificate exists
+  stat:
+    path: "{{ nginx_custom_ssl_cert }}"
+  register: custom_cert
+  when: nginx_custom_ssl_cert is defined
+
+- name: Set SSL certificate facts (Let's Encrypt for server name)
+  set_fact:
+    nginx_ssl_cert: "/etc/letsencrypt/live/{{ nginx_server_name }}/fullchain.pem"
+    nginx_ssl_key: "/etc/letsencrypt/live/{{ nginx_server_name }}/privkey.pem"
+    nginx_ssl_source: "Let's Encrypt ({{ nginx_server_name }})"
+    nginx_ssl_enabled: true
+  when: letsencrypt_server_cert.stat.exists
+
+- name: Set SSL certificate facts (Let's Encrypt for webmail domain)
+  set_fact:
+    nginx_ssl_cert: "/etc/letsencrypt/live/{{ nginx_webmail_server_name }}/fullchain.pem"
+    nginx_ssl_key: "/etc/letsencrypt/live/{{ nginx_webmail_server_name }}/privkey.pem"
+    nginx_ssl_source: "Let's Encrypt ({{ nginx_webmail_server_name }})"
+    nginx_ssl_enabled: true
+  when: 
+    - not letsencrypt_server_cert.stat.exists
+    - letsencrypt_webmail_cert.stat.exists
+
+- name: Set SSL certificate facts (Let's Encrypt for primary domain)
+  set_fact:
+    nginx_ssl_cert: "/etc/letsencrypt/live/{{ mail_primary_domain }}/fullchain.pem"
+    nginx_ssl_key: "/etc/letsencrypt/live/{{ mail_primary_domain }}/privkey.pem"
+    nginx_ssl_source: "Let's Encrypt ({{ mail_primary_domain }})"
+    nginx_ssl_enabled: true
+  when: 
+    - not letsencrypt_server_cert.stat.exists
+    - not letsencrypt_webmail_cert.stat.exists
+    - letsencrypt_primary_cert.stat.exists
+
+- name: Set SSL certificate facts (Custom certificate)
+  set_fact:
+    nginx_ssl_cert: "{{ nginx_custom_ssl_cert }}"
+    nginx_ssl_key: "{{ nginx_custom_ssl_key }}"
+    nginx_ssl_source: "Custom certificate"
+    nginx_ssl_enabled: true
+  when:
+    - nginx_custom_ssl_cert is defined
+    - custom_cert.stat.exists
+    - not letsencrypt_server_cert.stat.exists
+    - not letsencrypt_webmail_cert.stat.exists
+    - not letsencrypt_primary_cert.stat.exists
+
+- name: Set SSL certificate facts (Fallback to snakeoil)
+  set_fact:
+    nginx_ssl_cert: "/etc/ssl/certs/ssl-cert-snakeoil.pem"
+    nginx_ssl_key: "/etc/ssl/private/ssl-cert-snakeoil.key"
+    nginx_ssl_source: "Self-signed (snakeoil) - WARNING: Not production ready!"
+    nginx_ssl_enabled: false
+  when:
+    - not letsencrypt_server_cert.stat.exists
+    - not letsencrypt_webmail_cert.stat.exists
+    - not letsencrypt_primary_cert.stat.exists
+    - not (nginx_custom_ssl_cert is defined and custom_cert.stat.exists)
+
+- name: Enable HSTS if SSL is properly configured
+  set_fact:
+    nginx_hsts_enabled: true
+  when: 
+    - nginx_ssl_enabled | default(false)
+    - nginx_ssl_source is search("Let's Encrypt|Custom")
+
+- name: Display selected SSL certificate
+  debug:
+    msg: |
+      ========================================
+      Nginx SSL Certificate Selection
+      ========================================
+      
+      Source: {{ nginx_ssl_source }}
+      Certificate: {{ nginx_ssl_cert }}
+      Key: {{ nginx_ssl_key }}
+      SSL Enabled: {{ nginx_ssl_enabled | default(false) }}
+      HSTS Enabled: {{ nginx_hsts_enabled }}
+      
+      {% if not nginx_ssl_enabled | default(false) %}
+      ⚠️  WARNING: Using self-signed certificate!
+      Run certbot role to get proper SSL certificates.
+      {% endif %}
+      
+      ========================================

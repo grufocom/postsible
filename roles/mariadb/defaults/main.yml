@@ -1,0 +1,35 @@
+# roles/mariadb/defaults/main.yml
+---
+# MariaDB Configuration for Postsible Mailserver
+
+# Service name (different on Debian vs others)
+mariadb_service_name: "mysql"
+
+# Database Settings (from group_vars, but defaults here)
+mariadb_database: "mailserver"
+mariadb_user: "mailuser"
+mariadb_host: "localhost"
+
+# Performance tuning
+mariadb_max_connections: 100
+mariadb_innodb_buffer_pool_size: "256M"
+mariadb_innodb_log_file_size: "64M"
+mariadb_query_cache_size: "32M"
+mariadb_query_cache_type: 1
+
+# Character set
+mariadb_character_set: "utf8mb4"
+mariadb_collation: "utf8mb4_unicode_ci"
+
+# Bind address (localhost only for security)
+mariadb_bind_address: "127.0.0.1"
+
+# Initial data
+mariadb_insert_initial_domains: true
+
+# Backup settings
+mariadb_enable_backup_cron: true
+mariadb_backup_retention_days: 30
+
+# Security settings
+mariadb_skip_name_resolve: true

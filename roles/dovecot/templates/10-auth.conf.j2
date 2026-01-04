@@ -1,0 +1,17 @@
+# {{ ansible_managed }}
+# Dovecot authentication configuration (Dovecot 2.4.1)
+
+# Dovecot 2.4.1: auth_allow_cleartext statt disable_plaintext_auth
+auth_allow_cleartext = {{ 'no' if dovecot_disable_plaintext_auth else 'yes' }}
+auth_mechanisms = {{ dovecot_auth_mechanisms }}
+
+# Authentication cache
+auth_cache_size = {{ dovecot_auth_cache_size }}
+auth_cache_ttl = {{ dovecot_auth_cache_ttl }}
+auth_cache_negative_ttl = {{ dovecot_auth_cache_negative_ttl }}
+
+# Logging
+auth_verbose = {{ 'yes' if dovecot_auth_verbose else 'no' }}
+auth_debug = {{ 'yes' if dovecot_auth_debug else 'no' }}
+
+# SQL authentication wird in 10-sql.conf konfiguriert (nicht mehr in auth-sql.conf.ext)

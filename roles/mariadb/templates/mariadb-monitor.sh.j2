@@ -1,0 +1,38 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# MariaDB monitoring script
+
+set -e
+
+DB_USER="root"
+DB_PASS="{{ mariadb_root_password }}"
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+echo "=== MariaDB Status ==="
+systemctl status {{ mariadb_service_name | default('mysql') }} --no-pager | head -5
+
+echo ""
+echo "=== Connection Statistics ==="
+mysql -u "$DB_USER" -p"$DB_PASS" -e "SHOW STATUS LIKE 'Threads_%';" -t
+
+echo ""
+echo "=== Current Connections ==="
+mysql -u "$DB_USER" -p"$DB_PASS" -e "SHOW PROCESSLIST;" -t
+
+echo ""
+echo "=== Database Sizes ==="
+mysql -u "$DB_USER" -p"$DB_PASS" -e "
+SELECT 
+    table_schema AS 'Database',
+    ROUND(SUM(data_length + index_length) / 1024 / 1024, 2) AS 'Size (MB)'
+FROM information_schema.tables
+GROUP BY table_schema;" -t
+
+echo ""
+echo "=== InnoDB Status ==="
+mysql -u "$DB_USER" -p"$DB_PASS" -e "SHOW ENGINE INNODB STATUS\G" | grep -A 20 "BUFFER POOL AND MEMORY"

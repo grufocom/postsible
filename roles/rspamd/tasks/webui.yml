@@ -1,0 +1,68 @@
+---
+# roles/rspamd/tasks/webui.yml
+
+# Rspamd WebUI Configuration
+- name: Ensure rspamd WebUI is enabled in worker config
+  lineinfile:
+    path: /etc/rspamd/local.d/worker-controller.inc
+    regexp: '^#?enable_password'
+    line: 'enable_password = "{{ rspamd_webui_enable_password_hash }}";'
+    state: present
+  notify: restart rspamd
+  when: rspamd_webui_enabled | default(true)
+
+- name: Check if nginx is installed
+  stat:
+    path: /etc/nginx/sites-available
+  register: nginx_installed
+
+- name: Create rspamd stats script for monitoring
+  template:
+    src: rspamd-stats.sh.j2
+    dest: /usr/local/bin/rspamd-stats.sh
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Print WebUI access information
+  debug:
+    msg: |
+      ========================================
+      Rspamd WebUI Configuration
+      ========================================
+      
+      {% if rspamd_webui_enabled | default(true) %}
+      WebUI Status: ENABLED
+      
+      Access URLs:
+      - Local: http://127.0.0.1:11334/
+      - Via Nginx: https://{{ postfix_myhostname }}/rspamd/
+      
+      Credentials:
+      - Password: (from vault: vault_rspamd_webui_password)
+      
+      Features:
+      - Real-time statistics
+      - Manual learning (spam/ham)
+      - Symbol configuration
+      - Log viewing
+      - Graph visualization
+      
+      Direct rspamc commands:
+      - Stats: rspamc stat
+      - Learn spam: rspamc learn_spam /path/to/email
+      - Learn ham: rspamc learn_ham /path/to/email
+      - Fuzzy check: rspamc -f 1 /path/to/email
+      
+      Monitoring:
+      - Run: /usr/local/bin/rspamd-stats.sh
+      
+      {% else %}
+      WebUI Status: DISABLED
+      
+      To enable, set in vars.yml:
+        rspamd_webui_enabled: true
+      
+      {% endif %}
+      ========================================
+  when: rspamd_webui_enabled is defined

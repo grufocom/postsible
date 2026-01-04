@@ -1,0 +1,22 @@
+# Rspamd Redis configuration
+# Managed by Ansible - DO NOT EDIT MANUALLY
+
+# Redis server connection
+servers = "{{ rspamd_redis_host | default('127.0.0.1') }}:{{ rspamd_redis_port | default('6379') }}";
+
+{% if rspamd_redis_password is defined and rspamd_redis_password != '' %}
+# Redis password
+password = "{{ rspamd_redis_password }}";
+{% endif %}
+
+# Database number (0-15)
+db = "{{ rspamd_redis_db | default('0') }}";
+
+# Prefix for keys
+prefix = "{{ rspamd_redis_prefix | default('rs') }}";
+
+# Timeout
+timeout = {{ rspamd_redis_timeout | default('10s') }};
+
+# Expansion limit (max number of elements in a set)
+expand_keys = {{ rspamd_redis_expand_keys | default('true') | lower }};

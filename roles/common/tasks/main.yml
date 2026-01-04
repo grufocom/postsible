@@ -1,0 +1,180 @@
+# roles/common/tasks/main.yml
+---
+- name: Update apt cache
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+  tags: common
+
+- name: Upgrade all packages
+  apt:
+    upgrade: dist
+    autoremove: yes
+    autoclean: yes
+  tags: common
+
+- name: Install essential packages
+  apt:
+    name:
+      - vim
+      - curl
+      - wget
+      - gnupg
+      - ca-certificates
+      - apt-transport-https
+      - git
+      - htop
+      - tree
+      - net-tools
+      - dnsutils
+      - sudo
+      - rsync
+      - screen
+      - tmux
+      - unzip
+      - zip
+      - python3
+      - python3-pip
+      - python3-apt
+      - acl
+      - lsb-release
+    state: present
+  tags: common
+
+- name: Set timezone
+  community.general.timezone:
+    name: "{{ common_timezone }}"
+  tags: common
+
+- name: Generate locales
+  community.general.locale_gen:
+    name: "{{ item }}"
+    state: present
+  loop: "{{ common_locales }}"
+  tags: common
+
+- name: Set default locale
+  debconf:
+    name: locales
+    question: locales/default_environment_locale
+    value: "{{ common_default_locale }}"
+    vtype: select
+  tags: common
+
+- name: Configure system locale
+  copy:
+    dest: /etc/default/locale
+    content: |
+      LANG={{ common_default_locale }}
+      LANGUAGE={{ common_default_locale }}
+      LC_ALL={{ common_default_locale }}
+    mode: '0644'
+  tags: common
+
+- name: Set hostname
+  hostname:
+    name: "{{ common_hostname }}"
+  when: common_hostname is defined
+  tags: common
+
+- name: Update /etc/hosts with hostname
+  lineinfile:
+    path: /etc/hosts
+    regexp: '^127\.0\.1\.1'
+    line: "127.0.1.1 {{ common_hostname }} {{ common_hostname.split('.')[0] }}"
+    state: present
+  when: common_hostname is defined
+  tags: common
+
+- name: Install and configure systemd-timesyncd
+  apt:
+    name: systemd-timesyncd
+    state: present
+  tags: common
+
+- name: Configure timesyncd
+  template:
+    src: timesyncd.conf.j2
+    dest: /etc/systemd/timesyncd.conf
+    mode: '0644'
+  notify: restart timesyncd
+  tags: common
+
+- name: Enable and start systemd-timesyncd
+  systemd:
+    name: systemd-timesyncd
+    enabled: yes
+    state: started
+  tags: common
+
+- name: Configure logrotate for system logs
+  template:
+    src: logrotate.conf.j2
+    dest: /etc/logrotate.d/postsible
+    mode: '0644'
+  tags: common
+
+- name: Create mail directories structure
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root
+  loop:
+    - /srv/imap
+    - /var/log/mail
+    - /etc/postsible
+  tags: common
+
+- name: Set MOTD banner
+  template:
+    src: motd.j2
+    dest: /etc/motd
+    mode: '0644'
+  tags: common
+
+- name: Disable unnecessary services
+  systemd:
+    name: "{{ item }}"
+    enabled: no
+    state: stopped
+  loop: "{{ common_disabled_services }}"
+  ignore_errors: yes
+  tags: common
+
+- name: Configure sysctl parameters
+  sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    state: present
+    reload: yes
+  loop: "{{ common_sysctl_params | dict2items }}"
+  tags: common
+
+- name: Harden SSH configuration
+  template:
+    src: sshd_config.j2
+    dest: /etc/ssh/sshd_config
+    mode: '0644'
+    validate: '/usr/sbin/sshd -t -f %s'
+  notify: restart sshd
+  tags: common
+
+- name: Create postsible config directory
+  file:
+    path: /etc/postsible
+    state: directory
+    mode: '0755'
+  tags: common
+
+- name: Save deployment timestamp
+  copy:
+    content: |
+      Postsible Mailserver
+      Deployed: {{ ansible_date_time.iso8601 }}
+      Host: {{ inventory_hostname }}
+      Ansible Version: {{ ansible_version.full }}
+    dest: /etc/postsible/deployment_info.txt
+    mode: '0644'
+  tags: common

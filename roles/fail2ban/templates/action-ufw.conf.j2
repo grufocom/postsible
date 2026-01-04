@@ -1,0 +1,12 @@
+# Fail2ban UFW action configuration
+# Managed by Ansible - DO NOT EDIT MANUALLY
+
+[Definition]
+actionstart =
+actionstop =
+actioncheck =
+actionban = ufw insert 1 deny from <ip> to any comment "fail2ban <name>"
+actionunban = ufw delete deny from <ip> to any
+
+[Init]
+name = default

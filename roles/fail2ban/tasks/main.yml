@@ -1,0 +1,55 @@
+---
+# roles/fail2ban/tasks/main.yml
+
+- name: Include installation tasks
+  include_tasks: install.yml
+  tags:
+    - fail2ban
+    - fail2ban-install
+
+- name: Include configuration tasks
+  include_tasks: configure.yml
+  tags:
+    - fail2ban
+    - fail2ban-configure
+
+- name: Include jail configuration tasks
+  include_tasks: jails.yml
+  tags:
+    - fail2ban
+    - fail2ban-jails
+
+- name: Print fail2ban setup summary
+  debug:
+    msg: |
+      ========================================
+      Fail2ban Setup Complete
+      ========================================
+
+      Configured Jails:
+      - SSH (Port {{ ufw_ssh_port | default('22') }})
+      - Postfix SASL (Auth failures)
+      - Dovecot (IMAP/POP3 failures)
+      - Nginx HTTP Auth
+      - SnappyMail (Webmail login failures)
+      {% if fail2ban_enable_rspamd_jail | default(false) %}
+      - Rspamd (WebUI failures)
+      {% endif %}
+
+      Settings:
+      - Ban time: {{ fail2ban_bantime | default('3600') }}s ({{ (fail2ban_bantime | default(3600) / 60) | int }}min)
+      - Find time: {{ fail2ban_findtime | default('600') }}s ({{ (fail2ban_findtime | default(600) / 60) | int }}min)
+      - Max retry: {{ fail2ban_maxretry | default('5') }}
+      - Action: UFW block + {% if fail2ban_enable_email | default(true) %}Email notification{% else %}No email{% endif %}
+
+      Whitelisted IPs: {{ fail2ban_whitelist_ips | default([]) | length }} configured
+
+      Useful commands:
+      - Status: fail2ban-client status
+      - Check jail: fail2ban-client status <jail-name>
+      - Unban IP: fail2ban-client unban <ip>
+      - Banned IPs: fail2ban-client banned
+
+      ========================================
+  tags:
+    - fail2ban

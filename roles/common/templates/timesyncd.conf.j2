@@ -1,0 +1,6 @@
+# {{ ansible_managed }}
+[Time]
+{% for server in common_ntp_servers %}
+NTP={{ server }}
+{% endfor %}
+FallbackNTP={{ common_ntp_servers | join(' ') }}

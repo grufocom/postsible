@@ -1,0 +1,12 @@
+# Logrotate configuration for rspamd learning
+# Managed by Ansible - DO NOT EDIT MANUALLY
+
+/var/log/rspamd-learning/*.log {
+    weekly
+    rotate {{ rspamd_learning_logrotate_weeks | default('4') }}
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0644 _rspamd _rspamd
+}

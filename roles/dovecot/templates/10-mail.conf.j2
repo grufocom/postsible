@@ -1,0 +1,71 @@
+# {{ ansible_managed }}
+# Dovecot mail configuration (Dovecot 2.4.1)
+
+mail_uid = {{ dovecot_mail_uid }}
+mail_gid = {{ dovecot_mail_gid }}
+mail_privileged_group = {{ dovecot_mail_gid }}
+
+# Maildir wird im userdb query definiert (home + Maildir)
+# Dovecot erstellt automatisch das Verzeichnis beim ersten Zugriff
+
+# Mailbox handling
+mail_fsync = {{ dovecot_mail_fsync }}
+mail_nfs_storage = {{ 'yes' if dovecot_mail_nfs_storage else 'no' }}
+mail_nfs_index = {{ 'yes' if dovecot_mail_nfs_index else 'no' }}
+
+# Performance
+mail_cache_min_mail_count = {{ dovecot_mail_cache_min_mail_count }}
+mailbox_list_index = {{ 'yes' if dovecot_mailbox_list_index else 'no' }}
+mailbox_list_index_very_dirty_syncs = {{ 'yes' if dovecot_mailbox_list_index_very_dirty_syncs else 'no' }}
+
+# Per-user connection limits
+mail_max_userip_connections = {{ dovecot_mail_max_userip_connections }}
+
+# Driver für Maildir
+mail_driver = Maildir
+
+# Debugging
+mail_debug = {{ 'yes' if dovecot_mail_debug else 'no' }}
+
+# Namespaces
+namespace inbox {
+  separator = {{ dovecot_namespace_inbox_separator }}
+  prefix = {{ dovecot_namespace_inbox_prefix }}
+  inbox = yes
+  
+  mailbox Drafts {
+    special_use = \Drafts
+    auto = subscribe
+  }
+  mailbox Sent {
+    special_use = \Sent
+    auto = subscribe
+  }
+  mailbox "Sent Messages" {
+    special_use = \Sent
+  }
+  mailbox Trash {
+    special_use = \Trash
+    auto = subscribe
+  }
+  mailbox Spam {
+    special_use = \Junk
+    auto = subscribe
+  }
+  mailbox "Junk" {
+    special_use = \Junk
+  }
+  mailbox Archive {
+    special_use = \Archive
+    auto = no
+  }
+}
+
+# First valid UID/GID
+first_valid_uid = 5000
+last_valid_uid = 5000
+first_valid_gid = 5000
+last_valid_gid = 5000
+
+# Mail plugins
+mail_plugins = quota

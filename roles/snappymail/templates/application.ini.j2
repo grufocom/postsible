@@ -1,0 +1,133 @@
+; {{ ansible_managed }}
+; SnappyMail Application Configuration
+
+[webmail]
+title = "{{ snappymail_title }}"
+loading_description = "{{ snappymail_loading_description }}"
+theme = "Default"
+
+[interface]
+show_attachment_thumbnail = On
+
+[branding]
+login_logo = ""
+login_background = ""
+login_desc = ""
+login_css = ""
+login_powered = On
+user_css = ""
+user_logo = ""
+user_logo_title = ""
+user_logo_message = ""
+welcome_page_url = ""
+welcome_page_display = "none"
+
+[contacts]
+enable = {{ 'On' if snappymail_enable_contacts else 'Off' }}
+allow_sync = On
+sync_interval = 20
+type = "sqlite"
+pdodsn = ""
+pdouser = ""
+pdopassword = ""
+suggestions_limit = 30
+
+[security]
+csrf_protection = On
+openpgp = On
+use_rsa_encryption = On
+admin_panel_host = ""
+admin_panel_key = ""
+core_install_access_domain = ""
+allow_admin_panel = {{ 'On' if snappymail_allow_admin_panel else 'Off' }}
+hide_x_mailer_header = Off
+
+[ssl]
+verify_certificate = On
+allow_self_signed = Off
+cafile = ""
+capath = ""
+
+[capa]
+additional_accounts = On
+identities = On
+templates = On
+themes = On
+user_background = Off
+sieve = {{ 'On' if snappymail_enable_sieve else 'Off' }}
+filters = On
+tutorials = On
+auto_logout = On
+
+[login]
+default_domain = "{{ snappymail_default_domain }}"
+allow_languages_on_login = On
+determine_user_language = On
+determine_user_domain = Off
+welcome_page = Off
+forgot_password_link_url = ""
+registration_link_url = ""
+
+[logs]
+enable = {{ 'On' if snappymail_enable_logging else 'Off' }}
+write_on_error_only = Off
+write_on_php_error_only = Off
+write_on_timeout_only = Off
+time_offset = 0
+session_filter = ""
+auth_logging = Off
+auth_logging_filename = "auth"
+
+[debug]
+enable = Off
+
+[cache]
+enable = On
+index = ""
+fast_cache_driver = "files"
+memory_limit = 50
+server_uids = On
+
+[labs]
+ignore_folders_subscription = Off
+check_new_password_strength = Off
+update_channel = "stable"
+allow_gravatar = On
+allow_prefetch = On
+allow_smart_html_links = On
+cache_system_data = On
+date_from_headers = Off
+autocreate_system_folders = On
+allow_message_append = Off
+disable_iconv = Off
+login_fault_delay = 1
+log_ajax_response_write_limit = 300
+allow_html_editor_source_button = Off
+allow_html_editor_biti_buttons = Off
+allow_ctrl_enter_on_compose = On
+try_to_detect_hidden_images = Off
+hide_dangerous_actions = Off
+use_app_debug_js = Off
+use_app_debug_css = Off
+use_imap_sort = On
+use_imap_force_selection = Off
+use_imap_list_subscribe = On
+use_imap_thread = On
+imap_forwarded_flag = "$Forwarded"
+imap_read_receipt_flag = "$ReadReceipt"
+imap_body_text_limit = 555000
+imap_message_list_fast_simple_search = On
+imap_message_list_count_limit = 0
+imap_message_list_date_filter = 0
+imap_message_list_permanent_filter = ""
+imap_message_all_headers = Off
+imap_large_thread_limit = 50
+imap_folder_list_limit = 200
+imap_show_login_alert = On
+smtp_show_server_errors = Off
+smtp_use_auth = {{ 'On' if snappymail_smtp_auth else 'Off' }}
+sieve_allow_raw_script = Off
+sieve_utf8_folder_name = On
+mail_func_clear_headers = On
+mail_use_parse_mime = On
+kolab_enable = Off

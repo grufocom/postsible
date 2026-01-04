@@ -1,0 +1,32 @@
+---
+# Nginx handlers
+
+- name: restart nginx
+  systemd:
+    name: nginx
+    state: restarted
+  become: yes
+
+- name: reload nginx
+  systemd:
+    name: nginx
+    state: reloaded
+  become: yes
+
+- name: nginx configtest
+  command: nginx -t
+  changed_when: false
+
+- name: restart php-fpm
+  systemd:
+    name: "php{{ nginx_php_version }}-fpm"
+    state: restarted
+  become: yes
+  when: nginx_php_fpm_enabled
+
+- name: reload php-fpm
+  systemd:
+    name: "php{{ nginx_php_version }}-fpm"
+    state: reloaded
+  become: yes
+  when: nginx_php_fpm_enabled

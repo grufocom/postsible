@@ -1,0 +1,397 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# Database management script for Postsible
+
+set -e
+
+DB_NAME="{{ mariadb_database }}"
+DB_USER="root"
+DB_PASS="{{ mariadb_root_password }}"
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+mysql_cmd() {
+    mysql -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" -sN -e "$1"
+}
+
+show_help() {
+    echo "Postsible Database Management Tool"
+    echo ""
+    echo "Usage: $(basename $0) [COMMAND] [OPTIONS]"
+    echo ""
+    echo "Commands:"
+    echo "  list-domains              List all virtual domains"
+    echo "  add-domain DOMAIN         Add a virtual domain"
+    echo "  remove-domain DOMAIN      Remove a virtual domain"
+    echo ""
+    echo "  list-users [DOMAIN]       List all users (or users of a domain)"
+    echo "  add-user EMAIL            Add a virtual user (creates Maildir)"
+    echo "  remove-user EMAIL         Remove a virtual user"
+    echo "  change-password EMAIL     Change user password"
+    echo "  enable-user EMAIL         Enable a user"
+    echo "  disable-user EMAIL        Disable a user"
+    echo "  create-maildir EMAIL      Create/fix Maildir structure for user"
+    echo ""
+    echo "  list-aliases [DOMAIN]     List all aliases (or aliases of a domain)"
+    echo "  add-alias SOURCE DEST     Add an alias"
+    echo "  remove-alias SOURCE       Remove an alias"
+    echo ""
+    echo "  stats                     Show database statistics"
+    echo "  check                     Check database integrity"
+    echo "  help                      Show this help message"
+    echo ""
+}
+
+list_domains() {
+    echo -e "${BLUE}=== Virtual Domains ===${NC}"
+    mysql_cmd "SELECT id, name, created_at FROM virtual_domains ORDER BY name;" | while IFS=$'\t' read -r id name created; do
+        echo "[$id] $name (created: $created)"
+    done
+}
+
+add_domain() {
+    local domain=$1
+    if [[ -z "$domain" ]]; then
+        echo -e "${RED}Error: Domain name required${NC}"
+        exit 1
+    fi
+    
+    echo -e "${YELLOW}Adding domain: $domain${NC}"
+    mysql_cmd "INSERT INTO virtual_domains (name) VALUES ('$domain');" 2>/dev/null || {
+        echo -e "${RED}Error: Domain already exists or invalid${NC}"
+        exit 1
+    }
+    echo -e "${GREEN}Domain added successfully!${NC}"
+}
+
+remove_domain() {
+    local domain=$1
+    if [[ -z "$domain" ]]; then
+        echo -e "${RED}Error: Domain name required${NC}"
+        exit 1
+    fi
+    
+    echo -e "${RED}WARNING: This will delete all users and aliases for $domain!${NC}"
+    echo -e "${YELLOW}Are you sure? (yes/no):${NC}"
+    read -r confirm
+    if [[ "$confirm" != "yes" ]]; then
+        echo "Cancelled."
+        exit 0
+    fi
+    
+    mysql_cmd "DELETE FROM virtual_domains WHERE name='$domain';"
+    echo -e "${GREEN}Domain removed!${NC}"
+}
+
+list_users() {
+    local domain=$1
+    echo -e "${BLUE}=== Virtual Users ===${NC}"
+    
+    if [[ -z "$domain" ]]; then
+        mysql_cmd "SELECT u.id, u.email, d.name, u.quota, u.enabled, u.created_at FROM virtual_users u JOIN virtual_domains d ON u.domain_id=d.id ORDER BY u.email;" | while IFS=$'\t' read -r id email domain quota enabled created; do
+            status=$([ "$enabled" = "1" ] && echo "enabled" || echo "disabled")
+            echo "[$id] $email (domain: $domain, quota: $quota, status: $status, created: $created)"
+        done
+    else
+        mysql_cmd "SELECT u.id, u.email, u.quota, u.enabled FROM virtual_users u JOIN virtual_domains d ON u.domain_id=d.id WHERE d.name='$domain' ORDER BY u.email;" | while IFS=$'\t' read -r id email quota enabled; do
+            status=$([ "$enabled" = "1" ] && echo "enabled" || echo "disabled")
+            echo "[$id] $email (quota: $quota, status: $status)"
+        done
+    fi
+}
+
+add_user() {
+    local email=$1
+    if [[ -z "$email" ]]; then
+        echo -e "${RED}Error: Email address required${NC}"
+        exit 1
+    fi
+    
+    # Extract domain
+    local domain="${email#*@}"
+    
+    # Check if domain exists
+    local domain_id=$(mysql_cmd "SELECT id FROM virtual_domains WHERE name='$domain';")
+    if [[ -z "$domain_id" ]]; then
+        echo -e "${RED}Error: Domain $domain does not exist. Add it first with: add-domain $domain${NC}"
+        exit 1
+    fi
+    
+    # Generate password
+    echo -e "${YELLOW}Enter password for $email:${NC}"
+    read -s password
+    echo ""
+    echo -e "${YELLOW}Confirm password:${NC}"
+    read -s password_confirm
+    echo ""
+    
+    if [[ "$password" != "$password_confirm" ]]; then
+        echo -e "${RED}Error: Passwords do not match${NC}"
+        exit 1
+    fi
+    
+    # Hash password with doveadm
+    if ! command -v doveadm &> /dev/null; then
+        echo -e "${RED}Error: doveadm not found. Install Dovecot first.${NC}"
+        echo -e "${YELLOW}Using SHA512-CRYPT instead...${NC}"
+        hashed_password=$(mkpasswd -m sha-512 "$password")
+    else
+        hashed_password=$(doveadm pw -s SHA512-CRYPT -p "$password")
+    fi
+    
+    # Insert user
+    mysql_cmd "INSERT INTO virtual_users (domain_id, email, password) VALUES ('$domain_id', '$email', '$hashed_password');" 2>/dev/null || {
+        echo -e "${RED}Error: User already exists or invalid${NC}"
+        exit 1
+    }
+    
+    echo -e "${GREEN}User $email created successfully!${NC}"
+}
+
+change_password() {
+    local email=$1
+    if [[ -z "$email" ]]; then
+        echo -e "${RED}Error: Email address required${NC}"
+        exit 1
+    fi
+    
+    echo -e "${YELLOW}Enter new password for $email:${NC}"
+    read -s password
+    echo ""
+    echo -e "${YELLOW}Confirm password:${NC}"
+    read -s password_confirm
+    echo ""
+    
+    if [[ "$password" != "$password_confirm" ]]; then
+        echo -e "${RED}Error: Passwords do not match${NC}"
+        exit 1
+    fi
+    
+    # Hash password
+    if command -v doveadm &> /dev/null; then
+        hashed_password=$(doveadm pw -s SHA512-CRYPT -p "$password")
+    else
+        hashed_password=$(mkpasswd -m sha-512 "$password")
+    fi
+    
+    mysql_cmd "UPDATE virtual_users SET password='$hashed_password' WHERE email='$email';"
+    echo -e "${GREEN}Password changed successfully!${NC}"
+}
+
+remove_user() {
+    local email=$1
+    if [[ -z "$email" ]]; then
+        echo -e "${RED}Error: Email address required${NC}"
+        exit 1
+    fi
+    
+    echo -e "${RED}WARNING: This will delete the user and all their emails!${NC}"
+    echo -e "${YELLOW}Are you sure? (yes/no):${NC}"
+    read -r confirm
+    if [[ "$confirm" != "yes" ]]; then
+        echo "Cancelled."
+        exit 0
+    fi
+    
+    mysql_cmd "DELETE FROM virtual_users WHERE email='$email';"
+    echo -e "${GREEN}User removed!${NC}"
+}
+
+list_aliases() {
+    local domain=$1
+    echo -e "${BLUE}=== Virtual Aliases ===${NC}"
+    
+    if [[ -z "$domain" ]]; then
+        mysql_cmd "SELECT a.id, a.source, a.destination, d.name FROM virtual_aliases a JOIN virtual_domains d ON a.domain_id=d.id ORDER BY a.source;" | while IFS=$'\t' read -r id source dest domain; do
+            echo "[$id] $source → $dest (domain: $domain)"
+        done
+    else
+        mysql_cmd "SELECT a.id, a.source, a.destination FROM virtual_aliases a JOIN virtual_domains d ON a.domain_id=d.id WHERE d.name='$domain' ORDER BY a.source;" | while IFS=$'\t' read -r id source dest; do
+            echo "[$id] $source → $dest"
+        done
+    fi
+}
+
+add_alias() {
+    local source=$1
+    local destination=$2
+    
+    if [[ -z "$source" ]] || [[ -z "$destination" ]]; then
+        echo -e "${RED}Error: Source and destination required${NC}"
+        echo "Usage: add-alias source@domain.com destination@domain.com"
+        exit 1
+    fi
+    
+    # Extract domain
+    local domain="${source#*@}"
+    
+    # Check if domain exists
+    local domain_id=$(mysql_cmd "SELECT id FROM virtual_domains WHERE name='$domain';")
+    if [[ -z "$domain_id" ]]; then
+        echo -e "${RED}Error: Domain $domain does not exist${NC}"
+        exit 1
+    fi
+    
+    mysql_cmd "INSERT INTO virtual_aliases (domain_id, source, destination) VALUES ('$domain_id', '$source', '$destination');" 2>/dev/null || {
+        echo -e "${RED}Error: Alias already exists or invalid${NC}"
+        exit 1
+    }
+    
+    echo -e "${GREEN}Alias created: $source → $destination${NC}"
+}
+
+remove_alias() {
+    local source=$1
+    if [[ -z "$source" ]]; then
+        echo -e "${RED}Error: Source address required${NC}"
+        exit 1
+    fi
+    
+    mysql_cmd "DELETE FROM virtual_aliases WHERE source='$source';"
+    echo -e "${GREEN}Alias removed!${NC}"
+}
+
+show_stats() {
+    echo -e "${BLUE}=== Database Statistics ===${NC}"
+    
+    local domain_count=$(mysql_cmd "SELECT COUNT(*) FROM virtual_domains;")
+    local user_count=$(mysql_cmd "SELECT COUNT(*) FROM virtual_users;")
+    local alias_count=$(mysql_cmd "SELECT COUNT(*) FROM virtual_aliases;")
+    local enabled_users=$(mysql_cmd "SELECT COUNT(*) FROM virtual_users WHERE enabled=1;")
+    
+    echo "Domains: $domain_count"
+    echo "Users: $user_count (enabled: $enabled_users)"
+    echo "Aliases: $alias_count"
+    echo ""
+    
+    echo -e "${BLUE}=== Users per Domain ===${NC}"
+    mysql_cmd "SELECT d.name, COUNT(u.id) FROM virtual_domains d LEFT JOIN virtual_users u ON d.id=u.domain_id GROUP BY d.name;" | while IFS=$'\t' read -r domain count; do
+        echo "$domain: $count users"
+    done
+}
+
+check_database() {
+    echo -e "${BLUE}=== Database Integrity Check ===${NC}"
+    
+    # Check for orphaned records
+    local orphaned=$(mysql_cmd "SELECT COUNT(*) FROM virtual_users WHERE domain_id NOT IN (SELECT id FROM virtual_domains);")
+    if [[ "$orphaned" -gt 0 ]]; then
+        echo -e "${RED}WARNING: $orphaned orphaned user records found!${NC}"
+    else
+        echo -e "${GREEN}No orphaned user records${NC}"
+    fi
+    
+    # Check for duplicate emails
+    local duplicates=$(mysql_cmd "SELECT COUNT(*) FROM (SELECT email FROM virtual_users GROUP BY email HAVING COUNT(*) > 1) AS dups;")
+    if [[ "$duplicates" -gt 0 ]]; then
+        echo -e "${RED}WARNING: $duplicates duplicate email addresses found!${NC}"
+    else
+        echo -e "${GREEN}No duplicate emails${NC}"
+    fi
+    
+    echo -e "${GREEN}Database check completed${NC}"
+}
+
+create_maildir() {
+    local email=$1
+    if [[ -z "$email" ]]; then
+        echo -e "${RED}Error: Email address required${NC}"
+        exit 1
+    fi
+    
+    # Extract domain and username
+    local domain="${email#*@}"
+    local username="${email%%@*}"
+    
+    # Check if user exists
+    local user_exists=$(mysql_cmd "SELECT COUNT(*) FROM virtual_users WHERE email='$email';")
+    if [[ "$user_exists" -eq 0 ]]; then
+        echo -e "${RED}Error: User $email does not exist in database${NC}"
+        exit 1
+    fi
+    
+    echo -e "${YELLOW}Creating/fixing Maildir structure for $email...${NC}"
+    local maildir_path="/srv/imap/$domain/$username"
+    
+    # Create base directories
+    mkdir -p "$maildir_path"/{Maildir/{cur,new,tmp},Maildir/.Drafts/{cur,new,tmp},Maildir/.Sent/{cur,new,tmp},Maildir/.Trash/{cur,new,tmp},Maildir/.Spam/{cur,new,tmp}}
+    
+    # Set permissions
+    chown -R vmail:vmail "$maildir_path"
+    chmod -R 0700 "$maildir_path"
+    
+    # Create subscriptions file
+    cat > "$maildir_path/Maildir/subscriptions" << EOF
+INBOX
+Drafts
+Sent
+Trash
+Spam
+EOF
+    chown vmail:vmail "$maildir_path/Maildir/subscriptions"
+    
+    echo -e "${GREEN}Maildir structure created/fixed: $maildir_path${NC}"
+}
+
+# Main command dispatcher
+case "${1:-}" in
+    list-domains)
+        list_domains
+        ;;
+    add-domain)
+        add_domain "$2"
+        ;;
+    remove-domain)
+        remove_domain "$2"
+        ;;
+    list-users)
+        list_users "$2"
+        ;;
+    add-user)
+        add_user "$2"
+        ;;
+    remove-user)
+        remove_user "$2"
+        ;;
+    change-password)
+        change_password "$2"
+        ;;
+    enable-user)
+        mysql_cmd "UPDATE virtual_users SET enabled=1 WHERE email='$2';"
+        echo -e "${GREEN}User enabled${NC}"
+        ;;
+    disable-user)
+        mysql_cmd "UPDATE virtual_users SET enabled=0 WHERE email='$2';"
+        echo -e "${YELLOW}User disabled${NC}"
+        ;;
+    list-aliases)
+        list_aliases "$2"
+        ;;
+    add-alias)
+        add_alias "$2" "$3"
+        ;;
+    remove-alias)
+        remove_alias "$2"
+        ;;
+    stats)
+        show_stats
+        ;;
+    check)
+        check_database
+        ;;
+    create-maildir)
+        create_maildir "$2"
+        ;;
+    help|--help|-h)
+        show_help
+        ;;
+    *)
+        show_help
+        exit 1
+        ;;
+esac

@@ -1,0 +1,83 @@
+# Rspamd ratelimit module configuration
+# Managed by Ansible - DO NOT EDIT MANUALLY
+
+# Rate limits per time period
+# Format: [burst, rate]
+
+# Authenticated users (per SASL login)
+user = {
+  bucket = [
+    {
+      burst = {{ rspamd_ratelimit_user_burst | default('100') }};
+      rate = "{{ rspamd_ratelimit_user_rate | default('10 / 1m') }}";
+    }
+  ];
+}
+
+# Per recipient address
+to = {
+  bucket = [
+    {
+      burst = {{ rspamd_ratelimit_to_burst | default('20') }};
+      rate = "{{ rspamd_ratelimit_to_rate | default('5 / 1m') }}";
+    }
+  ];
+}
+
+# Per sender address
+from = {
+  bucket = [
+    {
+      burst = {{ rspamd_ratelimit_from_burst | default('20') }};
+      rate = "{{ rspamd_ratelimit_from_rate | default('5 / 1m') }}";
+    }
+  ];
+}
+
+# Per IP address (for unauthenticated)
+ip = {
+  bucket = [
+    {
+      burst = {{ rspamd_ratelimit_ip_burst | default('10') }};
+      rate = "{{ rspamd_ratelimit_ip_rate | default('2 / 1m') }}";
+    }
+  ];
+}
+
+# Bounce messages (special handling)
+bounce_to = {
+  bucket = [
+    {
+      burst = {{ rspamd_ratelimit_bounce_burst | default('10') }};
+      rate = "{{ rspamd_ratelimit_bounce_rate | default('2 / 5m') }}";
+    }
+  ];
+}
+
+{% if rspamd_ratelimit_whitelist_ip is defined and rspamd_ratelimit_whitelist_ip | length > 0 %}
+# Whitelisted IPs (no rate limiting)
+# WICHTIG: Muss ein Array sein, nicht ein String!
+whitelisted_ip = [
+  {% for ip in rspamd_ratelimit_whitelist_ip %}
+  "{{ ip }}"{{ "," if not loop.last else "" }}
+  {% endfor %}
+];
+{% endif %}
+
+{% if rspamd_ratelimit_whitelist_rcpts is defined and rspamd_ratelimit_whitelist_rcpts | length > 0 %}
+# Whitelisted recipients
+whitelisted_rcpts = [
+  {% for rcpt in rspamd_ratelimit_whitelist_rcpts %}
+  "{{ rcpt }}"{{ "," if not loop.last else "" }}
+  {% endfor %}
+];
+{% endif %}
+
+# Use Redis backend
+backend = "redis";
+
+# Info symbol weight (for soft reject)
+symbol = "RATELIMIT";
+
+# Message for rate-limited emails
+message = "{{ rspamd_ratelimit_message | default('Ratelimited, try again later') }}";

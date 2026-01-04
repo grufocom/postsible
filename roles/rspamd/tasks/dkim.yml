@@ -1,0 +1,117 @@
+---
+# roles/rspamd/tasks/dkim.yml
+
+# DKIM Key Generation and Configuration
+- name: Ensure DKIM directory exists with correct permissions
+  file:
+    path: /var/lib/rspamd/dkim
+    state: directory
+    owner: _rspamd
+    group: _rspamd
+    mode: '0750'
+
+- name: Check if DKIM keys exist for domains
+  stat:
+    path: "/var/lib/rspamd/dkim/{{ item }}.key"
+  register: dkim_key_check
+  loop: "{{ mail_virtual_domains }}"
+
+- name: Generate DKIM keys for domains
+  shell: |
+    rspamadm dkim_keygen -s 'dkim' -b 2048 -d {{ item.item }} \
+      -k /var/lib/rspamd/dkim/{{ item.item }}.key \
+      > /var/lib/rspamd/dkim/{{ item.item }}.txt
+  loop: "{{ dkim_key_check.results }}"
+  when: not item.stat.exists
+  args:
+    creates: "/var/lib/rspamd/dkim/{{ item.item }}.key"
+
+- name: Set correct permissions on DKIM private keys
+  file:
+    path: "/var/lib/rspamd/dkim/{{ item }}.key"
+    owner: _rspamd
+    group: _rspamd
+    mode: '0400'
+  loop: "{{ mail_virtual_domains }}"
+
+- name: Set correct permissions on DKIM public keys
+  file:
+    path: "/var/lib/rspamd/dkim/{{ item }}.txt"
+    owner: _rspamd
+    group: _rspamd
+    mode: '0644'
+  loop: "{{ mail_virtual_domains }}"
+
+- name: Configure DKIM signing
+  template:
+    src: dkim_signing.conf.j2
+    dest: /etc/rspamd/local.d/dkim_signing.conf
+    owner: _rspamd
+    group: _rspamd
+    mode: '0644'
+  notify: restart rspamd
+
+- name: Configure ARC signing
+  template:
+    src: arc.conf.j2
+    dest: /etc/rspamd/local.d/arc.conf
+    owner: _rspamd
+    group: _rspamd
+    mode: '0644'
+  notify: restart rspamd
+
+- name: Read DKIM public keys for DNS
+  slurp:
+    src: "/var/lib/rspamd/dkim/{{ item }}.txt"
+  register: dkim_public_keys
+  loop: "{{ mail_virtual_domains }}"
+
+- name: Display DKIM DNS records
+  debug:
+    msg: |
+      ========================================
+      DKIM DNS Records for {{ item.item }}
+      ========================================
+      {{ item.content | b64decode }}
+      
+      Add this as TXT record to your DNS:
+      Record Name: dkim._domainkey.{{ item.item }}
+      Record Type: TXT
+      ========================================
+  loop: "{{ dkim_public_keys.results }}"
+  when: dkim_public_keys.results | length > 0
+
+- name: Create DKIM DNS records info file
+  copy:
+    content: |
+      # DKIM DNS Records for Postsible Mailserver
+      # Generated: {{ ansible_date_time.iso8601 }}
+      
+      {% for result in dkim_public_keys.results %}
+      ## Domain: {{ result.item }}
+      {{ result.content | b64decode }}
+      
+      {% endfor %}
+    dest: /root/dkim-dns-records.txt
+    owner: root
+    group: root
+    mode: '0600'
+
+- name: Print DKIM setup reminder
+  debug:
+    msg: |
+      ========================================
+      IMPORTANT: DKIM Setup Required!
+      ========================================
+      
+      1. DKIM keys have been generated in /var/lib/rspamd/dkim/
+      2. DNS records saved to /root/dkim-dns-records.txt
+      3. Add the TXT records to your DNS zone
+      4. Wait for DNS propagation (can take up to 24h)
+      5. Test DKIM with: rspamadm dkim_keygen -t dkim -d {{ mail_primary_domain }}
+      
+      You can also test online at:
+      - https://mxtoolbox.com/dkim.aspx
+      - https://www.mail-tester.com/
+      
+      ========================================

@@ -1,0 +1,49 @@
+# {{ ansible_managed }}
+# Dovecot performance tuning for 250-1000 users
+
+# Global process limits
+default_process_limit = {{ dovecot_default_process_limit }}
+default_client_limit = {{ dovecot_default_client_limit }}
+
+# IMAP specific
+protocol imap {
+  mail_max_userip_connections = {{ dovecot_mail_max_userip_connections }}
+  imap_idle_notify_interval = {{ dovecot_imap_idle_notify_interval }}
+  imap_capability = +SPECIAL-USE
+  mail_plugins = quota imap_quota imap_sieve
+}
+
+# POP3 specific
+protocol pop3 {
+  pop3_uidl_format = %{uidvalency}.%{uid}
+  pop3_client_workarounds = outlook-no-nuls oe-ns-eoh
+}
+
+# LMTP specific - WICHTIG: auth_username_format LEER lassen!
+protocol lmtp {
+  postmaster_address = postmaster@{{ mail_primary_domain }}
+  
+  # KRITISCH: Standard 20-lmtp.conf hat auth_username_format gesetzt
+  # Das MUSS leer sein damit die komplette Email-Adresse verwendet wird
+  auth_username_format =
+  
+  mail_plugins {
+    quota = yes
+    sieve = yes
+  }
+  lmtp_save_to_detail_mailbox = {{ 'yes' if dovecot_lmtp_save_to_detail_mailbox else 'no' }}
+}
+
+# LDA
+protocol lda {
+  mail_plugins {
+    sieve = yes
+  }
+}
+
+# ManageSieve
+protocol sieve {
+  managesieve_max_line_length = 65536
+  managesieve_implementation_string = Dovecot Pigeonhole
+  managesieve_max_compile_errors = 5
+}

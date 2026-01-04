@@ -1,0 +1,84 @@
+---
+# Postfix Configuration for Postsible Mailserver
+
+# Basic settings (from inventory)
+postfix_myhostname: "{{ common_hostname }}"
+postfix_mydomain: "{{ mail_primary_domain }}"
+postfix_myorigin: "$mydomain"
+
+# Network settings
+postfix_inet_interfaces: "all"
+postfix_inet_protocols: "ipv4"
+
+# Mail processing
+postfix_message_size_limit: 52428800
+postfix_mailbox_size_limit: 0
+
+# Virtual mail settings
+postfix_virtual_uid: 5000
+postfix_virtual_gid: 5000
+postfix_virtual_mailbox_base: "/srv/imap"
+postfix_virtual_mailbox_format: "maildir:/srv/imap/%d/%n/"
+
+# TLS settings
+postfix_tls_cert_file: "/etc/ssl/certs/ssl-cert-snakeoil.pem"
+postfix_tls_key_file: "/etc/ssl/private/ssl-cert-snakeoil.key"
+postfix_smtp_tls_security_level: "may"
+postfix_smtpd_tls_security_level: "may"
+postfix_smtpd_tls_auth_only: yes
+
+# TLS ciphers
+postfix_tls_protocols: "!SSLv2, !SSLv3, !TLSv1, !TLSv1.1"
+postfix_tls_ciphers: "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256"
+
+# SASL authentication
+postfix_smtpd_sasl_type: "dovecot"
+postfix_smtpd_sasl_path: "private/auth"
+postfix_smtpd_sasl_auth_enable: yes
+
+# Restrictions
+postfix_smtpd_relay_restrictions:
+  - permit_mynetworks
+  - permit_sasl_authenticated
+  - defer_unauth_destination
+
+postfix_smtpd_recipient_restrictions:
+  - permit_mynetworks
+  - permit_sasl_authenticated
+  - reject_non_fqdn_recipient
+  - reject_unknown_recipient_domain
+  - reject_unauth_destination
+  - check_policy_service unix:private/policyd-spf
+
+postfix_smtpd_sender_restrictions:
+  - permit_mynetworks
+  - permit_sasl_authenticated
+  - reject_non_fqdn_sender
+  - reject_unknown_sender_domain
+
+postfix_smtpd_helo_restrictions:
+  - permit_mynetworks
+  - permit_sasl_authenticated
+  - reject_invalid_helo_hostname
+  - reject_non_fqdn_helo_hostname
+
+# Milter Configuration (Rspamd)
+postfix_milter_default_action: "accept"
+postfix_milter_protocol: 6
+postfix_smtpd_milters: "inet:127.0.0.1:11332"
+postfix_non_smtpd_milters: "inet:127.0.0.1:11332"
+
+# Performance
+postfix_smtpd_client_connection_rate_limit: 100
+postfix_smtpd_client_message_rate_limit: 100
+postfix_maximal_queue_lifetime: "5d"
+postfix_bounce_queue_lifetime: "5d"
+
+# Logging
+postfix_smtpd_tls_loglevel: 1
+postfix_smtp_tls_loglevel: 1
+
+# Misc
+postfix_disable_vrfy_command: yes
+postfix_smtpd_helo_required: yes
+postfix_strict_rfc821_envelopes: yes

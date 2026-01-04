@@ -1,0 +1,16 @@
+# {{ ansible_managed }}
+# Postsible Mail Server Log Rotation
+
+/var/log/mail/*.log {
+    daily
+    rotate {{ common_logrotate_rotate }}
+    size {{ common_logrotate_size }}
+    missingok
+    notifempty
+    compress
+    delaycompress
+    sharedscripts
+    postrotate
+        systemctl reload rsyslog > /dev/null 2>&1 || true
+    endscript
+}

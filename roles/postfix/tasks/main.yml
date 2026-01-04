@@ -1,0 +1,196 @@
+# roles/postfix/tasks/main.yml
+---
+- name: Install Postfix and related packages
+  apt:
+    name:
+      - postfix
+      - postfix-mysql
+      - postfix-policyd-spf-python
+      - libsasl2-modules
+      - sasl2-bin
+    state: present
+    update_cache: yes
+  tags: postfix
+
+- name: Stop Postfix during configuration
+  systemd:
+    name: postfix
+    state: stopped
+  tags: postfix
+
+- name: Create Postfix virtual user and group
+  group:
+    name: vmail
+    gid: 5000
+    state: present
+  tags: postfix
+
+- name: Create Postfix virtual user
+  user:
+    name: vmail
+    uid: 5000
+    group: vmail
+    home: /srv/imap
+    shell: /usr/sbin/nologin
+    comment: "Virtual Mail User"
+    system: yes
+    state: present
+  tags: postfix
+
+- name: Ensure mail directories exist with correct permissions
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: vmail
+    group: vmail
+    mode: '0770'
+  loop:
+    - /srv/imap
+    - /var/log/mail
+  tags: postfix
+
+# SSL Certificate Detection - runs before main.cf configuration
+- name: Detect and select SSL certificates
+  include_tasks: ssl-detection.yml
+  tags:
+    - postfix
+    - postfix-ssl
+
+- name: Configure Postfix main.cf
+  template:
+    src: main.cf.j2
+    dest: /etc/postfix/main.cf
+    mode: '0644'
+    backup: yes
+  notify: reload postfix
+  tags: postfix
+
+- name: Configure Postfix master.cf
+  template:
+    src: master.cf.j2
+    dest: /etc/postfix/master.cf
+    mode: '0644'
+    backup: yes
+  tags: postfix
+
+- name: Create MySQL query files directory
+  file:
+    path: /etc/postfix/mysql
+    state: directory
+    mode: '0755'
+  tags: postfix
+
+- name: Configure MySQL virtual domains query
+  template:
+    src: mysql-virtual-mailbox-domains.cf.j2
+    dest: /etc/postfix/mysql/virtual-mailbox-domains.cf
+    mode: '0640'
+    group: postfix
+  tags: postfix
+
+- name: Configure MySQL virtual mailboxes query
+  template:
+    src: mysql-virtual-mailbox-maps.cf.j2
+    dest: /etc/postfix/mysql/virtual-mailbox-maps.cf
+    mode: '0640'
+    group: postfix
+  tags: postfix
+
+- name: Configure MySQL virtual aliases query
+  template:
+    src: mysql-virtual-alias-maps.cf.j2
+    dest: /etc/postfix/mysql/virtual-alias-maps.cf
+    mode: '0640'
+    group: postfix
+  tags: postfix
+
+- name: Configure MySQL email2email query (for aliases)
+  template:
+    src: mysql-email2email.cf.j2
+    dest: /etc/postfix/mysql/email2email.cf
+    mode: '0640'
+    group: postfix
+  tags: postfix
+
+- name: Create header_checks file
+  copy:
+    dest: /etc/postfix/header_checks
+    content: |
+      # Remove sensitive headers
+      /^Received:/            IGNORE
+      /^X-Originating-IP:/    IGNORE
+      /^X-Mailer:/            IGNORE
+      /^User-Agent:/          IGNORE
+    mode: '0644'
+  tags: postfix
+
+- name: Create Postfix aliases
+  lineinfile:
+    path: /etc/aliases
+    regexp: "^{{ item.alias }}:"
+    line: "{{ item.alias }}: {{ item.destination }}"
+    state: present
+  loop:
+    - { alias: 'postmaster', destination: 'root' }
+    - { alias: 'abuse', destination: 'root' }
+    - { alias: 'root', destination: '{{ mail_admin_email }}' }
+  tags: postfix
+
+- name: Update aliases database
+  command: newaliases
+  changed_when: false
+  tags: postfix
+
+- name: Test Postfix configuration
+  command: postfix check
+  changed_when: false
+  register: postfix_check
+  failed_when: postfix_check.rc != 0 and postfix_check.rc != 1
+  tags: postfix
+
+- name: Create Postfix monitoring script
+  template:
+    src: postfix-monitor.sh.j2
+    dest: /usr/local/bin/postfix-monitor
+    mode: '0755'
+  tags: postfix
+
+- name: Create mail queue management script
+  template:
+    src: postfix-queue.sh.j2
+    dest: /usr/local/bin/postfix-queue
+    mode: '0755'
+  tags: postfix
+
+- name: Enable and start Postfix
+  systemd:
+    name: postfix
+    enabled: yes
+    state: started
+  tags: postfix
+
+- name: Display Postfix information
+  debug:
+    msg:
+      - "Postfix Configuration Complete!"
+      - "=========================================="
+      - "SSL Certificate: {{ postfix_ssl_source | default('Not detected yet') }}"
+      - "Certificate file: {{ postfix_tls_cert_file }}"
+      - "=========================================="
+      - "SMTP Port 25: Incoming mail from other servers"
+      - "Submission Port 587: Client mail submission (STARTTLS)"
+      - "SMTPS Port 465: Client mail submission (SSL/TLS)"
+      - ""
+      - "Virtual mail location: /srv/imap/%d/%n/"
+      - "Virtual mail user: vmail (uid: 5000)"
+      - ""
+      - "Milter Integration:"
+      - "  Rspamd: {{ postfix_smtpd_milters }}"
+      - "  DKIM Signing: Enabled for outbound mail"
+      - ""
+      - "Management commands:"
+      - "  postfix-monitor    - Show Postfix status"
+      - "  postfix-queue      - Manage mail queue"
+      - "  postconf -n        - Show active configuration"
+      - "  mailq              - Show mail queue"
+  tags: postfix

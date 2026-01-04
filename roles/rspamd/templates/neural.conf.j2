@@ -1,0 +1,46 @@
+# Rspamd neural network module configuration
+# Managed by Ansible - DO NOT EDIT MANUALLY
+
+# Enable neural network learning
+enabled = true;
+
+# Redis backend for neural data
+backend = "redis";
+
+# Training settings
+train {
+  # Maximum number of trains per day
+  max_trains = 1000;
+  
+  # Maximum epoch for training
+  max_epoch = 1000;
+  
+  # Learning rate
+  learning_rate = 0.01;
+  
+  # Minimum number of samples before training
+  spam_score = {{ rspamd_neural_spam_score | default('8.0') }};
+  ham_score = {{ rspamd_neural_ham_score | default('-2.0') }};
+}
+
+# Network architecture
+hidden_layer_multiplier = 1.5;
+
+# Auto-learn from Bayes results
+learn_from_bayes = true;
+
+# ANN settings
+ann_expire = 2592000; # 30 days
+
+# Minimum learns before activation
+min_learns = {{ rspamd_neural_min_learns | default('1000') }};
+
+# Max samples for training
+max_trains = 10000;
+
+# Timeout
+timeout = 60s;
+
+# Symbol names
+symbol_spam = "NEURAL_SPAM";
+symbol_ham = "NEURAL_HAM";

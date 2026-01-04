@@ -1,0 +1,52 @@
+---
+# roles/rspamd/tasks/main.yml
+
+- name: Include installation tasks
+  include_tasks: install.yml
+  tags:
+    - rspamd
+    - rspamd-install
+
+- name: Include Redis configuration
+  include_tasks: redis.yml
+  tags:
+    - rspamd
+    - rspamd-redis
+
+- name: Include basic rspamd configuration
+  include_tasks: configure.yml
+  tags:
+    - rspamd
+    - rspamd-configure
+
+- name: Include DKIM setup
+  include_tasks: dkim.yml
+  tags:
+    - rspamd
+    - rspamd-dkim
+
+- name: Include learning scripts
+  include_tasks: learning.yml
+  tags:
+    - rspamd
+    - rspamd-learning
+
+- name: Include WebUI configuration
+  include_tasks: webui.yml
+  tags:
+    - rspamd
+    - rspamd-webui
+
+- name: Start rspamd service
+  systemd:
+    name: rspamd
+    state: started
+    enabled: yes
+  tags:
+    - rspamd
+
+- name: Check Postfix integration
+  include_tasks: postfix-integration.yml
+  tags:
+    - rspamd
+    - rspamd-postfix

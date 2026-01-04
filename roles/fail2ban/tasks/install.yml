@@ -1,0 +1,40 @@
+---
+# roles/fail2ban/tasks/install.yml
+
+- name: Install fail2ban
+  apt:
+    name:
+      - fail2ban
+      - whois  # for whois lookups in logs
+    state: present
+    update_cache: yes
+
+- name: Ensure fail2ban is enabled and started
+  systemd:
+    name: fail2ban
+    enabled: yes
+    state: started
+
+- name: Create fail2ban local configuration directory
+  file:
+    path: /etc/fail2ban/jail.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Create fail2ban filter directory (if not exists)
+  file:
+    path: /etc/fail2ban/filter.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Create fail2ban action directory (if not exists)
+  file:
+    path: /etc/fail2ban/action.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'

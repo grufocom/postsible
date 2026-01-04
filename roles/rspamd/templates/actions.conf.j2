@@ -1,0 +1,20 @@
+# Rspamd actions configuration
+# Managed by Ansible - DO NOT EDIT MANUALLY
+
+# Action thresholds
+# Lower score = less strict, Higher score = more strict
+
+# Reject: Mail wird komplett abgelehnt
+reject = {{ rspamd_reject_score | default('15') }};
+
+# Add header: X-Spam: Yes wird hinzugefügt
+add_header = {{ rspamd_add_header_score | default('6') }};
+
+# Greylist: Temporäre Ablehnung (Sender muss nochmal versuchen)
+greylist = {{ rspamd_greylist_score | default('4') }};
+
+# Rewrite subject: Subject wird mit [SPAM] prefixed
+rewrite_subject = {{ rspamd_rewrite_subject_score | default('10') }};
+
+# No action: Mail wird akzeptiert
+# Alles unter add_header threshold

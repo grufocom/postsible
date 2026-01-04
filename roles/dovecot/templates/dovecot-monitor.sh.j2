@@ -1,0 +1,46 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# Dovecot monitoring script
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+echo -e "${BLUE}=== Dovecot Status ===${NC}"
+systemctl status dovecot --no-pager | head -10
+
+echo ""
+echo -e "${BLUE}=== Active Connections ===${NC}"
+doveadm who | head -20
+
+echo ""
+echo -e "${BLUE}=== Connection Statistics ===${NC}"
+echo "Total active connections:"
+doveadm who | wc -l
+
+echo ""
+echo "Connections by protocol:"
+doveadm who | awk '{print $4}' | sort | uniq -c
+
+echo ""
+echo "Top 10 users by connection count:"
+doveadm who | awk '{print $1}' | sort | uniq -c | sort -rn | head -10
+
+echo ""
+echo -e "${BLUE}=== Process Statistics ===${NC}"
+ps aux | grep dovecot | wc -l | xargs echo "Dovecot processes:"
+
+echo ""
+echo -e "${BLUE}=== Recent Log Entries ===${NC}"
+tail -20 /var/log/dovecot/dovecot.log
+
+echo ""
+echo -e "${BLUE}=== Mailbox Statistics ===${NC}"
+echo "Total mailboxes:"
+find /srv/imap -type d -name cur | wc -l
+
+echo ""
+echo "Disk usage:"
+du -sh /srv/imap/

@@ -1,0 +1,108 @@
+# roles/postfix/templates/main.cf.j2
+# {{ ansible_managed }}
+# Postfix main configuration for Postsible Mailserver
+
+# Basic settings
+myhostname = {{ postfix_myhostname }}
+mydomain = {{ postfix_mydomain }}
+myorigin = {{ postfix_myorigin }}
+mydestination = localhost
+
+# Network
+inet_interfaces = {{ postfix_inet_interfaces }}
+inet_protocols = {{ postfix_inet_protocols }}
+
+# Mail queue
+queue_directory = /var/spool/postfix
+mail_owner = postfix
+
+# Virtual mailboxes
+virtual_mailbox_domains = mysql:/etc/postfix/mysql/virtual-mailbox-domains.cf
+virtual_mailbox_maps = mysql:/etc/postfix/mysql/virtual-mailbox-maps.cf
+virtual_alias_maps = mysql:/etc/postfix/mysql/virtual-alias-maps.cf, mysql:/etc/postfix/mysql/email2email.cf
+virtual_mailbox_base = {{ postfix_virtual_mailbox_base }}
+virtual_transport = lmtp:unix:private/dovecot-lmtp
+virtual_uid_maps = static:{{ postfix_virtual_uid }}
+virtual_gid_maps = static:{{ postfix_virtual_gid }}
+
+# Size limits
+message_size_limit = {{ postfix_message_size_limit }}
+mailbox_size_limit = {{ postfix_mailbox_size_limit }}
+
+# TLS parameters for incoming connections (SMTPD)
+smtpd_tls_cert_file = {{ postfix_tls_cert_file }}
+smtpd_tls_key_file = {{ postfix_tls_key_file }}
+smtpd_tls_security_level = {{ postfix_smtpd_tls_security_level }}
+smtpd_tls_auth_only = {{ 'yes' if postfix_smtpd_tls_auth_only else 'no' }}
+smtpd_tls_protocols = {{ postfix_tls_protocols }}
+smtpd_tls_ciphers = high
+smtpd_tls_exclude_ciphers = aNULL, MD5, DES, 3DES, DES-CBC3-SHA, RC4-SHA, AES256-SHA, AES128-SHA
+smtpd_tls_received_header = yes
+smtpd_tls_session_cache_database = btree:${data_directory}/smtpd_scache
+smtpd_tls_loglevel = {{ postfix_smtpd_tls_loglevel }}
+
+# TLS parameters for outgoing connections (SMTP)
+smtp_tls_cert_file = {{ postfix_tls_cert_file }}
+smtp_tls_key_file = {{ postfix_tls_key_file }}
+smtp_tls_security_level = {{ postfix_smtp_tls_security_level }}
+smtp_tls_protocols = {{ postfix_tls_protocols }}
+smtp_tls_ciphers = high
+smtp_tls_exclude_ciphers = aNULL, MD5, DES, 3DES, DES-CBC3-SHA, RC4-SHA, AES256-SHA, AES128-SHA
+smtp_tls_session_cache_database = btree:${data_directory}/smtp_scache
+smtp_tls_loglevel = {{ postfix_smtp_tls_loglevel }}
+
+# SASL authentication (for submission)
+smtpd_sasl_type = {{ postfix_smtpd_sasl_type }}
+smtpd_sasl_path = {{ postfix_smtpd_sasl_path }}
+smtpd_sasl_auth_enable = {{ 'yes' if postfix_smtpd_sasl_auth_enable else 'no' }}
+smtpd_sasl_security_options = noanonymous
+smtpd_sasl_local_domain = $mydomain
+broken_sasl_auth_clients = yes
+
+# Restrictions
+smtpd_relay_restrictions = {{ postfix_smtpd_relay_restrictions | join(', ') }}
+smtpd_recipient_restrictions = {{ postfix_smtpd_recipient_restrictions | join(', ') }}
+smtpd_sender_restrictions = {{ postfix_smtpd_sender_restrictions | join(', ') }}
+smtpd_helo_restrictions = {{ postfix_smtpd_helo_restrictions | join(', ') }}
+
+# Milter (spam/virus filtering via Rspamd)
+milter_default_action = {{ postfix_milter_default_action }}
+milter_protocol = {{ postfix_milter_protocol }}
+
+{% if postfix_smtpd_milters %}
+# Rspamd Integration
+smtpd_milters = {{ postfix_smtpd_milters }}
+non_smtpd_milters = {{ postfix_non_smtpd_milters }}
+milter_mail_macros = i {mail_addr} {client_addr} {client_name} {auth_authen}
+{% else %}
+# Milter not configured yet (will be set by rspamd role)
+# smtpd_milters =
+# non_smtpd_milters =
+{% endif %}
+
+# Header checks
+header_checks = regexp:/etc/postfix/header_checks
+
+# Performance tuning
+smtpd_client_connection_rate_limit = {{ postfix_smtpd_client_connection_rate_limit }}
+smtpd_client_message_rate_limit = {{ postfix_smtpd_client_message_rate_limit }}
+maximal_queue_lifetime = {{ postfix_maximal_queue_lifetime }}
+bounce_queue_lifetime = {{ postfix_bounce_queue_lifetime }}
+
+# Security
+disable_vrfy_command = {{ 'yes' if postfix_disable_vrfy_command else 'no' }}
+smtpd_helo_required = {{ 'yes' if postfix_smtpd_helo_required else 'no' }}
+strict_rfc821_envelopes = {{ 'yes' if postfix_strict_rfc821_envelopes else 'no' }}
+
+# Aliases
+alias_maps = hash:/etc/aliases
+alias_database = hash:/etc/aliases
+
+# Local delivery (for system users, if needed)
+home_mailbox = Maildir/
+
+# Logging
+maillog_file = /var/log/mail/mail.log
+
+# Compatibility
+compatibility_level = 3.6

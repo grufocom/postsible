@@ -1,0 +1,16 @@
+# Logrotate configuration for rspamd
+# Managed by Ansible - DO NOT EDIT MANUALLY
+
+/var/log/rspamd/*.log {
+    daily
+    rotate {{ rspamd_logrotate_days | default('14') }}
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0644 _rspamd _rspamd
+    sharedscripts
+    postrotate
+        systemctl reload rspamd > /dev/null 2>&1 || true
+    endscript
+}

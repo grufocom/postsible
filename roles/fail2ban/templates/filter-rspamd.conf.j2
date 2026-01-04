@@ -1,0 +1,10 @@
+# Fail2ban Rspamd filter
+# Managed by Ansible - DO NOT EDIT MANUALLY
+
+[Definition]
+# Match WebUI authentication failures
+failregex = ^.*rspamd.*controller.*authentication.*failed.*from.*<HOST>
+            ^.*rspamd.*controller.*invalid.*password.*<HOST>
+            ^.*rspamd.*controller.*unauthorized.*<HOST>
+
+ignoreregex =

@@ -1,0 +1,186 @@
+# roles/ufw/tasks/main.yml
+---
+- name: Install UFW
+  apt:
+    name: ufw
+    state: present
+    update_cache: true
+  tags: ufw
+
+- name: Reset UFW to default state (only on first run)
+  ufw:
+    state: reset
+  when: ufw_reset | default(false)
+  tags: ufw
+
+- name: Set UFW default policies
+  ufw:
+    direction: "{{ item.direction }}"
+    policy: "{{ item.policy }}"
+  loop:
+    - {direction: 'incoming', policy: 'deny'}
+    - {direction: 'outgoing', policy: 'allow'}
+    - {direction: 'routed', policy: 'deny'}
+  tags: ufw
+
+- name: Configure UFW logging
+  ufw:
+    logging: "{{ ufw_logging_level }}"
+  tags: ufw
+
+# SSH Access - Restricted IPs
+- name: Allow SSH from trusted IPs
+  ufw:
+    rule: allow
+    port: "{{ ufw_ssh_port }}"
+    proto: tcp
+    from_ip: "{{ item.ip }}"
+    comment: "{{ item.comment }}"
+  loop: "{{ ufw_ssh_trusted_ips }}"
+  when: ufw_ssh_trusted_ips is defined and ufw_ssh_trusted_ips | length > 0
+  tags: ufw
+
+- name: Allow SSH from anywhere (if no trusted IPs defined)
+  ufw:
+    rule: limit
+    port: "{{ ufw_ssh_port }}"
+    proto: tcp
+    comment: "SSH with rate limiting"
+  when: ufw_ssh_trusted_ips is not defined or ufw_ssh_trusted_ips | length == 0
+  tags: ufw
+
+# Mail Server Ports
+- name: Allow SMTP (Port 25)
+  ufw:
+    rule: allow
+    port: 25
+    proto: tcp
+    comment: "SMTP - Incoming mail"
+  tags: ufw
+
+- name: Allow Submission (Port 587)
+  ufw:
+    rule: allow
+    port: 587
+    proto: tcp
+    comment: "Submission - SMTP with STARTTLS"
+  tags: ufw
+
+- name: Allow SMTPS (Port 465)
+  ufw:
+    rule: allow
+    port: 465
+    proto: tcp
+    comment: "SMTPS - SMTP over SSL (optional)"
+  when: ufw_enable_smtps | default(true)
+  tags: ufw
+
+- name: Allow IMAPS (Port 993)
+  ufw:
+    rule: allow
+    port: 993
+    proto: tcp
+    comment: "IMAPS - IMAP over SSL"
+  tags: ufw
+
+- name: Allow POP3S (Port 995)
+  ufw:
+    rule: allow
+    port: 995
+    proto: tcp
+    comment: "POP3S - POP3 over SSL"
+  when: ufw_enable_pop3s | default(false)
+  tags: ufw
+
+# Web Server Ports
+- name: Allow HTTP (Port 80)
+  ufw:
+    rule: allow
+    port: 80
+    proto: tcp
+    comment: "HTTP - Webmail and Lets Encrypt"
+  tags: ufw
+
+- name: Allow HTTPS (Port 443)
+  ufw:
+    rule: allow
+    port: 443
+    proto: tcp
+    comment: "HTTPS - Webmail and Rspamd WebUI"
+  tags: ufw
+
+# Optional: Rate limiting for mail ports (anti-spam measure)
+- name: Apply rate limiting to SMTP
+  ufw:
+    rule: limit
+    port: 25
+    proto: tcp
+    comment: "SMTP rate limiting"
+  when: ufw_rate_limit_smtp | default(false)
+  tags: ufw
+
+# Optional: Custom ports
+- name: Allow custom ports
+  ufw:
+    rule: allow
+    port: "{{ item.port }}"
+    proto: "{{ item.proto | default('tcp') }}"
+    from_ip: "{{ item.from_ip | default('any') }}"
+    comment: "{{ item.comment | default('Custom port') }}"
+  loop: "{{ ufw_custom_ports }}"
+  when: ufw_custom_ports is defined and ufw_custom_ports | length > 0
+  tags: ufw
+
+# Deny commonly attacked ports
+- name: Deny potentially dangerous ports
+  ufw:
+    rule: deny
+    port: "{{ item.port }}"
+    proto: "{{ item.proto }}"
+    comment: "{{ item.comment }}"
+  loop: "{{ ufw_deny_ports | default([]) }}"
+  when:
+    - ufw_deny_specific_ports | default(false)
+    - ufw_deny_ports is defined
+    - ufw_deny_ports | length > 0
+  tags: ufw
+
+# Enable UFW
+- name: Enable UFW
+  ufw:
+    state: enabled
+  tags: ufw
+
+- name: Check UFW status
+  command: ufw status verbose
+  register: ufw_status
+  changed_when: false
+  tags: ufw
+
+- name: Display UFW status
+  debug:
+    var: ufw_status.stdout_lines
+  tags: ufw
+
+# Create UFW management script
+- name: Create UFW management script
+  template:
+    src: ufw-manage.sh.j2
+    dest: /usr/local/bin/ufw-manage
+    mode: '0755'
+  tags: ufw
+
+- name: Create UFW backup script
+  template:
+    src: ufw-backup.sh.j2
+    dest: /usr/local/bin/ufw-backup
+    mode: '0755'
+  tags: ufw
+
+# Systemd service to ensure UFW starts before network
+- name: Ensure UFW starts before network services
+  systemd:
+    name: ufw
+    enabled: true
+    state: started
+  tags: ufw

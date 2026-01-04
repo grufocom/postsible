@@ -1,0 +1,15 @@
+# Redis configuration for rspamd
+# Managed by Ansible - DO NOT EDIT MANUALLY
+
+# Redis backend for all rspamd modules
+servers = "127.0.0.1:6379";
+
+{% if rspamd_redis_password | default('') %}
+password = "{{ rspamd_redis_password }}";
+{% endif %}
+
+# Database selection
+db = "0";
+
+# Timeout settings
+timeout = 10s;

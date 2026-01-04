@@ -1,0 +1,50 @@
+---
+# Certbot Defaults for Postsible
+
+# Email for Let's Encrypt notifications
+certbot_email: "{{ mail_admin_email }}"
+
+# Certbot plugin (nginx = easiest, uses nginx plugin)
+certbot_plugin: "nginx"
+
+# Domains to get certificates for
+# Each domain gets its own certificate
+certbot_domains:
+  - "mail.example.com"
+
+# Alternative: Multi-domain certificate (all domains in one cert)
+# certbot_multi_domain_cert: true
+# certbot_cert_name: "grufo-mail"
+# certbot_all_domains:
+#   - "mail.example.com"
+#   - "webmail.example.com"
+
+# Staging (test mode, doesn't count against rate limits)
+certbot_staging: false  # Set to true for testing
+
+# Auto-renewal configuration
+certbot_auto_renew: true
+certbot_renew_hour: 3
+certbot_renew_minute: 30
+
+# Post-renewal hooks (reload services after renewal)
+certbot_renewal_hooks_enabled: true
+certbot_reload_services:
+  - nginx
+  - postfix
+  - dovecot
+
+# Webroot for ACME challenge (used if plugin=webroot)
+certbot_webroot: "/var/www/html"
+
+# RSA key size
+certbot_rsa_key_size: 4096
+
+# Agree to TOS automatically
+certbot_agree_tos: true
+
+# Certificate paths (after successful issue)
+certbot_cert_path: "/etc/letsencrypt/live"
+
+# Force renewal (useful for testing)
+certbot_force_renewal: false

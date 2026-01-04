@@ -1,0 +1,73 @@
+#!/bin/bash
+# Rspamd Spam Learning Script
+# Managed by Ansible - DO NOT EDIT MANUALLY
+
+set -e
+
+LOGFILE="/var/log/rspamd-learning/spam.log"
+MAILDIR_BASE="{{ dovecot_mail_location | regex_replace('maildir:', '') | regex_replace('/%d/%n/', '') }}"
+LEARNED_COUNT=0
+ERROR_COUNT=0
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOGFILE"
+}
+
+log "=== Starting Spam Learning ==="
+
+# Find all .Spam folders
+find "$MAILDIR_BASE" -type d -name ".Spam" -path "*/cur" 2>/dev/null | while read -r spam_folder; do
+    # Get parent directory (the .Spam folder itself)
+    spam_dir=$(dirname "$spam_folder")
+    
+    # Count emails in cur and new
+    EMAIL_COUNT=$(find "$spam_dir/cur" "$spam_dir/new" -type f 2>/dev/null | wc -l)
+    
+    if [ "$EMAIL_COUNT" -gt 0 ]; then
+        log "Found $EMAIL_COUNT emails in $spam_dir"
+        
+        # Learn from cur folder
+        if [ -d "$spam_dir/cur" ]; then
+            for email in "$spam_dir/cur"/*; do
+                [ -f "$email" ] || continue
+                
+                if rspamc learn_spam "$email" > /dev/null 2>&1; then
+                    LEARNED_COUNT=$((LEARNED_COUNT + 1))
+                    # Move to .Spam.Learned folder or delete
+                    {% if rspamd_delete_learned_spam | default(false) %}
+                    rm -f "$email"
+                    {% else %}
+                    mkdir -p "$spam_dir/../.Spam.Learned/cur"
+                    mv "$email" "$spam_dir/../.Spam.Learned/cur/"
+                    {% endif %}
+                else
+                    ERROR_COUNT=$((ERROR_COUNT + 1))
+                    log "ERROR: Failed to learn $email"
+                fi
+            done
+        fi
+        
+        # Learn from new folder
+        if [ -d "$spam_dir/new" ]; then
+            for email in "$spam_dir/new"/*; do
+                [ -f "$email" ] || continue
+                
+                if rspamc learn_spam "$email" > /dev/null 2>&1; then
+                    LEARNED_COUNT=$((LEARNED_COUNT + 1))
+                    {% if rspamd_delete_learned_spam | default(false) %}
+                    rm -f "$email"
+                    {% else %}
+                    mkdir -p "$spam_dir/../.Spam.Learned/cur"
+                    mv "$email" "$spam_dir/../.Spam.Learned/cur/"
+                    {% endif %}
+                else
+                    ERROR_COUNT=$((ERROR_COUNT + 1))
+                    log "ERROR: Failed to learn $email"
+                fi
+            done
+        fi
+    fi
+done
+
+log "=== Spam Learning Complete: $LEARNED_COUNT learned, $ERROR_COUNT errors ==="
+exit 0

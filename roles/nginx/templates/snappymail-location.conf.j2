@@ -1,0 +1,38 @@
+# SnappyMail webmail location block
+# This block should be included in the main vhost
+
+# SnappyMail webmail at /wm/
+location ^~ /wm/ {
+    alias {{ snappymail_install_dir }}/;
+    index index.php;
+
+    # Try files, fallback to index.php
+    try_files $uri $uri/ /wm/index.php?$query_string;
+
+    # Security: Deny access to data directory
+    location ~ ^/wm/data {
+        deny all;
+    }
+
+    # PHP handling for SnappyMail
+    location ~ ^/wm/(.+\.php)$ {
+        alias {{ snappymail_install_dir }}/$1;
+        
+        fastcgi_pass unix:{{ nginx_php_fpm_socket }};
+        fastcgi_index index.php;
+        fastcgi_param SCRIPT_FILENAME $request_filename;
+        include fastcgi_params;
+        
+        # PHP settings
+        fastcgi_param PHP_VALUE "upload_max_filesize={{ snappymail_upload_max_size | default('50M') }}\npost_max_size={{ snappymail_post_max_size | default('50M') }}";
+        fastcgi_read_timeout 300;
+        fastcgi_send_timeout 300;
+    }
+
+    # Static files caching
+    location ~* ^/wm/.+\.(jpg|jpeg|gif|png|ico|css|js|svg|woff|woff2|ttf|eot)$ {
+        alias {{ snappymail_install_dir }}/;
+        expires 30d;
+        access_log off;
+    }
+}

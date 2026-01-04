@@ -1,0 +1,119 @@
+---
+# roles/rspamd/defaults/main.yml
+
+# Redis Configuration
+rspamd_redis_maxmemory: "256mb"
+rspamd_redis_disable_persistence: true
+rspamd_redis_password: ""  # Optional, leave empty for no password
+
+# Rspamd Logging
+rspamd_log_level: "info"  # error, warning, notice, info, debug
+rspamd_log_spam_scores: true
+rspamd_logrotate_days: 14
+
+# Action Thresholds
+rspamd_reject_score: 15
+rspamd_add_header_score: 6
+rspamd_greylist_score: 4
+rspamd_rewrite_subject_score: 10
+
+# Bayes Configuration
+rspamd_bayes_spam_threshold: 12.0
+rspamd_bayes_ham_threshold: -1.0
+rspamd_bayes_per_user: false
+rspamd_bayes_min_tokens: 11
+rspamd_bayes_min_learns: 200
+rspamd_bayes_ham_weight: 3.0
+rspamd_bayes_spam_weight: 5.0
+
+# Neural Network
+rspamd_enable_neural: true
+rspamd_neural_spam_score: 8.0
+rspamd_neural_ham_score: -2.0
+rspamd_neural_min_learns: 1000
+
+# Greylist
+rspamd_enable_greylist: true
+rspamd_greylist_timeout: 300  # 5 minutes
+rspamd_greylist_expire: 86400  # 24 hours
+rspamd_greylist_expire_whitelisted: 2592000  # 30 days
+rspamd_greylist_whitelist_ip: ""
+
+# Ratelimit
+rspamd_enable_ratelimit: true
+rspamd_ratelimit_user_burst: 100
+rspamd_ratelimit_user_rate: "10 / 1m"
+rspamd_ratelimit_to_burst: 20
+rspamd_ratelimit_to_rate: "5 / 1m"
+rspamd_ratelimit_from_burst: 20
+rspamd_ratelimit_from_rate: "5 / 1m"
+rspamd_ratelimit_ip_burst: 10
+rspamd_ratelimit_ip_rate: "2 / 1m"
+rspamd_ratelimit_bounce_burst: 10
+rspamd_ratelimit_bounce_rate: "2 / 5m"
+rspamd_ratelimit_message: "Ratelimited, try again later"
+rspamd_ratelimit_whitelist: "127.0.0.1"
+
+# ARC Configuration
+rspamd_enable_arc: true
+
+# Learning Configuration
+rspamd_enable_auto_learning: true
+rspamd_enable_daily_learning: true
+rspamd_learn_spam_minute: "*/30"
+rspamd_learn_ham_minute: "*/30"
+rspamd_learn_all_minute: "0"
+rspamd_learn_all_hour: "3"
+rspamd_delete_learned_spam: false  # Move to .Spam.Learned instead of delete
+rspamd_delete_learned_ham: false   # Move to .Ham.Learned instead of delete
+rspamd_learning_logrotate_weeks: 4
+
+# Worker Ports
+rspamd_worker_proxy_port: 11332       # Milter für Postfix
+rspamd_worker_normal_port: 11333      # Normal Worker
+rspamd_worker_controller_port: 11334  # WebUI
+
+# Worker Counts
+rspamd_worker_proxy_count: 4
+rspamd_worker_normal_count: -1  # Auto (CPU cores)
+
+# Worker Timeouts
+rspamd_worker_proxy_timeout: "120s"
+rspamd_worker_proxy_upstream_timeout: "125s"
+rspamd_worker_normal_task_timeout: "8s"
+rspamd_worker_normal_max_tasks: 10000
+rspamd_worker_proxy_max_tasks: 10000
+
+# Redis Configuration
+rspamd_redis_host: "127.0.0.1"
+rspamd_redis_port: 6379
+rspamd_redis_db: "0"
+rspamd_redis_prefix: "rs"
+rspamd_redis_timeout: "10s"
+rspamd_redis_expand_keys: true
+# rspamd_redis_password: ""  # Optional, falls Redis Auth aktiviert ist
+
+# Whitelisted IPs (as array!)
+rspamd_ratelimit_whitelist_ip:
+  - "127.0.0.1"
+  - "::1"
+
+# Whitelisted recipients
+rspamd_ratelimit_whitelist_rcpts:
+  - "postmaster"
+  - "abuse"
+
+# WebUI Configuration
+rspamd_webui_enabled: true
+# rspamd_webui_password defined in group_vars (from vault)
+# rspamd_webui_allowed_ips: []  # Optional IP whitelist for WebUI
+
+# Experimental Features
+rspamd_enable_experimental: false
+
+# Local Networks (trusted)
+rspamd_local_networks: []
+# Example:
+# rspamd_local_networks:
+#   - "192.168.1.0/24"
+#   - "10.0.0.0/8"

@@ -1,0 +1,58 @@
+---
+# SnappyMail Defaults for Postsible
+
+# SnappyMail version
+#snappymail_version: "2.38.2"  # Update this when new version is released
+snappymail_version: "latest"
+snappymail_download_url: "https://github.com/the-djmaze/snappymail/releases/download/v{{ snappymail_version }}/snappymail-{{ snappymail_version }}.tar.gz"
+
+# Installation paths
+snappymail_install_path: "/var/www/snappymail"
+snappymail_data_path: "/var/www/snappymail-data"
+
+# Web user/group
+snappymail_user: "www-data"
+snappymail_group: "www-data"
+
+# URL path (subpath under main domain)
+snappymail_url_path: "/wm"
+snappymail_domain: "{{ ansible_fqdn }}"  # Uses mail.example.com
+
+# Admin credentials (for initial setup)
+snappymail_admin_login: "admin"
+snappymail_admin_password: "{{ vault_snappymail_admin_password }}"
+
+# MySQL/MariaDB connection (to fetch allowed domains)
+mariadb_user: "mailuser"
+mariadb_password: "{{ vault_mariadb_password }}"
+mariadb_database: "mailserver"
+
+# IMAP/SMTP server settings (use Port 143 with STARTTLS to avoid SSL SNI issues)
+snappymail_imap_host: "127.0.0.1"
+snappymail_imap_port: 143
+snappymail_imap_secure: "tls"  # STARTTLS on port 143
+
+snappymail_smtp_host: "127.0.0.1"
+snappymail_smtp_port: 587
+snappymail_smtp_secure: "tls"  # tls or ssl
+snappymail_smtp_auth: true
+
+# Default domain for login (optional)
+snappymail_default_domain: "{{ mail_primary_domain }}"
+
+# Branding (optional)
+snappymail_title: "Webmail"
+snappymail_loading_description: "{{ mail_primary_domain }}"
+
+# Features
+snappymail_enable_sieve: true
+snappymail_enable_contacts: true
+snappymail_enable_calendars: false
+
+# Security
+snappymail_allow_admin_panel: true
+snappymail_attachment_size_limit: "50M"
+
+# Logging
+snappymail_enable_logging: true
+snappymail_log_path: "/var/log/snappymail"

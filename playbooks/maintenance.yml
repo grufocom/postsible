@@ -1,0 +1,67 @@
+---
+- name: Postsible Mailserver - Maintenance Tasks
+  hosts: mailservers
+  become: yes
+
+  tasks:
+    - name: Update all packages
+      apt:
+        update_cache: yes
+        upgrade: dist
+        autoremove: yes
+      tags:
+        - update
+
+    - name: Check disk space
+      command: df -h
+      register: disk_space
+      changed_when: false
+      tags:
+        - check
+
+    - name: Display disk space
+      debug:
+        var: disk_space.stdout_lines
+      tags:
+        - check
+
+    - name: Check maildir sizes
+      command: du -sh /srv/imap/*
+      register: maildir_sizes
+      changed_when: false
+      failed_when: false
+      tags:
+        - check
+
+    - name: Display maildir sizes
+      debug:
+        var: maildir_sizes.stdout_lines
+      when: maildir_sizes.rc == 0
+      tags:
+        - check
+
+    - name: Backup MariaDB database
+      shell: |
+        mysqldump -u root -p'{{ mariadb_root_password }}' {{ mariadb_database }} | \
+        gzip > /var/backups/mailserver_$(date +%Y%m%d_%H%M%S).sql.gz
+      args:
+        creates: /var/backups/mailserver_*.sql.gz
+      tags:
+        - backup
+
+    - name: Clean old logs
+      command: logrotate -f /etc/logrotate.d/postsible
+      tags:
+        - cleanup
+
+    - name: Restart all mail services
+      systemd:
+        name: "{{ item }}"
+        state: restarted
+      loop:
+        - postfix
+        - dovecot
+        - rspamd
+        - nginx
+      tags:
+        - restart

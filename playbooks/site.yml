@@ -1,0 +1,177 @@
+# playbooks/site.yml
+---
+- name: Postsible Mailserver - Complete Installation
+  hosts: mailservers
+  become: yes
+
+  pre_tasks:
+    - name: Display deployment information
+      debug:
+        msg:
+          - "==================================================="
+          - "Postsible Mailserver Deployment"
+          - "==================================================="
+          - "Target Host: {{ inventory_hostname }}"
+          - "Hostname: {{ common_hostname | default(ansible_hostname) }}"
+          - "Primary Domain: {{ mail_primary_domain }}"
+          - "Deployment Date: {{ ansible_date_time.iso8601 }}"
+          - "==================================================="
+      tags: always
+
+    - name: Check if Debian 13
+      assert:
+        that:
+          - ansible_distribution == "Debian"
+          - ansible_distribution_major_version|int >= 13
+        fail_msg: "This playbook requires Debian 13 or higher"
+        success_msg: "Debian version check passed"
+      tags: always
+
+    - name: Gather package facts
+      package_facts:
+        manager: auto
+      tags: always
+
+  roles:
+    # Phase 1: Basis-Infrastruktur
+    - role: common
+      tags:
+        - common
+        - phase1
+
+    - role: ufw
+      tags:
+        - ufw
+        - firewall
+        - phase1
+
+    - role: mariadb
+      tags:
+        - mariadb
+        - database
+        - phase1
+
+    # Phase 2: Mail-Core
+    - role: postfix
+      tags:
+        - postfix
+        - mail
+        - phase2
+
+    - role: dovecot
+      tags:
+        - dovecot
+        - mail
+        - phase2
+
+    # Phase 3: Spam & Antivirus
+    - role: rspamd
+      tags:
+        - rspamd
+        - spam
+        - phase3
+
+    - role: eset_icap
+      tags:
+        - eset
+        - antivirus
+        - phase3
+      when: eset_icap_enabled | default(false)
+
+    # Phase 4: Web & SSL
+    - role: nginx
+      tags:
+        - nginx
+        - web
+        - phase4
+
+    - role: certbot
+      tags:
+        - certbot
+        - ssl
+        - phase4
+
+    - role: snappymail
+      tags:
+        - snappymail
+        - webmail
+        - phase4
+
+    # Phase 5: Sicherheit
+    - role: fail2ban
+      tags:
+        - fail2ban
+        - security
+        - phase5
+
+  post_tasks:
+    - name: Ensure postsible directory exists
+      file:
+        path: /etc/postsible
+        state: directory
+        mode: '0755'
+      tags: always
+
+    - name: Display completion information
+      debug:
+        msg:
+          - "==================================================="
+          - "Postsible Mailserver Deployment Complete!"
+          - "==================================================="
+          - "Webmail: https://{{ snappymail_domain }}"
+          - "Rspamd WebUI: https://{{ common_hostname }}/rspamd"
+          - "IMAP: {{ common_hostname }}:993 (SSL/TLS)"
+          - "SMTP Submission: {{ common_hostname }}:587 (STARTTLS)"
+          - "==================================================="
+          - "Next Steps:"
+          - "1. Configure DNS records (MX, SPF, DKIM, DMARC)"
+          - "2. Add virtual domains and users to MariaDB"
+          - "3. Test email sending/receiving"
+          - "4. Configure backup strategy"
+          - "==================================================="
+      tags: always
+
+    - name: Create deployment summary file
+      copy:
+        content: |
+          Postsible Mailserver Deployment Summary
+          ========================================
+
+          Deployment Date: {{ ansible_date_time.iso8601 }}
+          Hostname: {{ common_hostname }}
+          Primary Domain: {{ mail_primary_domain }}
+          OS: {{ ansible_distribution }} {{ ansible_distribution_version }}
+
+          Services Installed:
+          - Postfix (SMTP)
+          - Dovecot (IMAP/LMTP/Sieve)
+          - Rspamd (Spam Filter)
+          - SnappyMail (Webmail)
+          - Nginx (Web Server)
+          - MariaDB (Database)
+          - Certbot (Let's Encrypt)
+          - UFW (Firewall)
+          - Fail2ban (Intrusion Prevention)
+          {% if eset_icap_enabled %}
+          - ESET ICAP (Antivirus)
+          {% endif %}
+
+          Access Points:
+          - Webmail: https://{{ snappymail_domain }}
+          - Rspamd WebUI: https://{{ common_hostname }}/rspamd
+          - IMAP: {{ common_hostname }}:993
+          - SMTP: {{ common_hostname }}:587
+
+          Database:
+          - Name: {{ mariadb_database }}
+          - User: {{ mariadb_user }}
+          - Host: {{ mariadb_host }}
+
+          Important Files:
+          - Maildir: /srv/imap/
+          - Logs: /var/log/mail/
+          - Config: /etc/postsible/
+
+        dest: /etc/postsible/deployment_summary.txt
+        mode: '0644'
+      tags: always

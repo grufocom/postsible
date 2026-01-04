@@ -1,0 +1,73 @@
+#!/bin/bash
+# Rspamd Ham Learning Script
+# Managed by Ansible - DO NOT EDIT MANUALLY
+
+set -e
+
+LOGFILE="/var/log/rspamd-learning/ham.log"
+MAILDIR_BASE="{{ dovecot_mail_location | regex_replace('maildir:', '') | regex_replace('/%d/%n/', '') }}"
+LEARNED_COUNT=0
+ERROR_COUNT=0
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOGFILE"
+}
+
+log "=== Starting Ham Learning ==="
+
+# Find all .Ham folders
+find "$MAILDIR_BASE" -type d -name ".Ham" -path "*/cur" 2>/dev/null | while read -r ham_folder; do
+    # Get parent directory (the .Ham folder itself)
+    ham_dir=$(dirname "$ham_folder")
+    
+    # Count emails in cur and new
+    EMAIL_COUNT=$(find "$ham_dir/cur" "$ham_dir/new" -type f 2>/dev/null | wc -l)
+    
+    if [ "$EMAIL_COUNT" -gt 0 ]; then
+        log "Found $EMAIL_COUNT emails in $ham_dir"
+        
+        # Learn from cur folder
+        if [ -d "$ham_dir/cur" ]; then
+            for email in "$ham_dir/cur"/*; do
+                [ -f "$email" ] || continue
+                
+                if rspamc learn_ham "$email" > /dev/null 2>&1; then
+                    LEARNED_COUNT=$((LEARNED_COUNT + 1))
+                    # Move to .Ham.Learned folder or delete
+                    {% if rspamd_delete_learned_ham | default(false) %}
+                    rm -f "$email"
+                    {% else %}
+                    mkdir -p "$ham_dir/../.Ham.Learned/cur"
+                    mv "$email" "$ham_dir/../.Ham.Learned/cur/"
+                    {% endif %}
+                else
+                    ERROR_COUNT=$((ERROR_COUNT + 1))
+                    log "ERROR: Failed to learn $email"
+                fi
+            done
+        fi
+        
+        # Learn from new folder
+        if [ -d "$ham_dir/new" ]; then
+            for email in "$ham_dir/new"/*; do
+                [ -f "$email" ] || continue
+                
+                if rspamc learn_ham "$email" > /dev/null 2>&1; then
+                    LEARNED_COUNT=$((LEARNED_COUNT + 1))
+                    {% if rspamd_delete_learned_ham | default(false) %}
+                    rm -f "$email"
+                    {% else %}
+                    mkdir -p "$ham_dir/../.Ham.Learned/cur"
+                    mv "$email" "$ham_dir/../.Ham.Learned/cur/"
+                    {% endif %}
+                else
+                    ERROR_COUNT=$((ERROR_COUNT + 1))
+                    log "ERROR: Failed to learn $email"
+                fi
+            done
+        fi
+    fi
+done
+
+log "=== Ham Learning Complete: $LEARNED_COUNT learned, $ERROR_COUNT errors ==="
+exit 0

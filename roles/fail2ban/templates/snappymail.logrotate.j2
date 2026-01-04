@@ -1,0 +1,15 @@
+# Logrotate configuration for SnappyMail
+# Managed by Ansible - DO NOT EDIT MANUALLY
+
+/var/www/snappymail-data/_data_/_default_/logs/log-*.txt {
+    daily
+    rotate {{ snappymail_logrotate_days | default('30') }}
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0644 www-data www-data
+    
+    # Delete old logs older than retention period
+    maxage {{ snappymail_logrotate_days | default('30') }}
+}

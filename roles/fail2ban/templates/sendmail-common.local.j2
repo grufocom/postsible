@@ -1,0 +1,18 @@
+# Fail2ban email notification configuration
+# Managed by Ansible - DO NOT EDIT MANUALLY
+
+[Definition]
+# Option: dest
+# Notes.: email address to send notifications to
+# Values: CMD
+dest = {{ fail2ban_destemail | default(mail_admin_email) }}
+
+# Option: sender
+# Notes.: email address from which to send notifications
+# Values: CMD
+sender = fail2ban@{{ mail_primary_domain }}
+
+# Option: sendername
+# Notes.: name to use in From header
+# Values: CMD
+sendername = Fail2Ban ({{ common_hostname | default('mailserver') }})

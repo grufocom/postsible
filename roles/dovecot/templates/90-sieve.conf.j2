@@ -1,0 +1,36 @@
+# {{ ansible_managed }}
+# Dovecot Sieve configuration (Dovecot 2.4.1)
+
+# Sieve script location
+sieve_script personal {
+	path = ~/.dovecot.sieve
+}
+
+# Global scripts (executed before user scripts)
+sieve_script before {
+	type = before
+		path = {{ dovecot_sieve_before }}
+}
+
+# Default script
+sieve_script default {
+	path = {{ dovecot_sieve_default }}
+}
+
+# Global script directory
+sieve_script global {
+	path = {{ dovecot_sieve_global_dir }}
+}
+
+# Limits
+sieve_max_script_size = {{ dovecot_sieve_max_script_size }}
+sieve_max_actions = {{ dovecot_sieve_max_actions }}
+sieve_max_redirects = {{ dovecot_sieve_max_redirects }}
+
+# Extensions (ohne + Prefix in Dovecot 2.4.1)
+sieve_extensions = vacation vacation-seconds relational comparator-i;ascii-numeric
+
+# Vacation settings
+sieve_vacation_min_period = 1d
+sieve_vacation_default_period = 7d
+sieve_vacation_max_period = 30d

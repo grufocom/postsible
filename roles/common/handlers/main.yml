@@ -1,0 +1,11 @@
+# roles/common/handlers/main.yml
+---
+- name: restart timesyncd
+  systemd:
+    name: systemd-timesyncd
+    state: restarted
+
+- name: restart sshd
+  systemd:
+    name: ssh
+    state: restarted

@@ -1,0 +1,315 @@
+---
+# SnappyMail main tasks
+
+- name: Install Python MySQL module for Ansible
+  apt:
+    name: python3-pymysql
+    state: present
+  tags: snappymail
+
+- name: Create SnappyMail directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ snappymail_user }}"
+    group: "{{ snappymail_group }}"
+    mode: '0755'
+  loop:
+    - "{{ snappymail_install_path }}"
+    - "{{ snappymail_data_path }}"
+    - "{{ snappymail_log_path }}"
+  tags: snappymail
+
+- name: Check if SnappyMail is already installed
+  stat:
+    path: "{{ snappymail_install_path }}/index.php"
+  register: snappymail_installed
+  tags: snappymail
+
+- name: Get latest SnappyMail version (if version is 'latest')
+  uri:
+    url: https://api.github.com/repos/the-djmaze/snappymail/releases/latest
+    return_content: yes
+  register: snappymail_latest_release
+  when:
+    - not snappymail_installed.stat.exists
+    - snappymail_version == "latest"
+  tags: snappymail
+
+- name: Set SnappyMail version fact (from latest release)
+  set_fact:
+    snappymail_version_detected: "{{ snappymail_latest_release.json.tag_name | regex_replace('^v', '') }}"
+  when:
+    - not snappymail_installed.stat.exists
+    - snappymail_version == "latest"
+  tags: snappymail
+
+- name: Set SnappyMail version fact (from defaults)
+  set_fact:
+    snappymail_version_detected: "{{ snappymail_version }}"
+  when: snappymail_version != "latest"
+  tags: snappymail
+
+- name: Set SnappyMail download URL
+  set_fact:
+    snappymail_download_url_final: "https://github.com/the-djmaze/snappymail/releases/download/v{{ snappymail_version_detected }}/snappymail-{{ snappymail_version_detected }}.tar.gz"
+  when: not snappymail_installed.stat.exists
+  tags: snappymail
+
+- name: Display SnappyMail version to be installed
+  debug:
+    msg: "Installing SnappyMail version: {{ snappymail_version_detected }}"
+  when: not snappymail_installed.stat.exists
+  tags: snappymail
+
+- name: Download SnappyMail
+  get_url:
+    url: "{{ snappymail_download_url_final }}"
+    dest: "/tmp/snappymail.tar.gz"
+    mode: '0644'
+  when: not snappymail_installed.stat.exists
+  tags: snappymail
+
+- name: Extract SnappyMail
+  unarchive:
+    src: "/tmp/snappymail.tar.gz"
+    dest: "{{ snappymail_install_path }}"
+    remote_src: yes
+    owner: "{{ snappymail_user }}"
+    group: "{{ snappymail_group }}"
+  when: not snappymail_installed.stat.exists
+  tags: snappymail
+
+- name: Create external data directory
+  file:
+    path: "{{ snappymail_data_path }}"
+    state: directory
+    owner: "{{ snappymail_user }}"
+    group: "{{ snappymail_group }}"
+    mode: '0750'
+  tags: snappymail
+
+- name: Check if data directory is already a symlink
+  stat:
+    path: "{{ snappymail_install_path }}/data"
+  register: snappymail_data_check
+  tags: snappymail
+
+- name: Move existing data to external directory (if not symlink)
+  shell: |
+    if [ -d "{{ snappymail_install_path }}/data" ] && [ ! -L "{{ snappymail_install_path }}/data" ]; then
+      mv {{ snappymail_install_path }}/data/* {{ snappymail_data_path }}/ 2>/dev/null || true
+      rm -rf {{ snappymail_install_path }}/data
+    fi
+  args:
+    executable: /bin/bash
+  when:
+    - snappymail_data_check.stat.exists
+    - not snappymail_data_check.stat.islnk
+  tags: snappymail
+
+- name: Create symlink to data directory
+  file:
+    src: "{{ snappymail_data_path }}"
+    dest: "{{ snappymail_install_path }}/data"
+    state: link
+    force: yes
+  tags: snappymail
+
+- name: Set correct permissions for SnappyMail
+  file:
+    path: "{{ snappymail_install_path }}"
+    owner: "{{ snappymail_user }}"
+    group: "{{ snappymail_group }}"
+    recurse: yes
+  tags: snappymail
+
+- name: Ensure SnappyMail config directories exist
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ snappymail_user }}"
+    group: "{{ snappymail_group }}"
+    mode: '0750'
+  loop:
+    - "{{ snappymail_data_path }}/_data_"
+    - "{{ snappymail_data_path }}/_data_/_default_"
+    - "{{ snappymail_data_path }}/_data_/_default_/configs"
+    - "{{ snappymail_data_path }}/_data_/_default_/domains"
+  tags: snappymail
+
+- name: Configure SnappyMail application.ini
+  template:
+    src: application.ini.j2
+    dest: "{{ snappymail_data_path }}/_data_/_default_/configs/application.ini"
+    owner: "{{ snappymail_user }}"
+    group: "{{ snappymail_group }}"
+    mode: '0640'
+  tags: snappymail
+
+- name: Remove all existing domain configs (force clean slate)
+  file:
+    path: "{{ snappymail_data_path }}/_data_/_default_/domains"
+    state: absent
+  tags: snappymail
+
+- name: Recreate domains directory
+  file:
+    path: "{{ snappymail_data_path }}/_data_/_default_/domains"
+    state: directory
+    owner: "{{ snappymail_user }}"
+    group: "{{ snappymail_group }}"
+    mode: '0750'
+  tags: snappymail
+
+- name: Create universal domain config (wildcard for all domains)
+  copy:
+    dest: "{{ snappymail_data_path }}/_data_/_default_/domains/default.json"
+    content: |
+      {
+        "IMAP": {
+          "host": "127.0.0.1",
+          "port": {{ snappymail_imap_port }},
+          "type": {{ 3 if snappymail_imap_secure == 'ssl' else 2 }},
+          "timeout": 300,
+          "shortLogin": false,
+          "ssl": {
+            "verify_peer": false,
+            "verify_peer_name": false,
+            "allow_self_signed": true
+          }
+        },
+        "SMTP": {
+          "host": "127.0.0.1",
+          "port": {{ snappymail_smtp_port }},
+          "type": {{ 2 if snappymail_smtp_secure == 'tls' else (3 if snappymail_smtp_secure == 'ssl' else 0) }},
+          "timeout": 60,
+          "shortLogin": false,
+          "useAuth": {{ 'true' if snappymail_smtp_auth else 'false' }},
+          "setSender": false,
+          "ssl": {
+            "verify_peer": false,
+            "verify_peer_name": false,
+            "allow_self_signed": true
+          }
+        },
+        "Sieve": {
+          "enabled": {{ 'true' if snappymail_enable_sieve else 'false' }},
+          "host": "127.0.0.1",
+          "port": 4190,
+          "type": {{ 3 if snappymail_imap_secure == 'ssl' else 2 }},
+          "ssl": {
+            "verify_peer": false,
+            "verify_peer_name": false,
+            "allow_self_signed": true
+          }
+        },
+        "whiteList": ""
+      }
+    owner: "{{ snappymail_user }}"
+    group: "{{ snappymail_group }}"
+    mode: '0640'
+  tags: snappymail
+
+- name: Clear SnappyMail cache after config change
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ snappymail_data_path }}/_data_/_default_/cache"
+    - "{{ snappymail_data_path }}/_data_/_default_/storage"
+  tags: snappymail
+
+- name: Recreate cache directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ snappymail_user }}"
+    group: "{{ snappymail_group }}"
+    mode: '0750'
+  loop:
+    - "{{ snappymail_data_path }}/_data_/_default_/cache"
+    - "{{ snappymail_data_path }}/_data_/_default_/storage"
+  tags: snappymail
+
+- name: Add SnappyMail location to rspamd VHost
+  blockinfile:
+    path: /etc/nginx/sites-available/rspamd
+    marker: "# {mark} ANSIBLE MANAGED BLOCK - SnappyMail"
+    insertbefore: "# Root location"
+    block: |2
+          # SnappyMail Webmail
+          location {{ snappymail_url_path }}/ {
+              alias {{ snappymail_install_path }}/;
+              index index.php;
+
+              # Try files
+              try_files $uri $uri/ @snappymail;
+
+              # PHP handling
+              location ~ \.php$ {
+                  include snippets/fastcgi-php.conf;
+                  fastcgi_pass unix:{{ nginx_php_fpm_socket }};
+                  fastcgi_param SCRIPT_FILENAME $request_filename;
+                  include fastcgi_params;
+
+                  # Timeouts for large attachments
+                  fastcgi_read_timeout 300;
+                  fastcgi_send_timeout 300;
+              }
+
+              # Deny access to data directory
+              location ~ ^{{ snappymail_url_path }}/data {
+                  deny all;
+              }
+          }
+
+          # SnappyMail rewrite
+          location @snappymail {
+              rewrite ^{{ snappymail_url_path }}/(.*)$ {{ snappymail_url_path }}/index.php?$1 last;
+          }
+  notify: reload nginx
+  tags: snappymail
+
+- name: Test Nginx configuration
+  command: nginx -t
+  changed_when: false
+  register: nginx_test
+  failed_when: nginx_test.rc != 0
+  tags: snappymail
+
+- name: Reload Nginx
+  systemd:
+    name: nginx
+    state: reloaded
+  tags: snappymail
+
+- name: Display SnappyMail information
+  debug:
+    msg:
+      - "SnappyMail Webmail Installation Complete!"
+      - ""
+      - "Installed version: {{ snappymail_version_detected | default(snappymail_version) }}"
+      - ""
+      - "Access SnappyMail:"
+      - "  URL: https://{{ snappymail_domain }}{{ snappymail_url_path }}/"
+      - ""
+      - "Admin Panel:"
+      - "  URL: https://{{ snappymail_domain }}{{ snappymail_url_path }}/?admin"
+      - "  Username: {{ snappymail_admin_login }}"
+      - "  Password: {{ snappymail_admin_password }}"
+      - ""
+      - "Initial Setup Required:"
+      - "  1. Open Admin Panel (?admin)"
+      - "  2. Complete setup wizard"
+      - "  3. Configure domains and IMAP/SMTP settings"
+      - ""
+      - "Pre-configured settings:"
+      - "  IMAP: {{ snappymail_imap_host }}:{{ snappymail_imap_port }} ({{ snappymail_imap_secure | upper }})"
+      - "  SMTP: {{ snappymail_smtp_host }}:{{ snappymail_smtp_port }} ({{ snappymail_smtp_secure | upper }})"
+      - "  Default Domain: {{ snappymail_default_domain }}"
+      - ""
+      - "Installation path: {{ snappymail_install_path }}"
+      - "Data path: {{ snappymail_data_path }}"
+      - "Logs: {{ snappymail_log_path }}"
+  tags: snappymail

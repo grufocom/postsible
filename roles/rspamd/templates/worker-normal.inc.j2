@@ -1,0 +1,11 @@
+# Rspamd normal worker configuration
+# Managed by Ansible - DO NOT EDIT MANUALLY
+
+# Normal worker bindet auf Port 11333
+bind_socket = "127.0.0.1:{{ rspamd_worker_normal_port | default('11333') }}";
+
+# Maximum number of tasks per worker
+max_tasks = {{ rspamd_worker_normal_max_tasks | default('10000') }};
+
+# Timeout for tasks
+task_timeout = {{ rspamd_worker_normal_task_timeout | default('8s') }};

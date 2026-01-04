@@ -1,0 +1,46 @@
+---
+# roles/fail2ban/defaults/main.yml
+
+# Global fail2ban settings
+fail2ban_bantime: 3600  # 1 hour
+fail2ban_findtime: 600  # 10 minutes
+fail2ban_maxretry: 5
+
+# Email notifications
+fail2ban_enable_email: true
+fail2ban_destemail: "{{ mail_admin_email }}"
+
+# Per-service settings (optional overrides)
+fail2ban_ssh_maxretry: 5
+fail2ban_ssh_bantime: "{{ fail2ban_bantime }}"
+
+fail2ban_postfix_maxretry: 3
+fail2ban_postfix_bantime: "{{ fail2ban_bantime }}"
+
+fail2ban_dovecot_maxretry: 3
+fail2ban_dovecot_bantime: "{{ fail2ban_bantime }}"
+
+fail2ban_nginx_maxretry: 3
+fail2ban_nginx_bantime: "{{ fail2ban_bantime }}"
+
+fail2ban_snappymail_maxretry: 5
+fail2ban_snappymail_bantime: "{{ fail2ban_bantime }}"
+
+fail2ban_rspamd_maxretry: 3
+fail2ban_rspamd_bantime: "{{ fail2ban_bantime }}"
+
+# Enable/disable specific jails
+fail2ban_enable_rspamd_jail: false  # Optional, set to true if needed
+
+# Additional whitelist IPs (beyond ufw_ssh_trusted_ips)
+fail2ban_additional_whitelist: []
+# Example:
+# fail2ban_additional_whitelist:
+#   - "192.168.1.0/24"
+#   - "10.0.0.1"
+
+# Automatically use ufw_ssh_trusted_ips as whitelist
+fail2ban_whitelist_ips: "{{ ufw_ssh_trusted_ips | map(attribute='ip') | list if ufw_ssh_trusted_ips is defined else [] }}"
+
+# SnappyMail log retention
+snappymail_logrotate_days: 30

@@ -1,0 +1,20 @@
+---
+# SnappyMail handlers
+
+- name: reload nginx
+  systemd:
+    name: nginx
+    state: reloaded
+  become: yes
+
+- name: restart nginx
+  systemd:
+    name: nginx
+    state: restarted
+  become: yes
+
+- name: reload php-fpm
+  systemd:
+    name: "php{{ nginx_php_version }}-fpm"
+    state: reloaded
+  become: yes

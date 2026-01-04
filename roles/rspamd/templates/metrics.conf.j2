@@ -1,0 +1,30 @@
+# Rspamd metrics/symbols configuration
+# Managed by Ansible - DO NOT EDIT MANUALLY
+
+# HINWEIS: Ab Rspamd 3.x werden Metrics über actions.conf definiert
+# Diese Datei enthält nur Symbol-Overrides
+
+# Bayes Symbols Weight Overrides
+symbols {
+  "BAYES_HAM" {
+    weight = -{{ rspamd_bayes_ham_weight | default('3.0') }};
+    description = "Message is likely legitimate (Bayes)";
+  }
+  
+  "BAYES_SPAM" {
+    weight = {{ rspamd_bayes_spam_weight | default('5.0') }};
+    description = "Message is likely spam (Bayes)";
+  }
+}
+
+# Groups sind bereits in Rspamd Default-Config definiert
+# Hier nur Overrides falls nötig
+groups {
+  "bayes" {
+    max_score = 10.0;
+  }
+  
+  "policies" {
+    max_score = 15.0;
+  }
+}

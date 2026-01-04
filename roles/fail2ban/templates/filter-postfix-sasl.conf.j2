@@ -1,0 +1,14 @@
+# Fail2ban Postfix SASL filter
+# Managed by Ansible - DO NOT EDIT MANUALLY
+
+[INCLUDES]
+before = common.conf
+
+[Definition]
+# Match authentication failures
+failregex = ^%(__prefix_line)swarning: [-._\w]+\[<HOST>\]: SASL (?:LOGIN|PLAIN|(?:-LOGIN|NTLM|DIGEST-MD5|CRAM-MD5)) authentication failed
+            ^%(__prefix_line)swarning: [-._\w]+\[<HOST>\]: SASL authentication failed; cannot authenticate to server
+            ^%(__prefix_line)swarning: [-._\w]+\[<HOST>\]: SASL (?:CRAM-MD5|DIGEST-MD5|NTLM|LOGIN|PLAIN) authentication failed:
+            postfix/smtpd\[\d+\]: warning: .*\[<HOST>\]: SASL (?:LOGIN|PLAIN|CRAM-MD5|DIGEST-MD5) authentication failed
+
+ignoreregex =

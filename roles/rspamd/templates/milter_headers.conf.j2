@@ -1,0 +1,23 @@
+# Rspamd milter headers configuration
+# Managed by Ansible - DO NOT EDIT MANUALLY
+
+# Use extended spam headers (Rspamd adds X-Spam-* headers automatically!)
+extended_spam_headers = {{ rspamd_milter_extended_spam_headers | default('true') | lower }};
+
+# Which headers to add
+use = [
+  "authentication-results",
+  "x-spamd-result",
+  "x-rspamd-server",
+  "x-rspamd-queue-id"
+];
+
+# Authentication results header
+authenticated_headers = ["authentication-results"];
+
+# Remove upstream spam headers (clean outbound)
+remove_upstream_spam_flag = {{ rspamd_milter_remove_upstream_spam_flag | default('true') | lower }};
+
+# Don't skip local/authenticated (we want headers everywhere)
+skip_authenticated = {{ rspamd_milter_skip_authenticated | default('false') | lower }};
+skip_local = {{ rspamd_milter_skip_local | default('false') | lower }};

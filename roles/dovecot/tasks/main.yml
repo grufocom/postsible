@@ -1,0 +1,215 @@
+# roles/dovecot/tasks/main.yml
+---
+- name: Install Dovecot and related packages
+  apt:
+    name:
+      - dovecot-core
+      - dovecot-imapd
+      - dovecot-pop3d
+      - dovecot-lmtpd
+      - dovecot-mysql
+      - dovecot-sieve
+      - dovecot-managesieved
+    state: present
+    update_cache: yes
+  tags: dovecot
+
+- name: Ensure vmail user exists (created by Postfix)
+  user:
+    name: vmail
+    uid: 5000
+    group: vmail
+    home: /srv/imap
+    shell: /usr/sbin/nologin
+    state: present
+  tags: dovecot
+
+- name: Ensure mail directories have correct permissions
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: vmail
+    group: vmail
+    mode: '0770'
+  loop:
+    - /srv/imap
+    - /var/log/dovecot
+  tags: dovecot
+
+- name: Configure Dovecot main config
+  template:
+    src: dovecot.conf.j2
+    dest: /etc/dovecot/dovecot.conf
+    mode: '0644'
+    backup: yes
+  tags: dovecot
+
+- name: Configure Dovecot protocols
+  template:
+    src: 10-master.conf.j2
+    dest: /etc/dovecot/conf.d/10-master.conf
+    mode: '0644'
+    backup: yes
+  tags: dovecot
+
+- name: Configure Dovecot authentication
+  template:
+    src: 10-auth.conf.j2
+    dest: /etc/dovecot/conf.d/10-auth.conf
+    mode: '0644'
+    backup: yes
+  tags: dovecot
+
+- name: Configure Dovecot authentication
+  template:
+    src: auth-sql.conf.ext.j2
+    dest: /etc/dovecot/conf.d/auth-sql.conf
+    mode: '0644'
+    backup: yes
+  tags: dovecot
+
+- name: Configure Dovecot mail location
+  template:
+    src: 10-mail.conf.j2
+    dest: /etc/dovecot/conf.d/10-mail.conf
+    mode: '0644'
+    backup: yes
+  tags: dovecot
+
+- name: Configure Dovecot SSL
+  template:
+    src: 10-ssl.conf.j2
+    dest: /etc/dovecot/conf.d/10-ssl.conf
+    mode: '0644'
+    backup: yes
+  tags: dovecot
+
+- name: Configure Dovecot logging
+  template:
+    src: 10-logging.conf.j2
+    dest: /etc/dovecot/conf.d/10-logging.conf
+    mode: '0644'
+    backup: yes
+  tags: dovecot
+
+- name: Configure Dovecot SQL
+  template:
+    src: 10-sql.conf.j2
+    dest: /etc/dovecot/conf.d/10-sql.conf
+    mode: '0644'
+    owner: root
+    group: root
+  tags: dovecot
+
+- name: Configure Sieve plugin
+  template:
+    src: 90-sieve.conf.j2
+    dest: /etc/dovecot/conf.d/90-sieve.conf
+    mode: '0644'
+    backup: yes
+  tags: dovecot
+
+- name: Configure Quota plugin
+  template:
+    src: 90-quota.conf.j2
+    dest: /etc/dovecot/conf.d/90-quota.conf
+    mode: '0644'
+    backup: yes
+  tags: dovecot
+
+- name: Configure performance settings
+  template:
+    src: 10-performance.conf.j2
+    dest: /etc/dovecot/conf.d/10-performance.conf
+    mode: '0644'
+  tags: dovecot
+
+- name: Override 20-lmtp.conf (fix auth_username_format)
+  template:
+    src: 20-lmtp.conf.j2
+    dest: /etc/dovecot/conf.d/20-lmtp.conf
+    mode: '0644'
+    backup: yes
+  tags: dovecot
+
+- name: Create global Sieve scripts directory
+  file:
+    path: /var/lib/dovecot/sieve
+    state: directory
+    owner: vmail
+    group: vmail
+    mode: '0750'
+  tags: dovecot
+
+- name: Create default spam sorting Sieve script
+  copy:
+    dest: /var/lib/dovecot/sieve/spam-to-folder.sieve
+    content: |
+      require ["fileinto", "mailbox"];
+
+      # Move spam to Spam folder
+      if header :contains "X-Spam" "Yes" {
+        fileinto :create "Spam";
+        stop;
+      }
+    owner: vmail
+    group: vmail
+    mode: '0640'
+  tags: dovecot
+
+#- name: Compile Sieve script
+#  command: sievec -P /dev/null /var/lib/dovecot/sieve/spam-to-folder.sieve
+#  args:
+#    creates: /var/lib/dovecot/sieve/spam-to-folder.svbin
+#  become_user: vmail
+#  tags: dovecot
+
+- name: Create Dovecot monitoring script
+  template:
+    src: dovecot-monitor.sh.j2
+    dest: /usr/local/bin/dovecot-monitor
+    mode: '0755'
+  tags: dovecot
+
+- name: Create Dovecot user management script
+  template:
+    src: dovecot-users.sh.j2
+    dest: /usr/local/bin/dovecot-users
+    mode: '0755'
+  tags: dovecot
+
+- name: Test Dovecot configuration
+  command: doveconf -n
+  register: dovecot_test
+  changed_when: false
+  failed_when: dovecot_test.rc != 0
+  tags: dovecot
+
+- name: Enable and start Dovecot
+  systemd:
+    name: dovecot
+    enabled: yes
+    state: started
+  tags: dovecot
+
+- name: Display Dovecot information
+  debug:
+    msg:
+      - "Dovecot Configuration Complete!"
+      - "IMAPS Port: 993 (SSL/TLS)"
+      - "POP3S Port: 995 (SSL/TLS - optional)"
+      - "ManageSieve Port: 4190"
+      - ""
+      - "Performance optimized for 250-1000 users"
+      - "Max connections per user: {{ dovecot_mail_max_userip_connections }}"
+      - "Process limit: {{ dovecot_default_process_limit }}"
+      - ""
+      - "Mail location: /srv/imap/%d/%n/"
+      - "Sieve scripts: ~/.sieve/"
+      - ""
+      - "Management commands:"
+      - "  dovecot-monitor    - Show Dovecot status"
+      - "  dovecot-users      - Manage Dovecot users"
+      - "  doveadm who        - Show active connections"
+      - "  doveadm mailbox list -u user@domain.com"
+  tags: dovecot

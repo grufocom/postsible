@@ -1,0 +1,34 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# Postfix monitoring script
+
+set -e
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+echo -e "${BLUE}=== Postfix Status ===${NC}"
+systemctl status postfix --no-pager | head -10
+
+echo ""
+echo -e "${BLUE}=== Mail Queue ===${NC}"
+postqueue -p | tail -1
+
+echo ""
+echo -e "${BLUE}=== Active Connections ===${NC}"
+ss -tnp | grep master | wc -l | xargs echo "Active SMTP connections:"
+
+echo ""
+echo -e "${BLUE}=== Recent Mail Log (last 20 lines) ===${NC}"
+tail -20 /var/log/mail/mail.log
+
+echo ""
+echo -e "${BLUE}=== Postfix Configuration Check ===${NC}"
+postfix check && echo -e "${GREEN}Configuration OK${NC}" || echo -e "${RED}Configuration has errors${NC}"
+
+echo ""
+echo -e "${BLUE}=== Key Configuration ===${NC}"
+postconf -n | grep -E "myhostname|mydomain|virtual_"

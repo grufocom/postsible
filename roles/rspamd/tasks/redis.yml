@@ -1,0 +1,17 @@
+---
+# roles/rspamd/tasks/redis.yml
+- name: Configure Redis for rspamd
+  template:
+    src: redis.conf.j2
+    dest: /etc/redis/redis.conf
+    owner: redis
+    group: redis
+    mode: '0640'
+    backup: yes
+  notify: restart redis
+
+- name: Ensure Redis service is running
+  systemd:
+    name: redis-server
+    state: started
+    enabled: yes

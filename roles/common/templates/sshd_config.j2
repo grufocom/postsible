@@ -1,0 +1,83 @@
+# {{ ansible_managed }}
+# Postsible SSH Configuration
+
+# Port and listening
+Port {{ common_ssh_port }}
+AddressFamily any
+ListenAddress 0.0.0.0
+ListenAddress ::
+
+# Host keys
+HostKey /etc/ssh/ssh_host_rsa_key
+HostKey /etc/ssh/ssh_host_ecdsa_key
+HostKey /etc/ssh/ssh_host_ed25519_key
+
+# Ciphers and keying
+RekeyLimit default none
+
+# Logging
+SyslogFacility AUTH
+LogLevel VERBOSE
+
+# Authentication
+LoginGraceTime 30
+PermitRootLogin {{ common_ssh_permit_root_login }}
+StrictModes yes
+MaxAuthTries {{ common_ssh_max_auth_tries }}
+MaxSessions 10
+
+PubkeyAuthentication {{ 'yes' if common_ssh_pubkey_authentication else 'no' }}
+AuthorizedKeysFile .ssh/authorized_keys .ssh/authorized_keys2
+
+HostbasedAuthentication no
+IgnoreRhosts yes
+
+PasswordAuthentication {{ 'yes' if common_ssh_password_authentication else 'no' }}
+PermitEmptyPasswords no
+ChallengeResponseAuthentication no
+
+# Kerberos options
+KerberosAuthentication no
+KerberosOrLocalPasswd yes
+KerberosTicketCleanup yes
+
+# GSSAPI options
+GSSAPIAuthentication no
+GSSAPICleanupCredentials yes
+
+UsePAM yes
+
+# Disable forwarding unless needed
+AllowAgentForwarding yes
+AllowTcpForwarding yes
+GatewayPorts no
+X11Forwarding {{ 'yes' if common_ssh_x11_forwarding else 'no' }}
+X11DisplayOffset 10
+X11UseLocalhost yes
+PermitTTY yes
+PrintMotd yes
+PrintLastLog yes
+TCPKeepAlive yes
+PermitUserEnvironment no
+Compression delayed
+ClientAliveInterval {{ common_ssh_client_alive_interval }}
+ClientAliveCountMax {{ common_ssh_client_alive_count_max }}
+UseDNS no
+PidFile /run/sshd.pid
+MaxStartups 10:30:100
+PermitTunnel no
+ChrootDirectory none
+VersionAddendum none
+
+# No default banner
+Banner none
+
+# Allow client to pass locale environment variables
+AcceptEnv LANG LC_*
+
+# Subsystem
+Subsystem sftp /usr/lib/openssh/sftp-server
+
+# Restrict to specific users/groups if needed
+# AllowUsers user1 user2
+# AllowGroups ssh-users

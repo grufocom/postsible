@@ -1,0 +1,58 @@
+#!/bin/bash
+# Rspamd Statistics Script
+# Managed by Ansible - DO NOT EDIT MANUALLY
+
+echo "========================================"
+echo "Rspamd Statistics"
+echo "========================================"
+echo ""
+
+# Service status
+echo "Service Status:"
+systemctl status rspamd --no-pager | grep -E "(Active|Main PID|Memory|Tasks)"
+echo ""
+
+# Basic statistics
+echo "Mail Statistics:"
+rspamc stat
+echo ""
+
+# Bayes statistics
+echo "Bayes Classifier:"
+rspamc stat | grep -A 10 "Bayes" || echo "Bayes statistics not available yet"
+echo ""
+
+# Top symbols
+echo "Top Symbols (last 1000 messages):"
+rspamc stat | grep -A 20 "Symbols" || echo "Symbol statistics not available yet"
+echo ""
+
+# Redis info
+echo "Redis Status:"
+redis-cli ping 2>/dev/null && echo "Redis: OK" || echo "Redis: NOT RESPONDING"
+redis-cli info stats 2>/dev/null | grep -E "(keys|expired|evicted)" || true
+echo ""
+
+# DKIM keys
+echo "DKIM Keys:"
+ls -lh /var/lib/rspamd/dkim/*.key 2>/dev/null || echo "No DKIM keys found"
+echo ""
+
+# Recent learning
+echo "Recent Learning Activity:"
+if [ -f /var/log/rspamd-learning/daily.log ]; then
+    echo "Last daily run:"
+    tail -n 3 /var/log/rspamd-learning/daily.log
+else
+    echo "No learning logs yet"
+fi
+echo ""
+
+# Log file sizes
+echo "Log Sizes:"
+du -sh /var/log/rspamd/*.log 2>/dev/null || echo "No logs yet"
+echo ""
+
+echo "========================================"
+echo "For WebUI access: https://{{ postfix_myhostname }}/rspamd/"
+echo "========================================"

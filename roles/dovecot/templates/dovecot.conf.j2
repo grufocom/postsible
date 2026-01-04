@@ -1,0 +1,31 @@
+# {{ ansible_managed }}
+# Dovecot main configuration (Dovecot 2.4.1)
+
+# REQUIRED for Dovecot 2.4+
+dovecot_config_version = 2.4.1
+dovecot_storage_version = 2.4
+
+mail_plugins = 
+
+# Protocols
+protocols = {{ dovecot_protocols }}
+
+# Include configuration files
+!include conf.d/*.conf
+!include_try /usr/share/dovecot/protocols.d/*.protocol
+
+# Base directory
+base_dir = /run/dovecot/
+
+# Default internal user
+default_internal_user = dovecot
+default_internal_group = dovecot
+
+# Login user
+default_login_user = dovenull
+
+# Virtual memory limit
+default_vsz_limit = {{ dovecot_vsz_limit }}
+
+# Instance name
+instance_name = dovecot

@@ -1,0 +1,11 @@
+# roles/dovecot/handlers/main.yml
+---
+- name: restart dovecot
+  systemd:
+    name: dovecot
+    state: restarted
+
+- name: reload dovecot
+  systemd:
+    name: dovecot
+    state: reloaded

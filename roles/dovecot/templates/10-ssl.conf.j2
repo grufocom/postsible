@@ -1,0 +1,16 @@
+# {{ ansible_managed }}
+# Dovecot SSL configuration (Dovecot 2.4.1)
+
+ssl = {{ dovecot_ssl }}
+ssl_server_cert_file = {{ dovecot_ssl_cert }}
+ssl_server_key_file = {{ dovecot_ssl_key }}
+
+# SSL protocols and ciphers (modern, secure)
+ssl_min_protocol = {{ dovecot_ssl_min_protocol }}
+ssl_cipher_list = {{ dovecot_ssl_cipher_list }}
+ssl_server_prefer_ciphers = {{ 'server' if dovecot_ssl_prefer_server_ciphers else 'no' }}
+
+# DH parameters
+ssl_server_dh_file = {{ dovecot_ssl_dh }}
+
+# Dovecot 2.4.1: ssl_options wurde entfernt, Kompression ist standardmäßig deaktiviert

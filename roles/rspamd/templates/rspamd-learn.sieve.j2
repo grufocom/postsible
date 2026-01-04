@@ -1,0 +1,16 @@
+# Sieve script for rspamd learning
+# Managed by Ansible - DO NOT EDIT MANUALLY
+
+require ["fileinto", "mailbox"];
+
+# Automatically file spam into .Spam folder
+if header :contains "X-Spam" "Yes" {
+    fileinto :create ".Spam";
+    stop;
+}
+
+# High spam score -> directly to spam
+if header :contains "X-Spam-Status" "reject" {
+    fileinto :create ".Spam";
+    stop;
+}

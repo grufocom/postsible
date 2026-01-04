@@ -1,0 +1,80 @@
+---
+# roles/rspamd/tasks/install.yml
+- name: Install required packages for repository
+  apt:
+    name:
+      - apt-transport-https
+      - ca-certificates
+      - gnupg
+      - curl
+    state: present
+    update_cache: yes
+
+- name: Create keyrings directory
+  file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: '0755'
+
+- name: Download rspamd GPG key
+  shell: |
+    curl -fsSL https://rspamd.com/apt-stable/gpg.key | gpg --dearmor -o /etc/apt/keyrings/rspamd.gpg
+  args:
+    creates: /etc/apt/keyrings/rspamd.gpg
+
+- name: Set correct permissions on rspamd GPG key
+  file:
+    path: /etc/apt/keyrings/rspamd.gpg
+    mode: '0644'
+
+- name: Add rspamd official repository
+  apt_repository:
+    repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/rspamd.gpg] http://rspamd.com/apt-stable/ {{ ansible_distribution_release }} main"
+    state: present
+    filename: rspamd
+
+- name: Update apt cache after adding repository
+  apt:
+    update_cache: yes
+
+- name: Install Redis server
+  apt:
+    name: redis-server
+    state: present
+
+- name: Install rspamd from official repository
+  apt:
+    name: rspamd
+    state: present
+
+- name: Ensure rspamd user exists
+  user:
+    name: _rspamd
+    system: yes
+    shell: /usr/sbin/nologin
+    home: /var/lib/rspamd
+    create_home: yes
+
+- name: Create rspamd directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: _rspamd
+    group: _rspamd
+    mode: '0755'
+  loop:
+    - /var/lib/rspamd
+    - /var/lib/rspamd/dkim
+    - /etc/rspamd/local.d
+    - /etc/rspamd/override.d
+
+- name: Enable and start Redis service
+  systemd:
+    name: redis-server
+    enabled: yes
+    state: started
+
+- name: Enable rspamd service (don't start yet)
+  systemd:
+    name: rspamd
+    enabled: yes

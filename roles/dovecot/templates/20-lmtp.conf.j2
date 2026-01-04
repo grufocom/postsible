@@ -1,0 +1,23 @@
+# roles/dovecot/templates/20-lmtp.conf.j2
+# {{ ansible_managed }}
+# LMTP specific settings (Dovecot 2.4.1)
+# Überschreibt die Standard-Debian /etc/dovecot/conf.d/20-lmtp.conf
+
+protocol lmtp {
+  # Postmaster address
+  postmaster_address = postmaster@{{ mail_primary_domain }}
+  
+  # WICHTIG: auth_username_format NICHT setzen!
+  # Die Standard-Config hat: auth_username_format = %{user | username | lower}
+  # Das schneidet die Domain ab (admin@example.com -> admin)
+  # Wir brauchen die KOMPLETTE Email-Adresse!
+  
+  # Mail plugins für LMTP
+  mail_plugins {
+    quota = yes
+    sieve = yes
+  }
+  
+  # Save to detail mailbox
+  lmtp_save_to_detail_mailbox = {{ 'yes' if dovecot_lmtp_save_to_detail_mailbox else 'no' }}
+}

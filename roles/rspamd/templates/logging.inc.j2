@@ -1,0 +1,18 @@
+# Rspamd logging configuration
+# Managed by Ansible - DO NOT EDIT MANUALLY
+
+# Log level: error, warning, notice, info, debug
+level = "{{ rspamd_log_level | default('info') }}";
+
+# Log to file
+type = "file";
+filename = "/var/log/rspamd/rspamd.log";
+
+# Systemd integration
+systemd = true;
+
+# Log color
+color = false;
+
+# Debug modules (optional)
+debug_modules = [];

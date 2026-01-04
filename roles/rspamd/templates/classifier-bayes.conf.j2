@@ -1,0 +1,45 @@
+# Rspamd Bayes classifier configuration
+# Managed by Ansible - DO NOT EDIT MANUALLY
+
+backend = "redis";
+
+# Auto-learning settings
+autolearn {
+  # Learn spam if score >= 12
+  spam_threshold = {{ rspamd_bayes_spam_threshold | default('12.0') }};
+  # Learn ham if score <= -1
+  ham_threshold = {{ rspamd_bayes_ham_threshold | default('-1.0') }};
+  # Check at least this many messages before learning
+  check_balance = true;
+  min_balance = 0.9;
+}
+
+# Per-user statistics (optional)
+per_user = {{ rspamd_bayes_per_user | default('false') | lower }};
+
+# Per-language statistics
+per_language = true;
+
+# Minimum tokens for classification
+min_tokens = {{ rspamd_bayes_min_tokens | default('11') }};
+
+# Learn condition
+learn_condition = <<EOD
+return function(task, is_spam, is_unlearn)
+  local prob = task:get_mempool():get_variable('bayes_prob', 'double')
+  if prob then
+    local in_class = is_spam
+    local cl
+    if in_class then
+      cl = 'spam'
+    else
+      cl = 'ham'
+    end
+    -- Learn if probability is uncertain
+    if prob > 0.3 and prob < 0.7 then
+      return true, string.format('probability %.2f is uncertain for %s', prob, cl)
+    end
+  end
+  return false, 'not learned'
+end
+EOD;

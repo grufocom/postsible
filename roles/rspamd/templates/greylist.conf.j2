@@ -1,0 +1,38 @@
+# Rspamd greylist module configuration
+# Managed by Ansible - DO NOT EDIT MANUALLY
+
+# Enable greylisting
+enabled = {{ rspamd_greylist_enabled | default('true') }};
+
+# Greylist timeouts
+timeout = {{ rspamd_greylist_timeout | default('300') }}; # 5 minutes
+expire = {{ rspamd_greylist_expire | default('86400') }}; # 24 hours
+expire_whitelisted = {{ rspamd_greylist_expire_whitelisted | default('2592000') }}; # 30 days
+
+# Keys for greylist
+# triplet: ip + from + rcpt (most strict)
+# from: only sender address
+# ip: only IP address
+key_prefix = "rg";
+ipv4_mask = 24; # Group /24 networks
+ipv6_mask = 64; # Group /64 networks
+
+# Action on greylist
+action = "soft reject";
+
+# Message template
+message = "Try again later";
+
+{% if rspamd_greylist_whitelist_ip is defined and rspamd_greylist_whitelist_ip != '' %}
+# Whitelist IPs (format: "ip1, ip2, ip3")
+whitelisted_ip = "{{ rspamd_greylist_whitelist_ip }}";
+{% endif %}
+
+# Auto-whitelist after successful delivery
+auto_whitelist = true;
+
+# Report time to client
+report_time = true;
+
+# Use Redis backend
+backend = "redis";

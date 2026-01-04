@@ -1,0 +1,36 @@
+---
+# roles/rspamd/handlers/main.yml
+
+- name: restart rspamd
+  systemd:
+    name: rspamd
+    state: restarted
+  listen: restart rspamd
+
+- name: reload rspamd
+  systemd:
+    name: rspamd
+    state: reloaded
+  listen: reload rspamd
+
+- name: restart redis
+  systemd:
+    name: redis-server
+    state: restarted
+  listen: restart redis
+
+- name: reload nginx
+  systemd:
+    name: nginx
+    state: reloaded
+  listen: reload nginx
+
+- name: compile sieve scripts
+  command: sievec /var/lib/dovecot/sieve/rspamd-learn.sieve
+  listen: compile sieve scripts
+
+- name: restart dovecot
+  systemd:
+    name: dovecot
+    state: restarted
+  listen: restart dovecot

@@ -1,0 +1,16 @@
+# Fail2ban whitelist configuration
+# Managed by Ansible - DO NOT EDIT MANUALLY
+
+[DEFAULT]
+# Whitelisted IPs from ufw_ssh_trusted_ips
+ignoreip = 127.0.0.1/8 ::1
+{% if ufw_ssh_trusted_ips | default([]) %}
+{% for ip_entry in ufw_ssh_trusted_ips %}
+           {{ ip_entry.ip }}  # {{ ip_entry.comment }}
+{% endfor %}
+{% endif %}
+{% if fail2ban_additional_whitelist | default([]) %}
+{% for ip in fail2ban_additional_whitelist %}
+           {{ ip }}
+{% endfor %}
+{% endif %}

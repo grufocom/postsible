@@ -1,0 +1,38 @@
+# DKIM Signing Configuration
+# Managed by Ansible - DO NOT EDIT MANUALLY
+
+# Enable DKIM signing
+enabled = true;
+
+# Sign authenticated mail (IMPORTANT!)
+sign_authenticated = true;
+
+# Don't sign local mail
+sign_local = false;
+
+# DKIM selector
+selector = "dkim";
+
+# Path to private keys
+path = "/var/lib/rspamd/dkim/$domain.key";
+
+# Sign ONLY for authenticated users, regardless of IP
+use_esld = false;
+use_domain = "envelope";
+allow_username_mismatch = true;
+allow_envfrom_empty = true;
+
+# Domain configuration
+{% if mail_virtual_domains | length > 0 %}
+domain {
+{% for domain in mail_virtual_domains %}
+  {{ domain }} {
+    selector = "dkim";
+    path = "/var/lib/rspamd/dkim/{{ domain }}.key";
+  }
+{% endfor %}
+}
+{% endif %}
+
+# Note: sign_headers removed - caused crashes in rspamd
+# rspamd will use sensible defaults for header signing

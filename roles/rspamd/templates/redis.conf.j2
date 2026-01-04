@@ -1,0 +1,87 @@
+# Redis configuration for rspamd
+# Managed by Ansible - DO NOT EDIT MANUALLY
+
+# Network
+bind 127.0.0.1 ::1
+protected-mode yes
+port 6379
+tcp-backlog 511
+timeout 0
+tcp-keepalive 300
+
+# General
+daemonize yes
+supervised systemd
+pidfile /var/run/redis/redis-server.pid
+loglevel notice
+logfile /var/log/redis/redis-server.log
+databases 16
+
+# Snapshotting - Disabled for rspamd performance
+{% if not (rspamd_redis_disable_persistence | default(true)) %}
+save 900 1
+save 300 10
+save 60 10000
+{% else %}
+# Persistence disabled for better performance with rspamd
+{% endif %}
+
+stop-writes-on-bgsave-error yes
+rdbcompression yes
+rdbchecksum yes
+dbfilename dump.rdb
+dir /var/lib/redis
+
+# Replication
+replica-serve-stale-data yes
+replica-read-only yes
+repl-diskless-sync no
+repl-diskless-sync-delay 5
+repl-disable-tcp-nodelay no
+replica-priority 100
+
+# Security
+requirepass {{ rspamd_redis_password | default('') }}
+{% if rspamd_redis_password | default('') %}
+# Password protection enabled
+{% else %}
+# No password set - only localhost access
+{% endif %}
+
+# Limits
+maxclients 10000
+maxmemory {{ rspamd_redis_maxmemory | default('256mb') }}
+maxmemory-policy allkeys-lru
+
+# Append only file - Disabled for rspamd
+appendonly no
+
+# Slow log
+slowlog-log-slower-than 10000
+slowlog-max-len 128
+
+# Latency monitor
+latency-monitor-threshold 0
+
+# Event notification
+notify-keyspace-events ""
+
+# Advanced config
+hash-max-ziplist-entries 512
+hash-max-ziplist-value 64
+list-max-ziplist-size -2
+list-compress-depth 0
+set-max-intset-entries 512
+zset-max-ziplist-entries 128
+zset-max-ziplist-value 64
+hll-sparse-max-bytes 3000
+stream-node-max-bytes 4096
+stream-node-max-entries 100
+activerehashing yes
+client-output-buffer-limit normal 0 0 0
+client-output-buffer-limit replica 256mb 64mb 60
+client-output-buffer-limit pubsub 32mb 8mb 60
+hz 10
+dynamic-hz yes
+aof-rewrite-incremental-fsync yes
+rdb-save-incremental-fsync yes

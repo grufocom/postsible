@@ -1,0 +1,18 @@
+# Rspamd controller worker configuration
+# Managed by Ansible - DO NOT EDIT MANUALLY
+
+# Bind to localhost only (nginx will proxy)
+bind_socket = "127.0.0.1:11334";
+
+# Enable password for WebUI
+password = "{{ rspamd_webui_password_hash }}";
+
+# Enable password for privileged commands (learning, fuzzy storage)
+enable_password = "{{ rspamd_webui_enable_password_hash }}";
+
+# Secure cookies
+secure_ip = "127.0.0.1";
+secure_ip = "::1";
+
+# Statistics
+count = 10;

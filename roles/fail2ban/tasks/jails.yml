@@ -1,0 +1,100 @@
+---
+# roles/fail2ban/tasks/jails.yml
+
+# SSH Jail
+- name: Configure SSH jail
+  template:
+    src: jail-sshd.conf.j2
+    dest: /etc/fail2ban/jail.d/sshd.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart fail2ban
+
+# Postfix SASL Jail
+- name: Configure Postfix SASL filter
+  template:
+    src: filter-postfix-sasl.conf.j2
+    dest: /etc/fail2ban/filter.d/postfix-sasl.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart fail2ban
+
+- name: Configure Postfix SASL jail
+  template:
+    src: jail-postfix-sasl.conf.j2
+    dest: /etc/fail2ban/jail.d/postfix-sasl.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart fail2ban
+
+# Dovecot Jail
+- name: Configure Dovecot jail
+  template:
+    src: jail-dovecot.conf.j2
+    dest: /etc/fail2ban/jail.d/dovecot.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart fail2ban
+
+# Nginx HTTP Auth Jail
+- name: Configure Nginx HTTP Auth jail
+  template:
+    src: jail-nginx-http-auth.conf.j2
+    dest: /etc/fail2ban/jail.d/nginx-http-auth.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart fail2ban
+
+# Rspamd Jail (optional)
+- name: Configure Rspamd filter
+  template:
+    src: filter-rspamd.conf.j2
+    dest: /etc/fail2ban/filter.d/rspamd.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart fail2ban
+  when: fail2ban_enable_rspamd_jail | default(false)
+
+- name: Configure Rspamd jail
+  template:
+    src: jail-rspamd.conf.j2
+    dest: /etc/fail2ban/jail.d/rspamd.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart fail2ban
+  when: fail2ban_enable_rspamd_jail | default(false)
+
+# SnappyMail Jail
+- name: Configure SnappyMail filter
+  template:
+    src: filter-snappymail.conf.j2
+    dest: /etc/fail2ban/filter.d/snappymail.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart fail2ban
+
+- name: Configure SnappyMail jail
+  template:
+    src: jail-snappymail.conf.j2
+    dest: /etc/fail2ban/jail.d/snappymail.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart fail2ban
+
+# SnappyMail Logrotate
+- name: Configure logrotate for SnappyMail logs
+  template:
+    src: snappymail.logrotate.j2
+    dest: /etc/logrotate.d/snappymail
+    owner: root
+    group: root
+    mode: '0644'

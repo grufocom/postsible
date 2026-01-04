@@ -1,0 +1,245 @@
+---
+# Nginx main tasks
+
+- name: Detect available PHP version
+  shell: |
+    apt-cache search php-fpm | grep -oP 'php\K[0-9]+\.[0-9]+' | head -1
+  register: detected_php_version
+  changed_when: false
+  tags: nginx
+
+- name: Set PHP version fact
+  set_fact:
+    nginx_php_version: "{{ detected_php_version.stdout | default('8.2') }}"
+  when: detected_php_version.stdout != ""
+  tags: nginx
+
+- name: Display detected PHP version
+  debug:
+    msg: "Using PHP version: {{ nginx_php_version }}"
+  tags: nginx
+
+- name: Install Nginx and PHP-FPM
+  apt:
+    name:
+      - nginx
+      - php{{ nginx_php_version }}-fpm
+      - php{{ nginx_php_version }}-cli
+      - php{{ nginx_php_version }}-mysql
+      - php{{ nginx_php_version }}-curl
+      - php{{ nginx_php_version }}-gd
+      - php{{ nginx_php_version }}-mbstring
+      - php{{ nginx_php_version }}-xml
+      - php{{ nginx_php_version }}-zip
+      - php{{ nginx_php_version }}-intl
+      - php{{ nginx_php_version }}-bcmath
+    state: present
+    update_cache: yes
+  tags: nginx
+
+- name: Ensure nginx is stopped during configuration
+  systemd:
+    name: nginx
+    state: stopped
+  tags: nginx
+
+- name: Create web directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ nginx_user }}"
+    group: "{{ nginx_group }}"
+    mode: '0755'
+  loop:
+    - /var/www
+    - /var/www/html
+  tags: nginx
+
+- name: Create default index.html (Steampunk Standby Page)
+  copy:
+    dest: /var/www/html/index.html
+    content: |
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="robots" content="noindex, nofollow">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>ChronoEngine Node-12B</title>
+        <style>
+          body {
+            margin: 0;
+            padding: 0;
+            background: #1b1b1b;
+            color: #d2b48c;
+            font-family: 'Courier New', monospace;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            background-image: radial-gradient(#2e2e2e 1px, transparent 1px);
+            background-size: 40px 40px;
+          }
+          .container {
+            text-align: center;
+            max-width: 600px;
+          }
+          h1 {
+            font-size: 2.5em;
+            color: #e0c097;
+            text-shadow: 1px 1px 0 #000;
+          }
+          p {
+            font-size: 1.1em;
+            color: #c0a080;
+            margin-top: 1em;
+            line-height: 1.4;
+          }
+          .gear {
+            font-size: 2em;
+            animation: rotate 10s linear infinite;
+            display: inline-block;
+            color: #a67c52;
+          }
+          @keyframes rotate {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="gear">⚙️</div>
+          <h1>Node-12B: Standby Mode</h1>
+          <p>Temporal interface offline.<br>Maintenance cycle in progress.</p>
+          <p><em>"Even the oldest gears must sometimes rest."</em></p>
+        </div>
+      </body>
+      </html>
+    owner: "{{ nginx_user }}"
+    group: "{{ nginx_group }}"
+    mode: '0644'
+  tags: nginx
+
+# SSL Certificate Detection - runs before vhost configuration
+- name: Detect and select SSL certificates
+  include_tasks: ssl-detection.yml
+  tags:
+    - nginx
+    - nginx-ssl
+
+- name: Configure nginx.conf
+  template:
+    src: nginx.conf.j2
+    dest: /etc/nginx/nginx.conf
+    owner: root
+    group: root
+    mode: '0644'
+    backup: yes
+  notify: reload nginx
+  tags: nginx
+
+- name: Remove default nginx site
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/nginx/sites-enabled/default
+    - /etc/nginx/sites-available/default
+  tags: nginx
+
+- name: Configure Rspamd WebUI VHost (SSL version if available)
+  template:
+    src: rspamd-vhost-ssl.conf.j2
+    dest: /etc/nginx/sites-available/rspamd
+    owner: root
+    group: root
+    mode: '0644'
+  when:
+    - nginx_rspamd_webui_enabled
+    - nginx_ssl_enabled | default(false)
+  notify: reload nginx
+  tags: nginx
+
+- name: Configure Rspamd WebUI VHost (HTTP-only fallback)
+  template:
+    src: rspamd-vhost.conf.j2
+    dest: /etc/nginx/sites-available/rspamd
+    owner: root
+    group: root
+    mode: '0644'
+  when:
+    - nginx_rspamd_webui_enabled
+    - not (nginx_ssl_enabled | default(false))
+  notify: reload nginx
+  tags: nginx
+
+- name: Enable Rspamd WebUI VHost
+  file:
+    src: /etc/nginx/sites-available/rspamd
+    dest: /etc/nginx/sites-enabled/rspamd
+    state: link
+  when: nginx_rspamd_webui_enabled
+  notify: reload nginx
+  tags: nginx
+
+- name: Configure PHP-FPM pool
+  template:
+    src: php-fpm-pool.conf.j2
+    dest: "/etc/php/{{ nginx_php_version }}/fpm/pool.d/www.conf"
+    owner: root
+    group: root
+    mode: '0644'
+    backup: yes
+  when: nginx_php_fpm_enabled
+  notify: restart php-fpm
+  tags: nginx
+
+- name: Test nginx configuration
+  command: nginx -t
+  changed_when: false
+  register: nginx_test
+  failed_when: nginx_test.rc != 0
+  tags: nginx
+
+- name: Enable and start PHP-FPM
+  systemd:
+    name: "php{{ nginx_php_version }}-fpm"
+    enabled: yes
+    state: started
+  when: nginx_php_fpm_enabled
+  tags: nginx
+
+- name: Enable and start Nginx
+  systemd:
+    name: nginx
+    enabled: yes
+    state: started
+  tags: nginx
+
+- name: Display Nginx information
+  debug:
+    msg: |
+      Nginx Configuration Complete!
+      ==========================================
+      SSL Status: {{ 'ENABLED ✓' if nginx_ssl_enabled | default(false) else 'DISABLED (HTTP only)' }}
+      SSL Source: {{ nginx_ssl_source | default('Not detected') }}
+      Certificate: {{ nginx_ssl_cert }}
+      HSTS: {{ 'Enabled' if nginx_hsts_enabled else 'Disabled' }}
+      ==========================================
+
+      HTTP Port: {{ nginx_http_port }}
+      HTTPS Port: {{ nginx_https_port }}{% if not (nginx_ssl_enabled | default(false)) %} (not active yet){% endif %}
+
+      Rspamd WebUI: {% if nginx_ssl_enabled | default(false) %}https{% else %}http{% endif %}://{{ nginx_server_name }}{{ nginx_rspamd_webui_path }}/
+
+      PHP-FPM Socket: {{ nginx_php_fpm_socket }}
+      PHP Version: {{ nginx_php_version }}
+
+      {% if not (nginx_ssl_enabled | default(false)) %}
+      Next steps:
+        1. Run certbot role for SSL certificates
+        2. Re-run nginx role to enable HTTPS
+        3. Deploy SnappyMail role
+      {% endif %}
+  tags: nginx

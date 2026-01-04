@@ -1,0 +1,211 @@
+---
+# Certbot main tasks
+
+- name: Install Certbot and Nginx plugin
+  apt:
+    name:
+      - certbot
+      - python3-certbot-nginx
+    state: present
+    update_cache: yes
+  tags: certbot
+
+- name: Ensure webroot directory exists
+  file:
+    path: "{{ certbot_webroot }}"
+    state: directory
+    owner: www-data
+    group: www-data
+    mode: '0755'
+  tags: certbot
+
+- name: Add dovecot to ssl-cert group (for Let's Encrypt access)
+  user:
+    name: dovecot
+    groups: ssl-cert
+    append: yes
+  tags: certbot
+
+- name: Fix Let's Encrypt directory permissions
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0750'
+    group: ssl-cert
+  loop:
+    - /etc/letsencrypt/live
+    - /etc/letsencrypt/archive
+  tags: certbot
+
+- name: Check if certificates already exist
+  stat:
+    path: "{{ certbot_cert_path }}/{{ item }}/fullchain.pem"
+  register: cert_exists
+  loop: "{{ certbot_domains }}"
+  tags: certbot
+
+- name: Display certificate status
+  debug:
+    msg: "Certificate for {{ item.item }}: {{ 'EXISTS' if item.stat.exists else 'NOT FOUND' }}"
+  loop: "{{ cert_exists.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  tags: certbot
+
+- name: Obtain SSL certificates for each domain
+  command: >
+    certbot certonly
+    --nginx
+    --non-interactive
+    --agree-tos
+    --email {{ certbot_email }}
+    --domain {{ item.item }}
+    --rsa-key-size {{ certbot_rsa_key_size }}
+    {{ '--staging' if certbot_staging else '' }}
+    {{ '--force-renewal' if certbot_force_renewal else '' }}
+  loop: "{{ cert_exists.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: not item.stat.exists or certbot_force_renewal
+  register: certbot_result
+  failed_when:
+    - certbot_result.rc != 0
+    - "'Certificate not yet due for renewal' not in certbot_result.stdout"
+  tags: certbot
+
+- name: Create renewal hooks directory
+  file:
+    path: /etc/letsencrypt/renewal-hooks/deploy
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  tags: certbot
+
+- name: Create deploy hook for permissions (runs on every renewal)
+  template:
+    src: deploy-hook.sh.j2
+    dest: /etc/letsencrypt/renewal-hooks/deploy/fix-permissions.sh
+    owner: root
+    group: root
+    mode: '0755'
+  tags: certbot
+
+- name: Create post-renewal hook script (reload services)
+  template:
+    src: renewal-hook.sh.j2
+    dest: /etc/letsencrypt/renewal-hooks/post/reload-services.sh
+    owner: root
+    group: root
+    mode: '0755'
+  when: certbot_renewal_hooks_enabled
+  tags: certbot
+
+- name: Test certbot renewal (dry-run)
+  command: certbot renew --dry-run
+  register: certbot_test
+  changed_when: false
+  failed_when: false
+  tags: certbot
+
+- name: Display certbot test result
+  debug:
+    msg: "{{ certbot_test.stdout_lines }}"
+  when: certbot_test.stdout_lines is defined
+  tags: certbot
+
+- name: Update Nginx VHosts to use SSL
+  template:
+    src: rspamd-vhost-ssl.conf.j2
+    dest: /etc/nginx/sites-available/rspamd
+    owner: root
+    group: root
+    mode: '0644'
+  notify: reload nginx
+  tags: certbot
+
+- name: Update Postfix TLS configuration
+  lineinfile:
+    path: /etc/postfix/main.cf
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    state: present
+  loop:
+    - regexp: '^smtpd_tls_cert_file\s*='
+      line: "smtpd_tls_cert_file = {{ certbot_cert_path }}/{{ certbot_domains[0] }}/fullchain.pem"
+    - regexp: '^smtpd_tls_key_file\s*='
+      line: "smtpd_tls_key_file = {{ certbot_cert_path }}/{{ certbot_domains[0] }}/privkey.pem"
+    - regexp: '^smtp_tls_cert_file\s*='
+      line: "smtp_tls_cert_file = {{ certbot_cert_path }}/{{ certbot_domains[0] }}/fullchain.pem"
+    - regexp: '^smtp_tls_key_file\s*='
+      line: "smtp_tls_key_file = {{ certbot_cert_path }}/{{ certbot_domains[0] }}/privkey.pem"
+    - regexp: '^smtpd_tls_security_level\s*='
+      line: "smtpd_tls_security_level = may"
+  notify: reload postfix
+  tags: certbot
+
+- name: Update Dovecot SSL configuration (Dovecot 2.4+)
+  lineinfile:
+    path: /etc/dovecot/conf.d/10-ssl.conf
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    state: present
+  loop:
+    - regexp: '^ssl_server_cert_file\s*='
+      line: "ssl_server_cert_file = {{ certbot_cert_path }}/{{ certbot_domains[0] }}/fullchain.pem"
+    - regexp: '^ssl_server_key_file\s*='
+      line: "ssl_server_key_file = {{ certbot_cert_path }}/{{ certbot_domains[0] }}/privkey.pem"
+    - regexp: '^ssl\s*='
+      line: "ssl = required"
+  notify: reload dovecot
+  tags: certbot
+
+- name: Remove deprecated Dovecot SSL directives (cleanup)
+  lineinfile:
+    path: /etc/dovecot/conf.d/10-ssl.conf
+    regexp: "{{ item }}"
+    state: absent
+  loop:
+    - '^ssl_cert\s*='
+    - '^ssl_key\s*='
+  notify: reload dovecot
+  tags: certbot
+
+- name: Ensure certbot timer is enabled
+  systemd:
+    name: certbot.timer
+    enabled: yes
+    state: started
+  tags: certbot
+
+- name: Display SSL certificate information
+  debug:
+    msg:
+      - "SSL Certificates Successfully Configured!"
+      - ""
+      - "Certificates for:"
+      - "{{ certbot_domains | join(', ') }}"
+      - ""
+      - "Certificate location: {{ certbot_cert_path }}/[domain]/"
+      - "  - fullchain.pem (certificate + chain)"
+      - "  - privkey.pem (private key)"
+      - "  - cert.pem (certificate only)"
+      - "  - chain.pem (chain only)"
+      - ""
+      - "Auto-renewal: {{ 'ENABLED' if certbot_auto_renew else 'DISABLED' }}"
+      - "Renewal check: Daily via certbot.timer"
+      - "Deploy hook: Automatically fixes permissions on renewal"
+      - ""
+      - "Services updated with SSL:"
+      - "  - Nginx (HTTPS on port 443)"
+      - "  - Postfix (STARTTLS + SMTPS)"
+      - "  - Dovecot (IMAPS + SSL required)"
+      - ""
+      - "Access Rspamd WebUI: https://{{ certbot_domains[0] }}/rspamd/"
+      - ""
+      - "Next steps:"
+      - "  1. Test HTTPS access to Rspamd WebUI"
+      - "  2. Test IMAP SSL in Thunderbird (port 993)"
+      - "  3. Set DNS records (DKIM, SPF, DMARC)"
+      - "  4. Deploy SnappyMail webmail"
+  tags: certbot

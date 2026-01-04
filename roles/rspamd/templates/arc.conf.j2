@@ -1,0 +1,41 @@
+# ARC (Authenticated Received Chain) Configuration
+# Managed by Ansible - DO NOT EDIT MANUALLY
+
+# Enable ARC signing
+enabled = {{ rspamd_enable_arc | default('true') | lower }};
+
+# Use same keys as DKIM
+use_dkim = true;
+
+# ARC selector (same as DKIM)
+selector = "dkim";
+
+# Path to private keys
+path = "/var/lib/rspamd/dkim/$domain.key";
+
+# Sign authenticated messages
+sign_authenticated = true;
+
+# Sign local messages
+sign_local = false;
+
+# Domain configuration
+{% if mail_virtual_domains | length > 0 %}
+domain {
+{% for domain in mail_virtual_domains %}
+  {{ domain }} {
+    selector = "dkim";
+    path = "/var/lib/rspamd/dkim/{{ domain }}.key";
+  }
+{% endfor %}
+}
+{% endif %}
+
+# Allow username mismatch (for aliases)
+allow_username_mismatch = true;
+
+# Use envelope sender for domain
+use_domain = "header";
+
+# Algorithm
+algorithm = "rsa-sha256";

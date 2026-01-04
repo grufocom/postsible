@@ -1,0 +1,31 @@
+# Rspamd options configuration
+# Managed by Ansible - DO NOT EDIT MANUALLY
+
+# DNS settings
+dns {
+  timeout = 1s;
+  sockets = 16;
+  retransmits = 5;
+}
+
+# Local networks (trusted)
+local_addrs = "127.0.0.0/8, ::1";
+
+{% if rspamd_local_networks | default([]) %}
+# Additional trusted networks
+{% for network in rspamd_local_networks %}
+local_addrs = "{{ network }}";
+{% endfor %}
+{% endif %}
+
+# Tempdir
+tempdir = "/tmp";
+
+# URL redirector
+url_redirector = "google";
+
+# Enable experimental features
+enable_experimental = {{ rspamd_enable_experimental | default('false') | lower }};
+
+# Disable some checks for authenticated users
+authenticated_headers = ["Authentication-Results"];

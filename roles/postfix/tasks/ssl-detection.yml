@@ -1,0 +1,69 @@
+---
+# roles/postfix/tasks/ssl-detection.yml
+# Intelligent SSL certificate detection
+
+- name: Check if Let's Encrypt certificate exists for primary domain
+  stat:
+    path: "/etc/letsencrypt/live/{{ mail_primary_domain }}/fullchain.pem"
+  register: letsencrypt_primary_cert
+
+- name: Check if Let's Encrypt certificate exists for myhostname
+  stat:
+    path: "/etc/letsencrypt/live/{{ postfix_myhostname }}/fullchain.pem"
+  register: letsencrypt_hostname_cert
+
+- name: Check if custom SSL certificate exists
+  stat:
+    path: "{{ postfix_custom_tls_cert_file }}"
+  register: custom_cert
+  when: postfix_custom_tls_cert_file is defined
+
+- name: Set SSL certificate facts (Let's Encrypt for myhostname)
+  set_fact:
+    postfix_tls_cert_file: "/etc/letsencrypt/live/{{ postfix_myhostname }}/fullchain.pem"
+    postfix_tls_key_file: "/etc/letsencrypt/live/{{ postfix_myhostname }}/privkey.pem"
+    postfix_ssl_source: "Let's Encrypt ({{ postfix_myhostname }})"
+  when: letsencrypt_hostname_cert.stat.exists
+
+- name: Set SSL certificate facts (Let's Encrypt for primary domain)
+  set_fact:
+    postfix_tls_cert_file: "/etc/letsencrypt/live/{{ mail_primary_domain }}/fullchain.pem"
+    postfix_tls_key_file: "/etc/letsencrypt/live/{{ mail_primary_domain }}/privkey.pem"
+    postfix_ssl_source: "Let's Encrypt ({{ mail_primary_domain }})"
+  when: 
+    - not letsencrypt_hostname_cert.stat.exists
+    - letsencrypt_primary_cert.stat.exists
+
+- name: Set SSL certificate facts (Custom certificate)
+  set_fact:
+    postfix_tls_cert_file: "{{ postfix_custom_tls_cert_file }}"
+    postfix_tls_key_file: "{{ postfix_custom_tls_key_file }}"
+    postfix_ssl_source: "Custom certificate"
+  when:
+    - postfix_custom_tls_cert_file is defined
+    - custom_cert.stat.exists
+    - not letsencrypt_hostname_cert.stat.exists
+    - not letsencrypt_primary_cert.stat.exists
+
+- name: Set SSL certificate facts (Fallback to snakeoil)
+  set_fact:
+    postfix_tls_cert_file: "/etc/ssl/certs/ssl-cert-snakeoil.pem"
+    postfix_tls_key_file: "/etc/ssl/private/ssl-cert-snakeoil.key"
+    postfix_ssl_source: "Self-signed (snakeoil) - WARNING: Not production ready!"
+  when:
+    - not letsencrypt_hostname_cert.stat.exists
+    - not letsencrypt_primary_cert.stat.exists
+    - not (postfix_custom_tls_cert_file is defined and custom_cert.stat.exists)
+
+- name: Display selected SSL certificate
+  debug:
+    msg: |
+      ========================================
+      Postfix SSL Certificate Selection
+      ========================================
+      
+      Source: {{ postfix_ssl_source }}
+      Certificate: {{ postfix_tls_cert_file }}
+      Key: {{ postfix_tls_key_file }}
+      
+      ========================================

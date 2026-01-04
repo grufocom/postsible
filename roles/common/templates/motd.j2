@@ -1,0 +1,14 @@
+ ____           _       _ _     _      
+|  _ \ ___  ___| |_ ___(_) |__ | | ___ 
+| |_) / _ \/ __| __/ __| | '_ \| |/ _ \
+|  __/ (_) \__ \ |_\__ \ | |_) | |  __/
+|_|   \___/|___/\__|___/_|_.__/|_|\___|
+
+{{ common_hostname | default(ansible_hostname) }}
+----------------------------------------------
+Deployed: {{ ansible_date_time.date }}
+OS: Debian {{ ansible_distribution_version }}
+Kernel: {{ ansible_kernel }}
+
+This is a Postsible Mailserver installation.
+Unauthorized access is prohibited.

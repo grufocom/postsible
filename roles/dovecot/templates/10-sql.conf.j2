@@ -1,0 +1,26 @@
+# {{ ansible_managed }}
+# Dovecot SQL configuration (Dovecot 2.4.1)
+
+sql_driver = mysql
+
+mysql 127.0.0.1 {
+  user = {{ mariadb_user }}
+  password = {{ mariadb_password }}
+  dbname = {{ mariadb_database }}
+}
+
+# Passdb Konfiguration
+passdb sql {
+  default_password_scheme = SHA512-CRYPT
+  query = SELECT password FROM virtual_users WHERE email='%{user}' AND enabled=1
+}
+
+# Userdb Konfiguration - mail muss auf /Maildir zeigen
+userdb sql {
+  query = SELECT \
+    5000 AS uid, \
+    5000 AS gid, \
+    CONCAT('/srv/imap/', SUBSTRING_INDEX(email, '@', -1), '/', SUBSTRING_INDEX(email, '@', 1)) AS home, \
+    CONCAT('maildir:/srv/imap/', SUBSTRING_INDEX(email, '@', -1), '/', SUBSTRING_INDEX(email, '@', 1), '/Maildir') AS mail \
+  FROM virtual_users WHERE email='%{user}' AND enabled=1 LIMIT 1
+}

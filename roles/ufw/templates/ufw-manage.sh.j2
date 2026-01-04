@@ -1,0 +1,196 @@
+#!/bin/bash
+# roles/ufw/templates/ufw-manage.sh.j2
+# {{ ansible_managed }}
+# UFW Management Script for Postsible
+
+set -e
+
+COLOR_RED='\033[0;31m'
+COLOR_GREEN='\033[0;32m'
+COLOR_YELLOW='\033[1;33m'
+COLOR_BLUE='\033[0;34m'
+COLOR_NC='\033[0m'
+
+show_help() {
+    echo "Postsible UFW Management Script"
+    echo ""
+    echo "Usage: $(basename $0) [OPTION]"
+    echo ""
+    echo "Options:"
+    echo "  status          Show current UFW status and rules"
+    echo "  list            List all active rules"
+    echo "  enable          Enable UFW"
+    echo "  disable         Disable UFW"
+    echo "  reload          Reload UFW rules"
+    echo "  allow-ip IP     Temporarily allow SSH from IP"
+    echo "  deny-ip IP      Deny all traffic from IP"
+    echo "  remove-ip IP    Remove IP-specific rule"
+    echo "  logs            Show UFW logs"
+    echo "  backup          Backup current rules"
+    echo "  test            Test current ruleset"
+    echo "  help            Show this help message"
+    echo ""
+}
+
+check_root() {
+    if [[ $EUID -ne 0 ]]; then
+        echo -e "${COLOR_RED}Error: This script must be run as root${COLOR_NC}"
+        exit 1
+    fi
+}
+
+ufw_status() {
+    echo -e "${COLOR_BLUE}=== UFW Status ===${COLOR_NC}"
+    ufw status verbose
+    echo ""
+    echo -e "${COLOR_BLUE}=== Active Rules ===${COLOR_NC}"
+    ufw status numbered
+}
+
+ufw_list() {
+    echo -e "${COLOR_BLUE}=== UFW Rules (Detailed) ===${COLOR_NC}"
+    ufw show added
+}
+
+allow_ip() {
+    local ip=$1
+    if [[ -z "$ip" ]]; then
+        echo -e "${COLOR_RED}Error: No IP address provided${COLOR_NC}"
+        exit 1
+    fi
+    
+    echo -e "${COLOR_YELLOW}Adding SSH allow rule for $ip${COLOR_NC}"
+    ufw allow from "$ip" to any port {{ ufw_ssh_port }} proto tcp comment "Temporary SSH access"
+    echo -e "${COLOR_GREEN}Done! Rule added for $ip${COLOR_NC}"
+    ufw status numbered
+}
+
+deny_ip() {
+    local ip=$1
+    if [[ -z "$ip" ]]; then
+        echo -e "${COLOR_RED}Error: No IP address provided${COLOR_NC}"
+        exit 1
+    fi
+    
+    echo -e "${COLOR_YELLOW}Adding deny rule for $ip${COLOR_NC}"
+    ufw deny from "$ip" comment "Blocked IP"
+    echo -e "${COLOR_GREEN}Done! $ip is now blocked${COLOR_NC}"
+}
+
+remove_ip() {
+    local ip=$1
+    if [[ -z "$ip" ]]; then
+        echo -e "${COLOR_RED}Error: No IP address provided${COLOR_NC}"
+        exit 1
+    fi
+    
+    echo -e "${COLOR_YELLOW}Searching for rules with IP $ip${COLOR_NC}"
+    ufw status numbered | grep "$ip"
+    echo ""
+    echo -e "${COLOR_YELLOW}Enter rule number to delete (or 'q' to quit):${COLOR_NC}"
+    read -r rule_num
+    
+    if [[ "$rule_num" == "q" ]]; then
+        echo "Cancelled."
+        exit 0
+    fi
+    
+    ufw delete "$rule_num"
+    echo -e "${COLOR_GREEN}Done! Rule removed.${COLOR_NC}"
+}
+
+show_logs() {
+    echo -e "${COLOR_BLUE}=== Recent UFW Logs ===${COLOR_NC}"
+    tail -50 /var/log/ufw.log
+    echo ""
+    echo -e "${COLOR_BLUE}=== Blocked IPs (last 20) ===${COLOR_NC}"
+    grep "BLOCK" /var/log/ufw.log | tail -20
+}
+
+test_rules() {
+    echo -e "${COLOR_BLUE}=== Testing UFW Configuration ===${COLOR_NC}"
+    echo ""
+    
+    echo -e "${COLOR_YELLOW}Testing Port Accessibility:${COLOR_NC}"
+    
+    # Test open ports
+    for port in 25 587 993 80 443; do
+        if ss -tuln | grep -q ":$port "; then
+            echo -e "  Port $port: ${COLOR_GREEN}LISTENING${COLOR_NC}"
+        else
+            echo -e "  Port $port: ${COLOR_RED}NOT LISTENING${COLOR_NC}"
+        fi
+    done
+    
+    echo ""
+    echo -e "${COLOR_YELLOW}UFW Rule Count:${COLOR_NC}"
+    rule_count=$(ufw status numbered | grep -c "^\[")
+    echo "  Active rules: $rule_count"
+    
+    echo ""
+    echo -e "${COLOR_YELLOW}Firewall Status:${COLOR_NC}"
+    if ufw status | grep -q "Status: active"; then
+        echo -e "  UFW: ${COLOR_GREEN}ACTIVE${COLOR_NC}"
+    else
+        echo -e "  UFW: ${COLOR_RED}INACTIVE${COLOR_NC}"
+    fi
+}
+
+case "${1:-}" in
+    status)
+        ufw_status
+        ;;
+    list)
+        ufw_list
+        ;;
+    enable)
+        check_root
+        ufw enable
+        echo -e "${COLOR_GREEN}UFW enabled${COLOR_NC}"
+        ;;
+    disable)
+        check_root
+        echo -e "${COLOR_RED}WARNING: This will disable the firewall!${COLOR_NC}"
+        echo -e "${COLOR_YELLOW}Are you sure? (yes/no):${COLOR_NC}"
+        read -r confirm
+        if [[ "$confirm" == "yes" ]]; then
+            ufw disable
+            echo -e "${COLOR_GREEN}UFW disabled${COLOR_NC}"
+        else
+            echo "Cancelled."
+        fi
+        ;;
+    reload)
+        check_root
+        ufw reload
+        echo -e "${COLOR_GREEN}UFW reloaded${COLOR_NC}"
+        ;;
+    allow-ip)
+        check_root
+        allow_ip "$2"
+        ;;
+    deny-ip)
+        check_root
+        deny_ip "$2"
+        ;;
+    remove-ip)
+        check_root
+        remove_ip "$2"
+        ;;
+    logs)
+        show_logs
+        ;;
+    backup)
+        /usr/local/bin/ufw-backup
+        ;;
+    test)
+        test_rules
+        ;;
+    help|--help|-h)
+        show_help
+        ;;
+    *)
+        show_help
+        exit 1
+        ;;
+esac

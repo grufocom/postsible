@@ -1,0 +1,235 @@
+# roles/mariadb/tasks/main.yml
+---
+- name: Install MariaDB server and client
+  apt:
+    name:
+      - mariadb-server
+      - mariadb-client
+      - python3-pymysql
+      - python3-mysqldb
+    state: present
+    update_cache: yes
+  tags: mariadb
+
+- name: Ensure MariaDB is running and enabled
+  systemd:
+    name: "{{ mariadb_service_name }}"
+    state: started
+    enabled: yes
+  tags: mariadb
+
+- name: Check if root password is already set
+  shell: |
+    mysql -u root -p'{{ mariadb_root_password }}' -e "SELECT 1" 2>/dev/null
+  register: mysql_root_check
+  changed_when: false
+  failed_when: false
+  no_log: true
+  tags: mariadb
+
+- name: Check current root authentication method
+  shell: |
+    mysql -u root -e "SELECT plugin FROM mysql.user WHERE User='root' AND Host='localhost';" 2>/dev/null | tail -1
+  register: mysql_root_plugin
+  changed_when: false
+  failed_when: false
+  tags: mariadb
+
+- name: Check if .my.cnf exists
+  stat:
+    path: /root/.my.cnf
+  register: mycnf_exists
+  tags: mariadb
+
+- name: Secure MariaDB installation (using unix_socket)
+  block:
+    - name: Remove anonymous MySQL users
+      shell: |
+        mysql -u root <<EOF
+        DELETE FROM mysql.user WHERE User='';
+        FLUSH PRIVILEGES;
+        EOF
+      ignore_errors: yes
+
+    - name: Remove MySQL test database
+      shell: |
+        mysql -u root -e "DROP DATABASE IF EXISTS test;"
+      ignore_errors: yes
+
+    - name: Change root authentication to mysql_native_password
+      shell: |
+        mysql -u root <<EOF
+        ALTER USER 'root'@'localhost' IDENTIFIED VIA mysql_native_password USING PASSWORD('{{ mariadb_root_password }}');
+        FLUSH PRIVILEGES;
+        EOF
+      no_log: true
+  when: (mysql_root_plugin.stdout | trim) == 'unix_socket'
+  tags: mariadb
+
+- name: Ensure /root/.my.cnf exists with correct credentials
+  template:
+    src: root-my.cnf.j2
+    dest: /root/.my.cnf
+    mode: '0600'
+    owner: root
+    group: root
+  when: not mycnf_exists.stat.exists or mysql_root_check.rc == 0
+  tags: mariadb
+
+- name: Create mailserver database
+  mysql_db:
+    name: "{{ mariadb_database }}"
+    state: present
+    encoding: utf8mb4
+    collation: utf8mb4_unicode_ci
+    login_user: root
+    login_password: "{{ mariadb_root_password }}"
+  tags: mariadb
+
+- name: Create mailserver database user
+  mysql_user:
+    name: "{{ mariadb_user }}"
+    password: "{{ mariadb_password }}"
+    priv: "{{ mariadb_database }}.*:ALL"
+    host: "{{ mariadb_host }}"
+    state: present
+    login_user: root
+    login_password: "{{ mariadb_root_password }}"
+  tags: mariadb
+
+- name: Create virtual_domains table
+  mysql_query:
+    login_user: root
+    login_password: "{{ mariadb_root_password }}"
+    login_db: "{{ mariadb_database }}"
+    query: |
+      CREATE TABLE IF NOT EXISTS virtual_domains (
+        id INT NOT NULL AUTO_INCREMENT,
+        name VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY (name)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  tags: mariadb
+
+- name: Create virtual_users table
+  mysql_query:
+    login_user: root
+    login_password: "{{ mariadb_root_password }}"
+    login_db: "{{ mariadb_database }}"
+    query: |
+      CREATE TABLE IF NOT EXISTS virtual_users (
+        id INT NOT NULL AUTO_INCREMENT,
+        domain_id INT NOT NULL,
+        email VARCHAR(255) NOT NULL,
+        password VARCHAR(255) NOT NULL,
+        quota BIGINT DEFAULT 0,
+        enabled TINYINT(1) DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY (email),
+        FOREIGN KEY (domain_id) REFERENCES virtual_domains(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  tags: mariadb
+
+- name: Create virtual_aliases table
+  mysql_query:
+    login_user: root
+    login_password: "{{ mariadb_root_password }}"
+    login_db: "{{ mariadb_database }}"
+    query: |
+      CREATE TABLE IF NOT EXISTS virtual_aliases (
+        id INT NOT NULL AUTO_INCREMENT,
+        domain_id INT NOT NULL,
+        source VARCHAR(255) NOT NULL,
+        destination VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY (source),
+        FOREIGN KEY (domain_id) REFERENCES virtual_domains(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  tags: mariadb
+
+- name: Insert initial domains
+  mysql_query:
+    login_user: root
+    login_password: "{{ mariadb_root_password }}"
+    login_db: "{{ mariadb_database }}"
+    query: |
+      INSERT IGNORE INTO virtual_domains (name)
+      VALUES ('{{ item }}');
+  loop: "{{ mail_virtual_domains }}"
+  when: mariadb_insert_initial_domains | default(true)
+  tags: mariadb
+
+- name: Configure MariaDB for mail server
+  template:
+    src: mailserver.cnf.j2
+    dest: /etc/mysql/mariadb.conf.d/60-mailserver.cnf
+    mode: '0644'
+  register: mariadb_config
+  tags: mariadb
+
+- name: Restart MariaDB if config changed
+  systemd:
+    name: "{{ mariadb_service_name }}"
+    state: restarted
+  when: mariadb_config.changed
+  tags: mariadb
+
+- name: Create database backup directory
+  file:
+    path: /var/backups/mariadb
+    state: directory
+    mode: '0700'
+    owner: root
+    group: root
+  tags: mariadb
+
+- name: Create database backup script
+  template:
+    src: backup-maildb.sh.j2
+    dest: /usr/local/bin/backup-maildb
+    mode: '0755'
+  tags: mariadb
+
+- name: Create database management script
+  template:
+    src: maildb-manage.sh.j2
+    dest: /usr/local/bin/maildb-manage
+    mode: '0755'
+  tags: mariadb
+
+- name: Setup daily database backup cronjob
+  cron:
+    name: "Backup mailserver database"
+    minute: "0"
+    hour: "2"
+    job: "/usr/local/bin/backup-maildb > /dev/null 2>&1"
+    user: root
+    state: present
+  when: mariadb_enable_backup_cron | default(true)
+  tags: mariadb
+
+- name: Create MariaDB monitoring script
+  template:
+    src: mariadb-monitor.sh.j2
+    dest: /usr/local/bin/mariadb-monitor
+    mode: '0755'
+  tags: mariadb
+
+- name: Display database information
+  debug:
+    msg:
+      - "MariaDB Configuration Complete!"
+      - "Database: {{ mariadb_database }}"
+      - "User: {{ mariadb_user }}"
+      - "Initial domains: {{ mail_virtual_domains | join(', ') }}"
+      - ""
+      - "Management commands:"
+      - "  maildb-manage list-domains"
+      - "  maildb-manage add-user user@example.com"
+      - "  maildb-manage add-alias alias@example.com user@example.com"
+      - "  backup-maildb"
+  tags: mariadb

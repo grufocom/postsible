@@ -1,0 +1,122 @@
+---
+# roles/rspamd/tasks/learning.yml
+
+# Learning Scripts for Ham/Spam Training
+- name: Create rspamd scripts directory
+  file:
+    path: /usr/local/bin/rspamd-scripts
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Create spam learning script
+  template:
+    src: learn-spam.sh.j2
+    dest: /usr/local/bin/rspamd-scripts/learn-spam.sh
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Create ham learning script
+  template:
+    src: learn-ham.sh.j2
+    dest: /usr/local/bin/rspamd-scripts/learn-ham.sh
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Create combined learning script
+  template:
+    src: learn-all.sh.j2
+    dest: /usr/local/bin/rspamd-scripts/learn-all.sh
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Create learning log directory
+  file:
+    path: /var/log/rspamd-learning
+    state: directory
+    owner: _rspamd
+    group: _rspamd
+    mode: '0755'
+
+- name: Configure logrotate for learning logs
+  template:
+    src: rspamd-learning.logrotate.j2
+    dest: /etc/logrotate.d/rspamd-learning
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Create cronjob for automatic spam learning
+  cron:
+    name: "rspamd learn spam"
+    minute: "{{ rspamd_learn_spam_minute | default('*/30') }}"
+    hour: "*"
+    job: "/usr/local/bin/rspamd-scripts/learn-spam.sh >> /var/log/rspamd-learning/spam.log 2>&1"
+    user: root
+    state: "{{ 'present' if rspamd_enable_auto_learning | default(true) else 'absent' }}"
+
+- name: Create cronjob for automatic ham learning
+  cron:
+    name: "rspamd learn ham"
+    minute: "{{ rspamd_learn_ham_minute | default('*/30') }}"
+    hour: "*"
+    job: "/usr/local/bin/rspamd-scripts/learn-ham.sh >> /var/log/rspamd-learning/ham.log 2>&1"
+    user: root
+    state: "{{ 'present' if rspamd_enable_auto_learning | default(true) else 'absent' }}"
+
+- name: Create daily full learning cronjob
+  cron:
+    name: "rspamd learn all daily"
+    minute: "{{ rspamd_learn_all_minute | default('0') }}"
+    hour: "{{ rspamd_learn_all_hour | default('3') }}"
+    job: "/usr/local/bin/rspamd-scripts/learn-all.sh >> /var/log/rspamd-learning/daily.log 2>&1"
+    user: root
+    state: "{{ 'present' if rspamd_enable_daily_learning | default(true) else 'absent' }}"
+
+- name: Configure Sieve script for spam/ham folder detection
+  template:
+    src: rspamd-learn.sieve.j2
+    dest: /var/lib/dovecot/sieve/rspamd-learn.sieve
+    owner: root
+    group: root
+    mode: '0644'
+  notify: 
+    - compile sieve scripts
+    - restart dovecot
+
+- name: Print learning setup info
+  debug:
+    msg: |
+      ========================================
+      Rspamd Learning Setup Complete
+      ========================================
+      
+      Learning Scripts:
+      - /usr/local/bin/rspamd-scripts/learn-spam.sh
+      - /usr/local/bin/rspamd-scripts/learn-ham.sh
+      - /usr/local/bin/rspamd-scripts/learn-all.sh
+      
+      Cronjobs:
+      - Spam learning: Every 30 minutes
+      - Ham learning: Every 30 minutes
+      - Full learning: Daily at 3:00 AM
+      
+      How it works:
+      1. Users move spam to .Spam folder
+      2. Users move false positives to .Ham folder
+      3. Cronjobs automatically learn from these folders
+      4. Bayes filter improves over time
+      
+      Manual learning:
+      - Run: /usr/local/bin/rspamd-scripts/learn-all.sh
+      
+      Logs:
+      - /var/log/rspamd-learning/spam.log
+      - /var/log/rspamd-learning/ham.log
+      - /var/log/rspamd-learning/daily.log
+      
+      ========================================

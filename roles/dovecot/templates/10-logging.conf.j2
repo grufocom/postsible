@@ -1,0 +1,22 @@
+# {{ ansible_managed }}
+# Dovecot logging configuration (Dovecot 2.4.1)
+
+log_path = {{ dovecot_log_path }}
+info_log_path = {{ dovecot_info_log_path }}
+debug_log_path = {{ dovecot_debug_log_path }}
+
+# Timestamp format
+log_timestamp = "%Y-%m-%d %H:%M:%S "
+
+# Syslog
+syslog_facility = mail
+
+# Log format
+imap_logout_format = {{ dovecot_imap_logout_format }}
+
+# Debug settings
+auth_verbose = {{ 'yes' if dovecot_auth_verbose else 'no' }}
+auth_debug = {{ 'yes' if dovecot_auth_debug else 'no' }}
+mail_debug = {{ 'yes' if dovecot_mail_debug else 'no' }}
+
+# verbose_ssl wurde in Dovecot 2.4.1 entfernt

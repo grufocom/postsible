@@ -1,0 +1,18 @@
+---
+# Postfix handlers
+
+- name: restart postfix
+  systemd:
+    name: postfix
+    state: restarted
+  become: yes
+
+- name: reload postfix
+  systemd:
+    name: postfix
+    state: reloaded
+  become: yes
+
+- name: postfix check
+  command: postfix check
+  changed_when: false

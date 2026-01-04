@@ -1,0 +1,113 @@
+# {{ ansible_managed }}
+# Dovecot services configuration (Dovecot 2.4.1)
+
+service imap-login {
+  inet_listener imap {
+    port = 143
+				listen = 127.0.0.1
+  }
+  inet_listener imaps {
+    port = 993
+    ssl = yes
+  }
+  
+  process_min_avail = 8
+  process_limit = {{ dovecot_login_max_processes_count }}
+  client_limit = {{ dovecot_login_max_connections }}
+  vsz_limit = {{ dovecot_vsz_limit }}
+}
+
+service pop3-login {
+  inet_listener pop3 {
+    port = 0
+  }
+  inet_listener pop3s {
+    port = 995
+    ssl = yes
+  }
+  
+  process_min_avail = 2
+  process_limit = {{ dovecot_login_max_processes_count }}
+  client_limit = {{ dovecot_login_max_connections }}
+}
+
+service lmtp {
+  unix_listener /var/spool/postfix/private/dovecot-lmtp {
+    mode = 0600
+    user = postfix
+    group = postfix
+  }
+  
+  process_min_avail = 5
+  client_limit = 1
+  process_limit = 100
+  vsz_limit = {{ dovecot_vsz_limit }}
+}
+
+service imap {
+  process_limit = {{ dovecot_imap_process_limit }}
+  client_limit = {{ dovecot_imap_client_limit }}
+  vsz_limit = {{ dovecot_vsz_limit }}
+}
+
+service pop3 {
+  process_limit = 512
+  client_limit = 1
+}
+
+service managesieve-login {
+  inet_listener sieve {
+    port = 4190
+  }
+  
+  process_min_avail = 1
+  process_limit = 64
+}
+
+service managesieve {
+  process_limit = 256
+}
+
+service auth {
+  unix_listener /var/spool/postfix/private/auth {
+    mode = 0660
+    user = postfix
+    group = postfix
+  }
+  
+  unix_listener auth-userdb {
+    mode = 0600
+    user = vmail
+    group = vmail
+  }
+  
+  user = dovecot
+  process_limit = 1
+  client_limit = {{ dovecot_default_process_limit * 2 }}
+}
+
+service auth-worker {
+  user = vmail
+  process_limit = {{ dovecot_auth_worker_max_count }}
+}
+
+service dict {
+  unix_listener dict {
+    mode = 0600
+    user = vmail
+    group = vmail
+  }
+}
+
+service stats {
+  unix_listener stats-reader {
+    user = vmail
+    group = vmail
+    mode = 0660
+  }
+  unix_listener stats-writer {
+    user = vmail
+    group = vmail
+    mode = 0660
+  }
+}

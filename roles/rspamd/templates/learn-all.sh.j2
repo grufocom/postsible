@@ -1,0 +1,28 @@
+#!/bin/bash
+# Rspamd Combined Learning Script
+# Managed by Ansible - DO NOT EDIT MANUALLY
+
+set -e
+
+LOGFILE="/var/log/rspamd-learning/daily.log"
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOGFILE"
+}
+
+log "=== Starting Combined Learning (Ham + Spam) ==="
+
+# Run ham learning
+log "Running Ham learning..."
+/usr/local/bin/rspamd-scripts/learn-ham.sh
+
+# Run spam learning
+log "Running Spam learning..."
+/usr/local/bin/rspamd-scripts/learn-spam.sh
+
+# Get rspamd statistics
+log "Current Rspamd Statistics:"
+rspamc stat | tee -a "$LOGFILE"
+
+log "=== Combined Learning Complete ==="
+exit 0
