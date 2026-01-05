@@ -7,6 +7,8 @@ ansible.log
 .vault_pass
 vault_pass.txt
 *.vault_pass
+inventory/group_vars/*/vault.yml
+*.vault.yml
 
 # Sensitive Files
 *secret*
@@ -28,3 +30,15 @@ vault_pass.txt
 # OS
 .DS_Store
 Thumbs.db
+
+
+# Retry files
+*.retry
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Logs
+*.log
