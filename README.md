@@ -1,219 +1,229 @@
-# Postsible – Ansible Mail Server
+# Postsible - Ansible Mailserver
 
-A complete Ansible playbook for the automated installation of a production-ready mail server on Debian 13.
+Ein vollständiges Ansible Playbook zur automatisierten Installation eines produktionsreifen Mailservers auf Debian 13.
 
-## Features
+---
 
-* 📧 **Postfix** – SMTP server with virtual domains
-* 📬 **Dovecot** – IMAP/POP3 with Sieve support
-* 🛡️ **Rspamd** – Spam filter with Bayesian learning
-* 🌐 **SnappyMail** – Modern webmail interface
-* 🔒 **Let’s Encrypt** – Automatic SSL certificates
-* 🔥 **UFW** – Firewall configuration
-* 🚫 **Fail2ban** – Brute-force protection
-* 💾 **MariaDB** – Virtual users & domains
-* 🦠 **ESET ICAP** – Virus scanner (optional)
+## 📧 Features
 
-## System Requirements
+- **📬 Postfix** - SMTP Server mit virtuellen Domains
+- **📭 Dovecot** - IMAP/POP3 mit Sieve-Support
+- **🛡️ Rspamd** - Spam-Filter mit Bayes-Learning
+- **🔐 DKIM/DMARC/SPF** - Email-Authentifizierung (CRITICAL!)
+- **🌐 SnappyMail** - Modernes Webmail-Interface
+- **🔒 Let's Encrypt** - Automatische SSL-Zertifikate
+- **🔥 UFW** - Firewall-Konfiguration
+- **🚫 Fail2ban** - Brute-Force-Schutz (6 Jails inkl. SnappyMail)
+- **💾 MariaDB** - Virtuelle User & Domains
+- **🦠 ESET ICAP** - Virenscanner (optional)
+- **🔐 Security Hardening** - Defense-in-Depth Approach
 
-* Debian 13 (Trixie) – fresh installation
-* At least 2 GB RAM
-* 20 GB disk space
-* Root access via SSH
-* Public IPv4 address
-* Configured DNS records (A, MX, PTR)
+---
 
-## Quick Start
+## 🚀 Schnellstart
 
-### 1. Project Setup
+### 1. Interaktiver Setup (empfohlen)
 
 ```bash
-# Run setup script
-bash setup.sh
-
-# Change into project directory
+# Repository klonen
+git clone https://github.com/grufocom/postsible.git
 cd postsible
+
+# Interaktives Setup starten
+./setup.sh --interactive
 ```
 
-### 2. Adjust Inventory
+Das Script fragt alle wichtigen Informationen ab:
+- Remote oder lokales Deployment?
+- Server IP-Adresse
+- Domain (z.B. `example.com`)
+- Mail-Server Hostname (z.B. `mail.example.com`)
+- Admin Email-Adresse
 
-Edit `inventory/hosts.yml`:
-
-```yaml
-mailservers:
-  hosts:
-    mail.example.com:
-      ansible_host: YOUR_SERVER_IP
-      ansible_user: root
-      common_hostname: mail.example.com
-```
-
-### 3. Configure Variables
-
-Edit `inventory/group_vars/mailservers.yml`:
-
-```yaml
-mail_primary_domain: "example.com"
-mail_admin_email: "admin@example.com"
-mariadb_root_password: "SECURE_PASSWORD"
-mariadb_password: "SECURE_PASSWORD"
-rspamd_webui_password: "SECURE_PASSWORD"
-snappymail_admin_password: "SECURE_PASSWORD"
-```
-
-### 4. Test SSH Access
+### 2. Quick-Setup mit Parametern
 
 ```bash
-ansible mailservers -m ping
+# Remote-Deployment
+./setup.sh --remote 192.168.1.100 \
+           --domain example.com \
+           --hostname mail.example.com \
+           --admin-email admin@example.com
+
+# Lokales Deployment
+./setup.sh --domain example.com \
+           --hostname mail.example.com
 ```
 
-### 5. Start Deployment
+### 3. Vault-Datei erstellen und verschlüsseln
 
 ```bash
-# Full installation
-ansible-playbook playbooks/site.yml
+# Template kopieren
+cp inventory/group_vars/mailservers/vault.yml.example \
+   inventory/group_vars/mailservers/vault.yml
 
-# Or only specific phases
-ansible-playbook playbooks/site.yml --tags phase1
-ansible-playbook playbooks/site.yml --tags phase2
+# Passwörter im vault.yml anpassen (alle CHANGE_ME ersetzen)
+nano inventory/group_vars/mailservers/vault.yml
+
+# Vault verschlüsseln
+ansible-vault encrypt inventory/group_vars/mailservers/vault.yml
+```
+
+### 4. DNS-Records konfigurieren
+
+**Vor dem Deployment** müssen folgende DNS-Records gesetzt werden:
+
+```dns
+# MX Record
+example.com.           IN MX   10 mail.example.com.
+
+# A Record (Server IP)
+mail.example.com.      IN A    192.168.1.100
+
+# PTR Record (Reverse DNS - beim Hosting-Provider)
+100.1.168.192.in-addr.arpa. IN PTR mail.example.com.
+
+# SPF Records
+example.com.           IN TXT  "v=spf1 mx -all"
+mail.example.com.      IN TXT  "v=spf1 a -all"
+```
+
+**Nach dem Deployment** (DKIM-Keys werden generiert):
+
+```dns
+# DKIM Record (Key aus /root/dkim-dns-records.txt auf dem Server)
+dkim._domainkey.example.com. IN TXT "v=DKIM1; k=rsa; p=MIIBIj..."
+
+# DMARC Record
+_dmarc.example.com.    IN TXT  "v=DMARC1; p=quarantine; rua=mailto:dmarc@example.com; adkim=s; aspf=s"
+```
+
+### 5. Deployment starten
+
+```bash
+# Komplettes Deployment
+ansible-playbook playbooks/site.yml --ask-vault-pass
+
+# Oder phasenweise
+ansible-playbook playbooks/site.yml --tags phase1 --ask-vault-pass
+ansible-playbook playbooks/site.yml --tags phase2 --ask-vault-pass
 # etc.
 ```
 
-## Deployment Phases
+---
 
-### Phase 1: Base Infrastructure
+## 📋 Systemanforderungen
 
+- **OS:** Debian 13 (Trixie) - frische Installation
+- **RAM:** Mindestens 2 GB
+- **Disk:** 20 GB Festplattenspeicher
+- **Zugriff:** Root-Zugriff via SSH
+- **Netzwerk:** Öffentliche IPv4-Adresse
+- **DNS:** Konfigurierte DNS-Records (siehe oben)
+
+---
+
+## 🏗️ Deployment-Phasen
+
+### Phase 1: Basis-Infrastruktur
 ```bash
-ansible-playbook playbooks/site.yml --tags phase1
+ansible-playbook playbooks/site.yml --tags phase1 --ask-vault-pass
 ```
+- **common** - System-Updates & Basis-Pakete
+- **ufw** - Firewall-Konfiguration
+- **mariadb** - Datenbank für virtuelle User/Domains
 
-* System updates & base packages
-* Firewall (UFW)
-* MariaDB database
-
-### Phase 2: Mail Core
-
+### Phase 2: Mail-Core
 ```bash
-ansible-playbook playbooks/site.yml --tags phase2
+ansible-playbook playbooks/site.yml --tags phase2 --ask-vault-pass
 ```
+- **postfix** - SMTP Server mit intelligenter SSL-Erkennung
+- **dovecot** - IMAP/POP3 mit Sieve-Support
 
-* Postfix (SMTP)
-* Dovecot (IMAP/Sieve)
-
-### Phase 3: Spam & Antivirus
-
+### Phase 3: Spam-Filter
 ```bash
-ansible-playbook playbooks/site.yml --tags phase3
+ansible-playbook playbooks/site.yml --tags phase3 --ask-vault-pass
 ```
-
-* Rspamd (spam filter)
-* ESET ICAP (optional)
+- **rspamd** - Spam-Filter, DKIM-Signierung, Bayes-Learning
+- **eset_icap** - Virenscanner (optional)
 
 ### Phase 4: Web & SSL
+```bash
+ansible-playbook playbooks/site.yml --tags phase4 --ask-vault-pass
+```
+- **nginx** - Webserver mit intelligenter SSL-Erkennung
+- **certbot** - Let's Encrypt SSL-Zertifikate
+- **snappymail** - Webmail-Interface
+
+### Phase 5: Sicherheit
+```bash
+ansible-playbook playbooks/site.yml --tags phase5 --ask-vault-pass
+```
+- **fail2ban** - Brute-Force-Schutz (6 Jails)
+
+---
+
+## 🎯 Einzelne Roles ausführen
 
 ```bash
-ansible-playbook playbooks/site.yml --tags phase4
+# Nur Postfix aktualisieren
+ansible-playbook playbooks/site.yml --tags postfix --ask-vault-pass
+
+# Nur SSL-Zertifikate erneuern
+ansible-playbook playbooks/site.yml --tags certbot --ask-vault-pass
+
+# Nur rspamd neu konfigurieren
+ansible-playbook playbooks/site.yml --tags rspamd-configure --ask-vault-pass
 ```
 
-* Nginx (web server)
-* Certbot (Let’s Encrypt)
-* SnappyMail (webmail)
+---
 
-### Phase 5: Security
+## 🔐 Sicherheits-Features
 
-```bash
-ansible-playbook playbooks/site.yml --tags phase5
-```
+### Intelligente SSL-Erkennung
+Postfix und Nginx erkennen automatisch Let's Encrypt Zertifikate:
+1. Bevorzugt: `/etc/letsencrypt/live/mail.example.com/`
+2. Fallback: `/etc/letsencrypt/live/example.com/`
+3. Fallback: Snakeoil (nur für Tests)
 
-* Fail2ban
+### Fail2ban Jails
+- **SSH** - Schutz vor Brute-Force auf Port 22
+- **Postfix SASL** - Auth-Failures beim Mail-Versand
+- **Dovecot** - IMAP/POP3 Login-Failures
+- **Nginx HTTP Auth** - Webserver-Authentifizierung
+- **SnappyMail** - Webmail Login-Failures
+- **Rspamd** - WebUI-Schutz (optional)
 
-## Running Individual Roles
+### DKIM/SPF/DMARC
+- Automatische DKIM-Key-Generierung (2048-bit)
+- ARC-Signierung aktiviert
+- Strenge DMARC-Policy (configurable)
 
-```bash
-# Update Postfix only
-ansible-playbook playbooks/site.yml --tags postfix
+---
 
-# Renew SSL certificates only
-ansible-playbook playbooks/site.yml --tags certbot
-```
+## 🛠️ Virtuelle Domains & User verwalten
 
-## DNS Configuration
-
-After deployment, the following DNS records must be configured:
-
-### MX Record
-
-```
-example.com.  IN  MX  10  mail.example.com.
-```
-
-### A Record
-
-```
-mail.example.com.  IN  A  YOUR_SERVER_IP
-```
-
-### PTR Record (Reverse DNS)
-
-```
-IP.REVERSE.IN-ADDR.ARPA.  IN  PTR  mail.example.com.
-```
-
-### SPF Record
-
-```
-example.com.  IN  TXT  "v=spf1 mx ~all"
-```
-
-### DKIM Record
-
-Retrieve the DKIM key after deployment:
-
-```bash
-ssh root@mail.example.com "cat /var/lib/rspamd/dkim/example.com.txt"
-```
-
-Add it as a TXT record:
-
-```
-dkim._domainkey.example.com.  IN  TXT  "v=DKIM1; k=rsa; p=YOUR_PUBLIC_KEY"
-```
-
-### DMARC Record
-
-```
-_dmarc.example.com.  IN  TXT  "v=DMARC1; p=quarantine; rua=mailto:admin@example.com"
-```
-
-## Managing Virtual Domains & Users
-
-### Add a Domain
-
-```bash
+### Domain hinzufügen
+```sql
 mysql -u root -p mailserver
+INSERT INTO virtual_domains (name) VALUES ('neudomain.com');
 ```
 
-```sql
-INSERT INTO virtual_domains (name) VALUES ('newdomain.com');
-```
-
-### Add a User
-
-```sql
--- Hash password (on the server)
+### User hinzufügen
+```bash
+# Passwort hashen
 doveadm pw -s SHA512-CRYPT
 
--- Insert user into database
+# User in DB eintragen
+mysql -u root -p mailserver
 INSERT INTO virtual_users (domain_id, email, password)
 VALUES (
   (SELECT id FROM virtual_domains WHERE name='example.com'),
   'user@example.com',
-  '{SHA512-CRYPT}YOUR_HASHED_PASSWORD'
+  '{SHA512-CRYPT}DEIN_GEHASHTES_PASSWORT'
 );
 ```
 
-### Add an Alias
-
+### Alias hinzufügen
 ```sql
 INSERT INTO virtual_aliases (domain_id, source, destination)
 VALUES (
@@ -223,183 +233,229 @@ VALUES (
 );
 ```
 
-## Access Details
+---
 
-After successful deployment:
+## 🌐 Zugriffsdaten
+
+Nach erfolgreichem Deployment:
 
 ### Webmail
-
-* URL: `https://webmail.example.com`
-* Login: Full email address
+- **URL:** `https://webmail.example.com` oder `https://mail.example.com/wm/`
+- **Login:** Vollständige E-Mail-Adresse + Passwort
 
 ### Rspamd WebUI
+- **URL:** `https://mail.example.com/rspamd/`
+- **Passwort:** Aus `vault_rspamd_webui_password`
 
-* URL: `https://mail.example.com/rspamd`
-* Password: See `rspamd_webui_password`
+### IMAP-Zugriff
+- **Server:** mail.example.com
+- **Port:** 993 (SSL/TLS)
+- **Auth:** E-Mail-Adresse + Passwort
 
-### IMAP Access
+### SMTP-Versand
+- **Server:** mail.example.com
+- **Port:** 587 (STARTTLS) oder 465 (SSL/TLS)
+- **Auth:** E-Mail-Adresse + Passwort
 
-* Server: `mail.example.com`
-* Port: `993` (SSL/TLS)
-* Auth: Email address + password
+---
 
-### SMTP Sending
+## 🔧 Wartung
 
-* Server: `mail.example.com`
-* Port: `587` (STARTTLS)
-* Auth: Email address + password
-
-## Maintenance
-
-### Maintenance Playbook
-
+### Logs prüfen
 ```bash
-# System updates
-ansible-playbook playbooks/maintenance.yml --tags update
-
-# System check
-ansible-playbook playbooks/maintenance.yml --tags check
-
-# Database backup
-ansible-playbook playbooks/maintenance.yml --tags backup
-
-# Restart services
-ansible-playbook playbooks/maintenance.yml --tags restart
-```
-
-### Log Files
-
-```bash
-# Mail logs
+# Mail-Logs
 tail -f /var/log/mail/mail.log
 
-# Rspamd logs
+# Rspamd-Logs
 tail -f /var/log/rspamd/rspamd.log
 
-# Nginx logs
+# Nginx-Logs
 tail -f /var/log/nginx/access.log
 ```
 
-### Spam Learning
-
-Users can train spam/ham themselves:
-
-1. Move spam emails to the `.Spam/` folder
-2. Move falsely flagged emails to `.Ham/`
-3. Rspamd learns automatically via cron job
-
-## Troubleshooting
-
-### Check Postfix Status
-
+### Service-Status
 ```bash
+# Postfix
 systemctl status postfix
-journalctl -u postfix -f
 postfix check
-```
 
-### Check Dovecot Status
-
-```bash
+# Dovecot
 systemctl status dovecot
-doveadm log find
 doveadm user '*'
-```
 
-### Check Rspamd Status
-
-```bash
+# Rspamd
 systemctl status rspamd
 rspamc stat
-```
+/usr/local/bin/rspamd-stats.sh
 
-### Connection Tests
-
-```bash
-# SMTP test
-telnet mail.example.com 587
-
-# IMAP test
-openssl s_client -connect mail.example.com:993
-```
-
-### Firewall Status
-
-```bash
-ufw status verbose
-```
-
-## Security
-
-### Renew SSL Certificates
-
-Runs automatically via Certbot. Manual renewal:
-
-```bash
-certbot renew
-```
-
-### Change Passwords
-
-Update all passwords in `inventory/group_vars/mailservers.yml` and redeploy.
-
-### Fail2ban Status
-
-```bash
+# Fail2ban
 fail2ban-client status
 fail2ban-client status postfix-sasl
 ```
 
-## Backup Strategy
+### Spam-Learning
+User können selbst trainieren:
+1. Spam-Mails in den Ordner `.Spam/` verschieben
+2. Fälschlich als Spam markierte Mails in `.Ham/` verschieben
+3. Rspamd lernt automatisch via Cronjob (alle 30min + täglich 3:00 Uhr)
 
-### Important Directories
-
-* `/srv/imap/` – All mailboxes
-* `/etc/postsible/` – Configuration files
-* MariaDB database
-
-### Backup Script
-
+### SSL-Zertifikate erneuern
 ```bash
-# Manual backup
-ansible-playbook playbooks/maintenance.yml --tags backup
+# Läuft automatisch via Certbot
+# Manuell:
+certbot renew
+systemctl reload postfix dovecot nginx
 ```
 
-## Project Structure
+---
+
+## 🐛 Troubleshooting
+
+### DKIM funktioniert nicht
+```bash
+# Check DKIM-Keys
+ls -la /var/lib/rspamd/dkim/
+
+# rspamd neu starten
+systemctl restart rspamd
+
+# Log beobachten
+tail -f /var/log/rspamd/rspamd.log | grep -i dkim
+
+# Test-Mail senden und prüfen
+# Sollte zeigen: DKIM_SIGNED(0.00){example.com:s=dkim;}
+```
+
+### Mail wird als Spam markiert
+```bash
+# Checks durchführen
+# 1. SPF-Check
+dig TXT example.com +short
+dig TXT mail.example.com +short
+
+# 2. DKIM-Check
+dig TXT dkim._domainkey.example.com +short
+
+# 3. DMARC-Check
+dig TXT _dmarc.example.com +short
+
+# 4. Reverse DNS (PTR)
+dig -x DEINE_SERVER_IP +short
+
+# Online-Tests
+# https://www.mail-tester.com/
+# https://mxtoolbox.com/SuperTool.aspx
+```
+
+### Firewall-Probleme
+```bash
+# Status prüfen
+ufw status verbose
+
+# Port öffnen (falls nötig)
+ufw allow 587/tcp comment "SMTP Submission"
+```
+
+---
+
+## 📁 Projekt-Struktur
 
 ```
 postsible/
-├── roles/           # Ansible roles
-│   ├── common/      # Base system
-│   ├── ufw/         # Firewall
-│   ├── mariadb/     # Database
-│   ├── postfix/     # SMTP
-│   ├── dovecot/     # IMAP/Sieve
-│   ├── rspamd/      # Spam filter
-│   ├── nginx/       # Web server
-│   ├── certbot/     # SSL
-│   ├── snappymail/  # Webmail
-│   ├── fail2ban/    # Intrusion prevention
-│   └── eset_icap/   # Antivirus
-├── inventory/       # Server inventory
-├── playbooks/       # Playbooks
-└── ansible.cfg      # Ansible config
+├── inventory/
+│   ├── hosts.yml                           # Server-Inventar
+│   └── group_vars/
+│       └── mailservers/
+│           ├── vars.yml                    # Öffentliche Variablen
+│           └── vault.yml                   # Verschlüsselte Secrets
+├── roles/
+│   ├── common/                             # System-Basis
+│   ├── ufw/                                # Firewall
+│   ├── mariadb/                            # Datenbank
+│   ├── postfix/                            # SMTP
+│   ├── dovecot/                            # IMAP/Sieve
+│   ├── rspamd/                             # Spam-Filter + DKIM
+│   ├── nginx/                              # Webserver
+│   ├── certbot/                            # SSL
+│   ├── snappymail/                         # Webmail
+│   ├── fail2ban/                           # Brute-Force-Schutz
+│   └── eset_icap/                          # Antivirus (optional)
+├── playbooks/
+│   ├── site.yml                            # Haupt-Playbook
+│   └── maintenance.yml                     # Wartungs-Playbook
+├── setup.sh                                # Intelligentes Setup-Script
+├── ansible.cfg                             # Ansible-Konfiguration
+└── README.md                               # Diese Datei
 ```
 
-## License
+---
 
-MIT License
+## 🔄 Updates & Backups
 
-## Support
+### System-Updates
+```bash
+ansible-playbook playbooks/maintenance.yml --tags update --ask-vault-pass
+```
 
-If you have questions or issues:
+### Backup wichtiger Daten
+```bash
+# MariaDB
+mysqldump -u root -p mailserver > mailserver-backup.sql
 
-1. Check the logs
-2. Open a GitHub issue
-3. Consult the community forum
+# Mailboxen
+tar czf mailboxes-backup.tar.gz /srv/imap/
 
-## Credits
+# Konfiguration
+tar czf config-backup.tar.gz /etc/postfix /etc/dovecot /etc/rspamd /etc/nginx
+```
 
-Developed as a comprehensive mail server solution with a strong focus on security and usability.
+---
+
+## 🤝 Bekannte Probleme & Lösungen
+
+### rspamd Neural Network Crashes
+**Problem:** Neural Network-Modul verursacht Segmentation Faults  
+**Lösung:** Neural Network ist standardmäßig deaktiviert (`rspamd_enable_neural: false`)  
+**Bayes-Filter allein reicht für 95% der Spam-Erkennung aus**
+
+### sign_headers verursacht DKIM-Crash
+**Problem:** Custom `sign_headers` Liste führt zu rspamd-Absturz  
+**Lösung:** Entfernt aus Template, rspamd nutzt vernünftige Defaults
+
+---
+
+## 📚 Weitere Dokumentation
+
+- **Rspamd:** https://rspamd.com/doc/
+- **Postfix:** http://www.postfix.org/documentation.html
+- **Dovecot:** https://doc.dovecot.org/
+- **SnappyMail:** https://snappymail.eu/
+- **fail2ban:** https://github.com/fail2ban/fail2ban/wiki
+
+---
+
+## 📜 Lizenz
+
+MIT License - siehe [LICENSE](LICENSE) Datei
+
+---
+
+## 🙏 Credits
+
+Entwickelt als umfassende Mailserver-Lösung mit Fokus auf:
+- **Sicherheit** (DKIM, SPF, DMARC, fail2ban, SSL)
+- **Benutzerfreundlichkeit** (Interaktives Setup, automatische Config)
+- **Wartbarkeit** (Ansible, modularer Aufbau, gute Dokumentation)
+- **Produktionsreife** (Getestet, stabil, Best Practices)
+
+---
+
+## 💡 Support
+
+Bei Problemen:
+1. Logs prüfen (`/var/log/mail/`, `/var/log/rspamd/`)
+2. Service-Status prüfen (`systemctl status postfix dovecot rspamd`)
+3. GitHub Issues erstellen: https://github.com/grufocom/postsible/issues
+4. Community-Forum konsultieren
 
 ---
