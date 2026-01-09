@@ -97,6 +97,13 @@
         - webmail
         - phase4
 
+#    - role: snappymail_mailadmin
+#      tags:
+#        - snappymail_mailadmin
+#        - snappymail
+#        - webmail
+#        - phase4
+
     # Phase 5: Sicherheit
     - role: fail2ban
       tags:

@@ -1,21 +1,80 @@
 # roles/postfix/tasks/main.yml
 ---
-- name: Install Postfix and related packages
+
+- name: Ensure dpkg is in a clean state
+  command: dpkg --configure -a
+  changed_when: false
+
+- name: Purge broken postfix if partially installed
+  shell: |
+    if dpkg -l postfix 2>/dev/null | grep -q '^.i'; then
+      apt-get -y purge postfix
+      rm -rf /etc/postfix
+    fi
+  changed_when: false
+
+- name: Pre-configure Postfix (debconf) - before installation
+  debconf:
+    name: postfix
+    question: "{{ item.question }}"
+    value: "{{ item.value }}"
+    vtype: "{{ item.vtype }}"
+  loop:
+    - { question: postfix/main_mailer_type, value: internet, vtype: select }
+    - { question: postfix/mailname, value: "{{ inventory_hostname }}", vtype: string }
+    - { question: postfix/destinations, value: "{{ inventory_hostname }}, localhost.localdomain, localhost", vtype: string }
+  tags: postfix
+
+- name: Install Postfix
   apt:
     name:
       - postfix
+    state: present
+    autoremove: true
+    update_cache: yes
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+  tags: postfix
+
+- name: Initialize Postfix if needed (creates postfix-files and queues)
+  command: postfix check
+  register: postfix_init
+  failed_when: false
+  changed_when: false
+  tags: postfix
+
+- name: Check postfix.files exists
+  stat:
+    path: /etc/postfix/postfix-files
+  register: postfix_files
+
+- name: Fail if postfix.files is missing
+  fail:
+    msg: "/etc/postfix/postfix.files is missing – postfix not installed?"
+  when: not postfix_files.stat.exists
+
+- name: Install related packages
+  apt:
+    name:
       - postfix-mysql
       - postfix-policyd-spf-python
       - libsasl2-modules
       - sasl2-bin
     state: present
     update_cache: yes
+  environment:
+    DEBIAN_FRONTEND: noninteractive
   tags: postfix
 
-- name: Stop Postfix during configuration
-  systemd:
-    name: postfix
-    state: stopped
+- name: Ensure Postfix directories exist
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root
+  loop:
+    - /etc/postfix/mysql
   tags: postfix
 
 - name: Create Postfix virtual user and group
@@ -71,13 +130,6 @@
     dest: /etc/postfix/master.cf
     mode: '0644'
     backup: yes
-  tags: postfix
-
-- name: Create MySQL query files directory
-  file:
-    path: /etc/postfix/mysql
-    state: directory
-    mode: '0755'
   tags: postfix
 
 - name: Configure MySQL virtual domains query
@@ -166,7 +218,7 @@
   systemd:
     name: postfix
     enabled: yes
-    state: started
+    state: restarted
   tags: postfix
 
 - name: Display Postfix information

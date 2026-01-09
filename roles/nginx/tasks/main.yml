@@ -1,6 +1,50 @@
 ---
 # Nginx main tasks
 
+- name: Ensure dpkg is in a clean state
+  command: dpkg --configure -a
+  changed_when: false
+  failed_when: false
+
+- name: Check for broken nginx installation
+  shell: dpkg -l | grep -E '^.[iHUFW].*(nginx|php)' || true
+  register: broken_packages
+  changed_when: false
+
+- name: Display potentially broken packages
+  debug:
+    msg: "{{ broken_packages.stdout_lines }}"
+  when: broken_packages.stdout != ""
+
+- name: Completely purge nginx and PHP if partially installed
+  shell: |
+    # Remove all nginx packages
+    apt-get -y purge 'nginx*' 'php*-fpm' 'php*-common' 'php*-cli' || true
+    apt-get -y autoremove --purge || true
+    apt-get -y autoclean || true
+    
+    # Remove config directories
+    rm -rf /etc/nginx
+    rm -rf /var/lib/nginx
+    rm -rf /var/log/nginx
+    rm -rf /etc/php
+    rm -rf /usr/lib/php
+    
+    # Fix any broken packages
+    dpkg --configure -a || true
+    apt-get -f install -y || true
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+  changed_when: true
+
+- name: Update apt cache (force)
+  apt:
+    update_cache: yes
+    cache_valid_time: 0
+    force_apt_get: yes
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+
 - name: Detect available PHP version
   shell: |
     apt-cache search php-fpm | grep -oP 'php\K[0-9]+\.[0-9]+' | head -1
@@ -11,7 +55,6 @@
 - name: Set PHP version fact
   set_fact:
     nginx_php_version: "{{ detected_php_version.stdout | default('8.2') }}"
-  when: detected_php_version.stdout != ""
   tags: nginx
 
 - name: Display detected PHP version
@@ -19,7 +62,94 @@
     msg: "Using PHP version: {{ nginx_php_version }}"
   tags: nginx
 
-- name: Install Nginx and PHP-FPM
+- name: Install nginx-common first (critical for mime.types)
+  apt:
+    name:
+      - nginx-common
+    state: present
+    force_apt_get: yes
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+  register: nginx_common_install
+  tags: nginx
+
+- name: Verify nginx-common installation
+  stat:
+    path: /etc/nginx/mime.types
+  register: mime_types_after_common
+  tags: nginx
+
+- name: Force reinstall nginx-common if mime.types missing
+  shell: |
+    apt-get install --reinstall -y nginx-common
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+  when: not mime_types_after_common.stat.exists
+  tags: nginx
+
+- name: Final check for mime.types
+  stat:
+    path: /etc/nginx/mime.types
+  register: mime_types_final
+  tags: nginx
+
+- name: Fail if mime.types still missing after reinstall
+  fail:
+    msg: |
+      ERROR: /etc/nginx/mime.types is still missing after nginx-common installation!
+      This indicates a serious problem with the nginx-common package or apt sources.
+      
+      Debug steps:
+      1. Check: dpkg -L nginx-common | grep mime.types
+      2. Check: apt-cache policy nginx-common
+      3. Manually run: apt-get install --reinstall nginx-common
+  when: not mime_types_final.stat.exists
+  tags: nginx
+
+- name: Install PHP-common first (critical for mods-available)
+  apt:
+    name:
+      - php{{ nginx_php_version }}-common
+    state: present
+    force_apt_get: yes
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+  tags: nginx
+
+- name: Verify PHP-common installation
+  stat:
+    path: /etc/php/{{ nginx_php_version }}/mods-available
+  register: php_mods_after_common
+  tags: nginx
+
+- name: Force reinstall PHP-common if mods-available missing
+  shell: |
+    apt-get install --reinstall -y php{{ nginx_php_version }}-common
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+  when: not php_mods_after_common.stat.exists
+  tags: nginx
+
+- name: Final check for PHP mods-available
+  stat:
+    path: /etc/php/{{ nginx_php_version }}/mods-available
+  register: php_mods_final
+  tags: nginx
+
+- name: Fail if PHP mods-available still missing
+  fail:
+    msg: |
+      ERROR: /etc/php/{{ nginx_php_version }}/mods-available is missing!
+      This indicates a serious problem with php{{ nginx_php_version }}-common package.
+      
+      Debug steps:
+      1. Check: dpkg -L php{{ nginx_php_version }}-common | grep mods-available
+      2. Check: apt-cache policy php{{ nginx_php_version }}-common
+      3. Manually run: apt-get install --reinstall php{{ nginx_php_version }}-common
+  when: not php_mods_final.stat.exists
+  tags: nginx
+
+- name: Install remaining Nginx and PHP-FPM packages
   apt:
     name:
       - nginx
@@ -34,7 +164,52 @@
       - php{{ nginx_php_version }}-intl
       - php{{ nginx_php_version }}-bcmath
     state: present
-    update_cache: yes
+    force_apt_get: yes
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+  tags: nginx
+
+- name: Verify PHP-FPM installation
+  stat:
+    path: /etc/php/{{ nginx_php_version }}/fpm
+  register: php_fpm_check
+  tags: nginx
+
+- name: Display PHP installation status
+  debug:
+    msg: |
+      PHP Installation Check:
+      - Version: {{ nginx_php_version }}
+      - mods-available: {{ 'OK ✓' if php_mods_final.stat.exists else 'MISSING ✗' }}
+      - FPM directory: {{ 'OK ✓' if php_fpm_check.stat.exists else 'MISSING ✗' }}
+  tags: nginx
+
+- name: Enable PHP extensions
+  command: phpenmod -v {{ nginx_php_version }} {{ item }}
+  loop:
+    - mbstring
+    - curl
+    - gd
+    - intl
+    - mysql
+    - opcache
+    - xml
+    - zip
+    - bcmath
+  changed_when: false
+  failed_when: false
+  tags: nginx
+
+- name: Verify PHP extensions are enabled
+  stat:
+    path: /etc/php/{{ nginx_php_version }}/fpm/conf.d/20-{{ item }}.ini
+  register: php_ext_check
+  loop:
+    - mbstring
+    - curl
+    - gd
+    - mysql
+  failed_when: false
   tags: nginx
 
 - name: Ensure nginx is stopped during configuration
@@ -243,3 +418,4 @@
         3. Deploy SnappyMail role
       {% endif %}
   tags: nginx
+

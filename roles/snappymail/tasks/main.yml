@@ -235,8 +235,8 @@
 - name: Add SnappyMail location to rspamd VHost
   blockinfile:
     path: /etc/nginx/sites-available/rspamd
-    marker: "# {mark} ANSIBLE MANAGED BLOCK - SnappyMail"
-    insertbefore: "# Root location"
+    marker: "    # {mark} ANSIBLE MANAGED BLOCK - SnappyMail"
+    insertbefore: "^\\s*# Health check"
     block: |2
           # SnappyMail Webmail
           location {{ snappymail_url_path }}/ {
@@ -268,6 +268,7 @@
           location @snappymail {
               rewrite ^{{ snappymail_url_path }}/(.*)$ {{ snappymail_url_path }}/index.php?$1 last;
           }
+
   notify: reload nginx
   tags: snappymail
 

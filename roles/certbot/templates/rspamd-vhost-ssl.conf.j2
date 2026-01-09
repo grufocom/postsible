@@ -21,9 +21,9 @@ server {
 
 # HTTPS server
 server {
-    listen {{ nginx_https_port }} ssl http2;
-    listen [::]:{{ nginx_https_port }} ssl http2;
-    
+    listen {{ nginx_https_port }} ssl;
+    listen [::]:{{ nginx_https_port }} ssl;
+    http2 on;
     server_name {{ certbot_domains[0] }};
 
     root /var/www/html;

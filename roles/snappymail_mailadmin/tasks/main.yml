@@ -1,0 +1,246 @@
+---
+# roles/snappymail_mailadmin/tasks/main.yml
+# MailAdmin Standalone API + Plugin für SnappyMail 2.x
+
+- name: Ensure SnappyMail is installed
+  stat:
+    path: /var/www/snappymail
+  register: snappymail_dir
+  failed_when: not snappymail_dir.stat.exists
+  tags: mailadmin
+
+# ========================================
+# 1. Standalone PHP API
+# ========================================
+
+- name: Create mailadmin-lib directory
+  file:
+    path: /var/www/snappymail/mailadmin-lib
+    state: directory
+    owner: www-data
+    group: www-data
+    mode: '0755'
+  tags: mailadmin
+
+- name: Deploy MailDB.php library
+  copy:
+    src: MailDB.php
+    dest: /var/www/snappymail/mailadmin-lib/MailDB.php
+    owner: www-data
+    group: www-data
+    mode: '0644'
+  tags: mailadmin
+
+- name: Deploy SieveManager.php library
+  copy:
+    src: SieveManager.php
+    dest: /var/www/snappymail/mailadmin-lib/SieveManager.php
+    owner: www-data
+    group: www-data
+    mode: '0644'
+  tags: mailadmin
+
+- name: Deploy admin-api.php from template
+  template:
+    src: admin-api.php.j2
+    dest: /var/www/snappymail/admin-api.php
+    owner: www-data
+    group: www-data
+    mode: '0644'
+  tags: mailadmin
+
+# ========================================
+# 2. Minimal SnappyMail Plugin
+# ========================================
+
+- name: Create mailadmin plugin directory
+  file:
+    path: /var/www/snappymail/data/_data_/_default_/plugins/mailadmin
+    state: directory
+    owner: www-data
+    group: www-data
+    mode: '0755'
+  tags: mailadmin
+
+- name: Create plugin subdirectories
+  file:
+    path: "/var/www/snappymail/data/_data_/_default_/plugins/mailadmin/{{ item }}"
+    state: directory
+    owner: www-data
+    group: www-data
+    mode: '0755'
+  loop:
+    - js
+    - css
+  tags: mailadmin
+
+- name: Deploy minimal plugin index.php
+  copy:
+    content: |
+      <?php
+      /**
+       * MailAdmin Plugin for SnappyMail
+       * Minimal plugin that only loads JS/CSS
+       * Real functionality is in /wm/admin-api.php
+       */
+      
+      class mailadminPlugin extends \RainLoop\Plugins\AbstractPlugin
+      {
+          const NAME = 'mailadmin';
+          const VERSION = '1.0.0';
+          const AUTHOR = 'Postsible';
+          const DESCRIPTION = 'Mail Server Administration Interface';
+
+          public function Init() : void
+          {
+              $this->addJs('mailadmin.js');
+              $this->addCss('mailadmin.css');
+          }
+
+          public function Supported() : string
+          {
+              return 'SnappyMail 2.x';
+          }
+
+          protected function configMapping() : array
+          {
+              return [];
+          }
+      }
+    dest: /var/www/snappymail/data/_data_/_default_/plugins/mailadmin/index.php
+    owner: www-data
+    group: www-data
+    mode: '0644'
+  tags: mailadmin
+
+- name: Deploy plugin JavaScript
+  copy:
+    src: mailadmin.js
+    dest: /var/www/snappymail/data/_data_/_default_/plugins/mailadmin/js/mailadmin.js
+    owner: www-data
+    group: www-data
+    mode: '0644'
+  tags: mailadmin
+
+- name: Deploy plugin CSS
+  copy:
+    src: mailadmin.css
+    dest: /var/www/snappymail/data/_data_/_default_/plugins/mailadmin/css/mailadmin.css
+    owner: www-data
+    group: www-data
+    mode: '0644'
+  tags: mailadmin
+
+# ========================================
+# 3. Enable Plugin
+# ========================================
+
+- name: Check if application.ini exists
+  stat:
+    path: /var/www/snappymail/data/_data_/_default_/configs/application.ini
+  register: app_ini
+  tags: mailadmin
+
+- name: Read current enabled_list from SnappyMail configuration (plugins section)
+  ansible.builtin.ini_file:
+    path: /var/www/snappymail/data/_data_/_default_/configs/application.ini
+    section: plugins
+    option: enabled_list
+    fallback: ""
+  register: current_plugins
+  changed_when: false
+  tags: mailadmin
+
+- name: Add new plugins to the enabled_list in the [plugins] section
+  ansible.builtin.ini_file:
+    path: /var/www/snappymail/data/_data_/_default_/configs/application.ini
+    section: plugins
+    option: enabled_list
+    value: >-
+      "{{ ('\"' + (current_plugins.value.split(',') + ['spamfilter', 'webmail']
+      | unique | join(',')) + '\"') }}"
+  when: current_plugins.value != "" and app_ini.stat.exists
+  tags: mailadmin
+
+- name: Set enable = On in the [plugins] section if not already set
+  ansible.builtin.ini_file:
+    path: /var/www/snappymail/data/_data_/_default_/configs/application.ini
+    section: plugins
+    option: enable
+    value: On
+  when: current_plugins.value != "" and app_ini.stat.exists
+  tags: mailadmin
+
+# ========================================
+# 4. Sieve Setup (optional für später)
+# ========================================
+
+- name: Ensure /srv/imap has correct permissions for www-data
+  file:
+    path: /srv/imap
+    state: directory
+    mode: '0755'
+  tags: mailadmin
+
+- name: Create sieve templates directory (optional)
+  file:
+    path: /var/lib/dovecot/sieve/mailadmin
+    state: directory
+    owner: vmail
+    group: vmail
+    mode: '0755'
+  tags: mailadmin
+
+# ========================================
+# 5. Cleanup & Restart
+# ========================================
+
+- name: Remove old broken plugin if exists
+  file:
+    path: /var/www/snappymail/data/_data_/_default_/plugins/mailadmin.broken
+    state: absent
+  tags: mailadmin
+
+- name: Clear SnappyMail cache
+  file:
+    path: /var/www/snappymail/data/_data_/_default_/cache
+    state: absent
+  tags: mailadmin
+
+- name: Recreate cache directory
+  file:
+    path: /var/www/snappymail/data/_data_/_default_/cache
+    state: directory
+    owner: www-data
+    group: www-data
+    mode: '0700'
+  tags: mailadmin
+
+- name: Restart PHP-FPM
+  systemd:
+    name: php8.4-fpm
+    state: restarted
+  tags: mailadmin
+
+- name: Restart nginx
+  systemd:
+    name: nginx
+    state: restarted
+  tags: mailadmin
+
+- name: Display success message
+  debug:
+    msg:
+      - "=========================================="
+      - "✓ MailAdmin deployed successfully!"
+      - "=========================================="
+      - ""
+      - "Next steps:"
+      - "1. Logout from SnappyMail"
+      - "2. Clear browser cache (Ctrl+Shift+R)"
+      - "3. Login as {{ mail_admin_email }}"
+      - "4. Look for '⚙️ Admin' button (bottom right)"
+      - ""
+      - "API endpoint: https://{{ postfix_myhostname }}/wm/admin-api.php"
+      - "Admin email: {{ mail_admin_email }}"
+  tags: mailadmin

@@ -12,6 +12,20 @@
       - dovecot-managesieved
     state: present
     update_cache: yes
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+  tags: dovecot
+
+- name: Ensure Dovecot directories exist
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root
+  loop:
+    - /etc/dovecot
+    - /etc/dovecot/conf.d
   tags: dovecot
 
 - name: Ensure vmail user exists (created by Postfix)

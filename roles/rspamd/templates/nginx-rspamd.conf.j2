@@ -42,8 +42,9 @@ server {
 
 # HTTPS configuration (uncomment after certbot setup)
 # server {
-#     listen 443 ssl http2;
-#     listen [::]:443 ssl http2;
+#     listen 443 ssl;
+#     listen [::]:443 ssl;
+#     http2 on;
 #     server_name {{ postfix_myhostname }};
 #     
 #     # SSL certificates (managed by certbot)

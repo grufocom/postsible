@@ -18,14 +18,7 @@ logfile /var/log/redis/redis-server.log
 databases 16
 
 # Snapshotting - Disabled for rspamd performance
-{% if not (rspamd_redis_disable_persistence | default(true)) %}
-save 900 1
-save 300 10
-save 60 10000
-{% else %}
 # Persistence disabled for better performance with rspamd
-{% endif %}
-
 stop-writes-on-bgsave-error yes
 rdbcompression yes
 rdbchecksum yes
@@ -41,16 +34,15 @@ repl-disable-tcp-nodelay no
 replica-priority 100
 
 # Security
-requirepass {{ rspamd_redis_password | default('') }}
-{% if rspamd_redis_password | default('') %}
-# Password protection enabled
+{% if redis_password is defined and redis_password != '' %}
+requirepass {{ redis_password }}
 {% else %}
 # No password set - only localhost access
 {% endif %}
 
 # Limits
 maxclients 10000
-maxmemory {{ rspamd_redis_maxmemory | default('256mb') }}
+maxmemory {{ redis_maxmemory | default('256mb') }}
 maxmemory-policy allkeys-lru
 
 # Append only file - Disabled for rspamd

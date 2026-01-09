@@ -28,7 +28,8 @@ sieve_max_actions = {{ dovecot_sieve_max_actions }}
 sieve_max_redirects = {{ dovecot_sieve_max_redirects }}
 
 # Extensions (ohne + Prefix in Dovecot 2.4.1)
-sieve_extensions = vacation vacation-seconds relational comparator-i;ascii-numeric
+# IMPORTANT: fileinto and mailbox are REQUIRED for spam filtering
+sieve_extensions = fileinto mailbox vacation vacation-seconds relational comparator-i;ascii-numeric imap4flags
 
 # Vacation settings
 sieve_vacation_min_period = 1d

@@ -77,16 +77,58 @@
     user: root
     state: "{{ 'present' if rspamd_enable_daily_learning | default(true) else 'absent' }}"
 
-- name: Configure Sieve script for spam/ham folder detection
+- name: Check if Dovecot sieve is available
+  stat:
+    path: /var/lib/dovecot/sieve
+  register: dovecot_sieve_dir
+
+- name: Check if Dovecot sieve plugins are enabled
+  shell: doveconf -n | grep -q "sieve_extensions.*fileinto"
+  register: sieve_plugins_check
+  failed_when: false
+  changed_when: false
+  when: dovecot_sieve_dir.stat.exists
+
+- name: Create Sieve script for spam/ham folder detection (if Dovecot configured)
   template:
     src: rspamd-learn.sieve.j2
     dest: /var/lib/dovecot/sieve/rspamd-learn.sieve
     owner: root
     group: root
     mode: '0644'
-  notify: 
+  when:
+    - dovecot_sieve_dir.stat.exists
+    - sieve_plugins_check.rc == 0
+  notify:
     - compile sieve scripts
     - restart dovecot
+
+- name: Create minimal Sieve script (if Dovecot not fully configured)
+  copy:
+    dest: /var/lib/dovecot/sieve/rspamd-learn.sieve
+    content: |
+      # Sieve script for rspamd learning
+      # Managed by Ansible - DO NOT EDIT MANUALLY
+      
+      # This is a minimal script that doesn't require additional plugins
+      # Spam filtering is already handled by rspamd via Postfix milter
+      
+      # Users can manually move messages to:
+      # - .Spam folder for spam learning
+      # - .Ham folder for ham learning (false positives)
+      
+      # The learning cronjobs will process these folders automatically
+    owner: root
+    group: root
+    mode: '0644'
+  when:
+    - dovecot_sieve_dir.stat.exists
+    - sieve_plugins_check.rc != 0
+
+- name: Skip Sieve script if Dovecot not installed
+  debug:
+    msg: "Dovecot sieve directory not found - skipping Sieve script creation"
+  when: not dovecot_sieve_dir.stat.exists
 
 - name: Print learning setup info
   debug:
@@ -94,29 +136,35 @@
       ========================================
       Rspamd Learning Setup Complete
       ========================================
-      
+
       Learning Scripts:
       - /usr/local/bin/rspamd-scripts/learn-spam.sh
       - /usr/local/bin/rspamd-scripts/learn-ham.sh
       - /usr/local/bin/rspamd-scripts/learn-all.sh
-      
+
       Cronjobs:
       - Spam learning: Every 30 minutes
       - Ham learning: Every 30 minutes
       - Full learning: Daily at 3:00 AM
-      
+
       How it works:
       1. Users move spam to .Spam folder
       2. Users move false positives to .Ham folder
       3. Cronjobs automatically learn from these folders
       4. Bayes filter improves over time
-      
+
+      {% if dovecot_sieve_dir.stat.exists %}
+      Sieve Status: {% if sieve_plugins_check.rc == 0 %}CONFIGURED ✓{% else %}MINIMAL (plugins not enabled){% endif %}
+      {% else %}
+      Sieve Status: SKIPPED (Dovecot not installed yet)
+      {% endif %}
+
       Manual learning:
       - Run: /usr/local/bin/rspamd-scripts/learn-all.sh
-      
+
       Logs:
       - /var/log/rspamd-learning/spam.log
       - /var/log/rspamd-learning/ham.log
       - /var/log/rspamd-learning/daily.log
-      
+
       ========================================

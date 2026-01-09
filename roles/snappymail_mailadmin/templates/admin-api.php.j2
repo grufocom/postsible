@@ -1,0 +1,282 @@
+a<?php
+/**
+ * MailAdmin Standalone API
+ * Managed by Ansible - DO NOT EDIT MANUALLY
+ */
+
+error_reporting(E_ALL);
+ini_set('display_errors', 0);
+ini_set('log_errors', 1);
+
+header('Content-Type: application/json');
+header('X-Content-Type-Options: nosniff');
+
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
+    die(json_encode(['success' => false, 'message' => 'Method not allowed']));
+}
+
+session_start();
+
+// Configuration from Ansible
+define('ADMIN_EMAILS', '{{ mail_admin_email }}');
+define('DB_HOST', '{{ mariadb_host }}');
+define('DB_NAME', '{{ mariadb_database }}');
+define('DB_USER', 'root');
+define('DB_PASS', '{{ mariadb_root_password }}');
+define('SIEVE_BASE_PATH', '{{ dovecot_mail_location | regex_replace("maildir:", "") | regex_replace("/%d/%n.*$", "") }}');
+
+function isAdmin(): bool
+{
+    if (!isset($_SESSION) || empty($_SESSION)) {
+        session_start();
+    }
+    
+    // Try different session variable names SnappyMail might use
+    $email = $_SESSION['rl_user_email'] ?? 
+             $_SESSION['sm_user_email'] ?? 
+             $_SESSION['user_email'] ?? 
+             null;
+    
+    if (!$email) {
+        return false;
+    }
+    
+    $userEmail = strtolower($email);
+    $adminEmails = array_map('trim', array_map('strtolower', explode(',', ADMIN_EMAILS)));
+    
+    return in_array($userEmail, $adminEmails);
+}
+
+function sendResponse(bool $success, string $message = '', array $data = []): void
+{
+    echo json_encode(array_merge([
+        'success' => $success,
+        'message' => $message
+    ], $data));
+    exit;
+}
+
+function getDB(): PDO
+{
+    static $pdo = null;
+    
+    if ($pdo === null) {
+        try {
+            $pdo = new PDO(
+                "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8mb4",
+                DB_USER,
+                DB_PASS,
+                [
+                    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                    PDO::ATTR_EMULATE_PREPARES => false
+                ]
+            );
+        } catch (PDOException $e) {
+            error_log("MailAdmin DB Error: " . $e->getMessage());
+            sendResponse(false, 'Database connection failed');
+        }
+    }
+    
+    return $pdo;
+}
+
+if (!isAdmin()) {
+    http_response_code(403);
+    sendResponse(false, 'Access denied');
+}
+
+$input = json_decode(file_get_contents('php://input'), true);
+$action = $input['action'] ?? '';
+
+require_once __DIR__ . '/mailadmin-lib/MailDB.php';
+require_once __DIR__ . '/mailadmin-lib/SieveManager.php';
+
+$db = new \MailAdmin\MailDB(DB_HOST, DB_NAME, DB_USER, DB_PASS);
+$sieve = new \MailAdmin\SieveManager(SIEVE_BASE_PATH);
+
+try {
+    switch ($action) {
+        case 'getDomains':
+            $domains = $db->getDomains();
+            sendResponse(true, '', ['domains' => $domains]);
+            break;
+            
+        case 'addDomain':
+            $domain = trim($input['domain'] ?? '');
+            if (empty($domain)) {
+                sendResponse(false, 'Domain name required');
+            }
+            $db->addDomain($domain);
+            sendResponse(true, "Domain {$domain} added successfully");
+            break;
+            
+        case 'removeDomain':
+            $domain = trim($input['domain'] ?? '');
+            if (empty($domain)) {
+                sendResponse(false, 'Domain name required');
+            }
+            $db->removeDomain($domain);
+            sendResponse(true, "Domain {$domain} removed successfully");
+            break;
+            
+        case 'getUsers':
+            $domain = trim($input['domain'] ?? '');
+            $users = $db->getUsers($domain);
+            sendResponse(true, '', ['users' => $users]);
+            break;
+            
+        case 'addUser':
+            $email = trim($input['email'] ?? '');
+            $password = $input['password'] ?? '';
+            if (empty($email) || empty($password)) {
+                sendResponse(false, 'Email and password required');
+            }
+            $db->addUser($email, $password);
+            createMaildir($email);
+            sendResponse(true, "User {$email} created successfully");
+            break;
+            
+        case 'removeUser':
+            $email = trim($input['email'] ?? '');
+            if (empty($email)) {
+                sendResponse(false, 'Email required');
+            }
+            $db->removeUser($email);
+            sendResponse(true, "User {$email} removed successfully");
+            break;
+            
+        case 'enableUser':
+            $email = trim($input['email'] ?? '');
+            $db->setUserEnabled($email, true);
+            sendResponse(true, "User {$email} enabled");
+            break;
+            
+        case 'disableUser':
+            $email = trim($input['email'] ?? '');
+            $db->setUserEnabled($email, false);
+            sendResponse(true, "User {$email} disabled");
+            break;
+            
+        case 'changePassword':
+            $email = trim($input['email'] ?? '');
+            $password = $input['password'] ?? '';
+            if (empty($email) || empty($password)) {
+                sendResponse(false, 'Email and password required');
+            }
+            $db->changePassword($email, $password);
+            sendResponse(true, "Password changed for {$email}");
+            break;
+            
+        case 'getAliases':
+            $domain = trim($input['domain'] ?? '');
+            $aliases = $db->getAliases($domain);
+            sendResponse(true, '', ['aliases' => $aliases]);
+            break;
+            
+        case 'addAlias':
+            $source = trim($input['source'] ?? '');
+            $destination = trim($input['destination'] ?? '');
+            if (empty($source) || empty($destination)) {
+                sendResponse(false, 'Source and destination required');
+            }
+            $db->addAlias($source, $destination);
+            sendResponse(true, "Alias created: {$source} → {$destination}");
+            break;
+            
+        case 'removeAlias':
+            $source = trim($input['source'] ?? '');
+            if (empty($source)) {
+                sendResponse(false, 'Source required');
+            }
+            $db->removeAlias($source);
+            sendResponse(true, "Alias {$source} removed");
+            break;
+            
+        case 'getSignature':
+            $email = trim($input['email'] ?? '');
+            $signature = $sieve->getSignature($email);
+            sendResponse(true, '', ['signature' => $signature]);
+            break;
+            
+        case 'setSignature':
+            $email = trim($input['email'] ?? '');
+            $signature = $input['signature'] ?? '';
+            $sieve->setSignature($email, $signature);
+            sendResponse(true, "Signature updated for {$email}");
+            break;
+            
+        case 'getVacation':
+            $email = trim($input['email'] ?? '');
+            $vacation = $sieve->getVacation($email);
+            sendResponse(true, '', ['vacation' => $vacation]);
+            break;
+            
+        case 'setVacation':
+            $email = trim($input['email'] ?? '');
+            $subject = $input['subject'] ?? '';
+            $message = $input['message'] ?? '';
+            $startDate = $input['start_date'] ?? '';
+            $endDate = $input['end_date'] ?? '';
+            $sieve->setVacation($email, $subject, $message, $startDate, $endDate);
+            sendResponse(true, "Vacation message set for {$email}");
+            break;
+            
+        case 'disableVacation':
+            $email = trim($input['email'] ?? '');
+            $sieve->disableVacation($email);
+            sendResponse(true, "Vacation disabled for {$email}");
+            break;
+            
+        default:
+            sendResponse(false, 'Unknown action');
+    }
+    
+} catch (Exception $e) {
+    error_log("MailAdmin API Error [{$action}]: " . $e->getMessage());
+    sendResponse(false, $e->getMessage());
+}
+
+function createMaildir(string $email): void
+{
+    list($username, $domain) = explode('@', $email);
+    $basePath = SIEVE_BASE_PATH . "/{$domain}/{$username}";
+    
+    $dirs = [
+        "{$basePath}/Maildir",
+        "{$basePath}/Maildir/cur",
+        "{$basePath}/Maildir/new",
+        "{$basePath}/Maildir/tmp",
+        "{$basePath}/Maildir/.Drafts",
+        "{$basePath}/Maildir/.Drafts/cur",
+        "{$basePath}/Maildir/.Drafts/new",
+        "{$basePath}/Maildir/.Drafts/tmp",
+        "{$basePath}/Maildir/.Sent",
+        "{$basePath}/Maildir/.Sent/cur",
+        "{$basePath}/Maildir/.Sent/new",
+        "{$basePath}/Maildir/.Sent/tmp",
+        "{$basePath}/Maildir/.Trash",
+        "{$basePath}/Maildir/.Trash/cur",
+        "{$basePath}/Maildir/.Trash/new",
+        "{$basePath}/Maildir/.Trash/tmp",
+        "{$basePath}/Maildir/.Spam",
+        "{$basePath}/Maildir/.Spam/cur",
+        "{$basePath}/Maildir/.Spam/new",
+        "{$basePath}/Maildir/.Spam/tmp",
+    ];
+
+    foreach ($dirs as $dir) {
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0700, true);
+            @chown($dir, 'vmail');
+            @chgrp($dir, 'vmail');
+        }
+    }
+
+    $subscriptions = "{$basePath}/Maildir/subscriptions";
+    @file_put_contents($subscriptions, "INBOX\nDrafts\nSent\nTrash\nSpam\n");
+    @chown($subscriptions, 'vmail');
+    @chgrp($subscriptions, 'vmail');
+    @chmod($subscriptions, 0600);
+}

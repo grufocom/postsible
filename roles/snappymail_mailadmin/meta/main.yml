@@ -1,0 +1,28 @@
+---
+# roles/snappymail_mailadmin/meta/main.yml
+
+dependencies:
+  - role: snappymail
+  - role: mariadb
+
+galaxy_info:
+  author: Postsible
+  description: SnappyMail MailAdmin - Standalone API for mail server administration
+  license: MIT
+  min_ansible_version: 2.9
+  
+  platforms:
+    - name: Debian
+      versions:
+        - bookworm
+        - trixie
+  
+  galaxy_tags:
+    - mail
+    - snappymail
+    - webmail
+    - admin
+    - mailserver
+    - dovecot
+    - postfix
+    - management
