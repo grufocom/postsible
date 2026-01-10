@@ -147,6 +147,63 @@
     mode: '0640'
   tags: snappymail
 
+- name: Create ansible tmp directory for www-data user
+  file:
+    path: /var/www/.ansible/tmp
+    state: directory
+    owner: "{{ snappymail_user }}"
+    group: "{{ snappymail_group }}"
+    mode: '0700'
+  tags: snappymail
+
+- name: Create PHP script to set admin password via SnappyMail API
+  copy:
+    dest: "{{ snappymail_data_path }}/set_password.php"
+    content: |
+      <?php
+      $_ENV['SNAPPYMAIL_INCLUDE_AS_API'] = true;
+      define('APP_DATA_FOLDER_PATH', '{{ snappymail_data_path }}/');
+      
+      require_once '{{ snappymail_install_path }}/index.php';
+      
+      $oConfig = \RainLoop\Api::Config();
+      $oPassword = new \SnappyMail\SensitiveString('{{ vault_snappymail_admin_password }}');
+      $oConfig->SetPassword($oPassword);
+      $oConfig->Save();
+      
+      echo "Password configured successfully";
+      exit(0);
+      ?>
+    owner: "{{ snappymail_user }}"
+    group: "{{ snappymail_group }}"
+    mode: '0600'
+  no_log: true
+  tags: snappymail
+
+- name: Set admin password using SnappyMail API
+  command: php {{ snappymail_data_path }}/set_password.php
+  become_user: "{{ snappymail_user }}"
+  register: password_set_result
+  changed_when: password_set_result.rc == 0
+  failed_when: password_set_result.rc != 0
+  no_log: true
+  tags: snappymail
+
+- name: Remove temporary password script
+  file:
+    path: "{{ snappymail_data_path }}/set_password.php"
+    state: absent
+  tags: snappymail
+
+- name: Set admin login in application.ini
+  lineinfile:
+    path: "{{ snappymail_data_path }}/_data_/_default_/configs/application.ini"
+    regexp: '^admin_login\s*='
+    line: 'admin_login = "{{ snappymail_admin_login }}"'
+    state: present
+    insertafter: '^\[security\]'
+  tags: snappymail
+
 - name: Remove all existing domain configs (force clean slate)
   file:
     path: "{{ snappymail_data_path }}/_data_/_default_/domains"
@@ -285,6 +342,19 @@
     state: reloaded
   tags: snappymail
 
+- name: Check if admin password file exists
+  stat:
+    path: "{{ snappymail_data_path }}/_data_/_default_/admin_password.txt"
+  register: admin_password_file
+  tags: snappymail
+
+- name: Remove auto-generated admin_password.txt (password is now set via API)
+  file:
+    path: "{{ snappymail_data_path }}/_data_/_default_/admin_password.txt"
+    state: absent
+  when: admin_password_file.stat.exists
+  tags: snappymail
+
 - name: Display SnappyMail information
   debug:
     msg:
@@ -298,12 +368,16 @@
       - "Admin Panel:"
       - "  URL: https://{{ snappymail_domain }}{{ snappymail_url_path }}/?admin"
       - "  Username: {{ snappymail_admin_login }}"
-      - "  Password: {{ snappymail_admin_password }}"
+      - "  Password: (set from vault_snappymail_admin_password)"
       - ""
-      - "Initial Setup Required:"
-      - "  1. Open Admin Panel (?admin)"
-      - "  2. Complete setup wizard"
-      - "  3. Configure domains and IMAP/SMTP settings"
+      - "✓ Admin credentials have been configured automatically!"
+      - "✓ You can login directly with the credentials from your vault."
+      - ""
+      - "RECOMMENDED SECURITY STEPS:"
+      - "  1. Login to admin panel (?admin)"
+      - "  2. Go to Security settings"
+      - "  3. Optionally change the admin username"
+      - "  4. Enable 2FA/TOTP for additional security"
       - ""
       - "Pre-configured settings:"
       - "  IMAP: {{ snappymail_imap_host }}:{{ snappymail_imap_port }} ({{ snappymail_imap_secure | upper }})"
