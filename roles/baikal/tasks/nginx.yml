@@ -10,6 +10,23 @@
   failed_when: false
   tags: baikal
 
+- name: Add .well-known redirects for CalDAV/CardDAV discovery
+  blockinfile:
+    path: /etc/nginx/sites-available/rspamd
+    marker: "    # {mark} ANSIBLE MANAGED BLOCK - Baïkal Well-Known"
+    insertafter: "^\\s*# ACME challenge for certificate renewal"
+    block: |2
+          # CalDAV/CardDAV Discovery (RFC 6764)
+          location /.well-known/carddav {
+              return 301 $scheme://$host{{ baikal_url_path }}/dav.php;
+          }
+
+          location /.well-known/caldav {
+              return 301 $scheme://$host{{ baikal_url_path }}/dav.php;
+          }
+    state: present
+  tags: baikal
+
 - name: Add Baïkal location to main VHost (inside server block)
   blockinfile:
     path: /etc/nginx/sites-available/rspamd
