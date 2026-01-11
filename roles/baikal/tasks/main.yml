@@ -1,0 +1,31 @@
+---
+# Baïkal main tasks
+
+- name: Include installation tasks
+  include_tasks: install.yml
+  tags:
+    - baikal
+    - baikal-install
+
+- name: Include database configuration
+  include_tasks: database.yml
+  tags:
+    - baikal
+    - baikal-database
+
+- name: Include Baïkal configuration
+  include_tasks: configure.yml
+  tags:
+    - baikal
+    - baikal-configure
+
+- name: Include Nginx configuration
+  include_tasks: nginx.yml
+  tags:
+    - baikal
+    - baikal-nginx
+
+- name: Display Baïkal information
+  include_tasks: info.yml
+  tags:
+    - baikal

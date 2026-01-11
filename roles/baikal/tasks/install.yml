@@ -1,0 +1,204 @@
+---
+# Baïkal installation tasks
+
+- name: Create Baïkal directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ baikal_user }}"
+    group: "{{ baikal_group }}"
+    mode: '0755'
+  loop:
+    - "{{ baikal_install_path }}"
+    - "{{ baikal_data_path }}"
+  tags: baikal
+
+- name: Check if Baïkal html/index.php exists
+  stat:
+    path: "{{ baikal_install_path }}/html/index.php"
+  register: baikal_index_exists
+  tags: baikal
+
+- name: Get installed Baïkal version from composer.json
+  shell: |
+    if [ -f "{{ baikal_install_path }}/composer.json" ]; then
+      grep '"version":' {{ baikal_install_path }}/composer.json | head -1 | sed 's/.*"version": "//;s/".*//'
+    else
+      echo "not_installed"
+    fi
+  register: baikal_current_version
+  changed_when: false
+  tags: baikal
+
+- name: Display version information
+  debug:
+    msg: 
+      - "Installed version: {{ baikal_current_version.stdout }}"
+      - "Target version: {{ baikal_version }}"
+      - "Index exists: {{ baikal_index_exists.stat.exists }}"
+  tags: baikal
+
+- name: Determine if installation/update is needed
+  set_fact:
+    baikal_needs_install: "{{ (baikal_current_version.stdout == 'not_installed') or (baikal_current_version.stdout != baikal_version) }}"
+  tags: baikal
+
+- name: Display installation decision
+  debug:
+    msg: "{{ 'Installation/Update needed' if baikal_needs_install else 'Already up to date' }}"
+  tags: baikal
+
+- name: Backup existing Baïkal config
+  copy:
+    src: "{{ baikal_install_path }}/config/baikal.yaml"
+    dest: "/tmp/baikal-config-backup.yaml"
+    remote_src: yes
+  when: 
+    - baikal_needs_install
+    - baikal_index_exists.stat.exists
+  failed_when: false
+  tags: baikal
+
+- name: Backup existing Baïkal installation
+  archive:
+    path: "{{ baikal_install_path }}"
+    dest: "/tmp/baikal-backup-{{ ansible_date_time.iso8601_basic_short }}.tar.gz"
+  when: 
+    - baikal_needs_install
+    - baikal_index_exists.stat.exists
+  tags: baikal
+
+- name: Remove old Baïkal installation
+  file:
+    path: "{{ baikal_install_path }}"
+    state: absent
+  when: baikal_needs_install
+  tags: baikal
+
+- name: Recreate Baïkal directory
+  file:
+    path: "{{ baikal_install_path }}"
+    state: directory
+    owner: "{{ baikal_user }}"
+    group: "{{ baikal_group }}"
+    mode: '0755'
+  when: baikal_needs_install
+  tags: baikal
+
+- name: Download Baïkal {{ baikal_version }}
+  get_url:
+    url: "{{ baikal_download_url }}"
+    dest: "/tmp/baikal-{{ baikal_version }}.zip"
+    mode: '0644'
+    force: yes
+  when: baikal_needs_install
+  tags: baikal
+
+- name: Install unzip (if not present)
+  apt:
+    name: unzip
+    state: present
+  when: baikal_needs_install
+  tags: baikal
+
+- name: Extract Baïkal to temporary directory
+  unarchive:
+    src: "/tmp/baikal-{{ baikal_version }}.zip"
+    dest: "/tmp/"
+    remote_src: yes
+  when: baikal_needs_install
+  tags: baikal
+
+- name: Move Baïkal files to installation directory
+  shell: |
+    set -e
+    # Baïkal extrahiert nach /tmp/baikal (ohne Versionsnummer)
+    BAIKAL_TMP_DIR="/tmp/baikal"
+    
+    if [ ! -d "$BAIKAL_TMP_DIR" ]; then
+      echo "ERROR: Expected directory $BAIKAL_TMP_DIR not found after extraction"
+      exit 1
+    fi
+    
+    echo "Moving from: $BAIKAL_TMP_DIR to {{ baikal_install_path }}/"
+    
+    # Move all files including hidden ones (POSIX-compatible)
+    cd "$BAIKAL_TMP_DIR"
+    cp -r . {{ baikal_install_path }}/
+    cd -
+    
+    # Clean up temp directory
+    rm -rf "$BAIKAL_TMP_DIR"
+    
+    echo "Move completed successfully"
+  args:
+    executable: /bin/bash
+  when: baikal_needs_install
+  register: move_result
+  tags: baikal
+
+- name: Display move result
+  debug:
+    var: move_result.stdout_lines
+  when: 
+    - baikal_needs_install
+    - move_result.stdout_lines is defined
+  tags: baikal
+
+- name: Restore config backup if it exists
+  copy:
+    src: "/tmp/baikal-config-backup.yaml"
+    dest: "{{ baikal_install_path }}/config/baikal.yaml"
+    remote_src: yes
+    owner: "{{ baikal_user }}"
+    group: "{{ baikal_group }}"
+  when: 
+    - baikal_needs_install
+  failed_when: false
+  tags: baikal
+
+- name: Set correct permissions for Baïkal
+  file:
+    path: "{{ baikal_install_path }}"
+    owner: "{{ baikal_user }}"
+    group: "{{ baikal_group }}"
+    recurse: yes
+  tags: baikal
+
+- name: Set writable permissions for Specific folder
+  file:
+    path: "{{ baikal_install_path }}/Specific"
+    owner: "{{ baikal_user }}"
+    group: "{{ baikal_group }}"
+    mode: '0770'
+    recurse: yes
+  tags: baikal
+
+- name: Clean up downloaded archive
+  file:
+    path: "/tmp/baikal-{{ baikal_version }}.zip"
+    state: absent
+  tags: baikal
+
+- name: Verify installation
+  stat:
+    path: "{{ baikal_install_path }}/composer.json"
+  register: baikal_verify
+  tags: baikal
+
+- name: Get final installed version
+  shell: |
+    grep '"version":' {{ baikal_install_path }}/composer.json | head -1 | sed 's/.*"version": "//;s/".*//'
+  register: baikal_final_version
+  when: baikal_verify.stat.exists
+  changed_when: false
+  tags: baikal
+
+- name: Display installation status
+  debug:
+    msg:
+      - "=========================================="
+      - "{{ '✓ Baïkal ' + baikal_final_version.stdout + ' installed/updated' if baikal_needs_install and baikal_verify.stat.exists else '✓ Baïkal already up to date' }}"
+      - "Installation path: {{ baikal_install_path }}"
+      - "=========================================="
+  tags: baikal

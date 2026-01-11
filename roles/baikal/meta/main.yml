@@ -1,0 +1,30 @@
+---
+# Baïkal role metadata
+
+galaxy_info:
+  author: Postsible Team
+  description: Baïkal CalDAV/CardDAV server for Postsible mail server
+  license: MIT
+  min_ansible_version: 2.9
+
+  platforms:
+    - name: Debian
+      versions:
+        - bookworm
+        - bullseye
+    - name: Ubuntu
+      versions:
+        - jammy
+        - focal
+
+  galaxy_tags:
+    - caldav
+    - carddav
+    - calendar
+    - contacts
+    - baikal
+    - sabredav
+
+# No dependencies - nginx and mariadb are managed by the main playbook
+# This prevents re-running these roles when only baikal is targeted
+dependencies: []

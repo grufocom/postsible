@@ -1,0 +1,27 @@
+# Baïkal Configuration
+# {{ ansible_managed }}
+
+system:
+    configured_version: '{{ baikal_version }}'
+    timezone: '{{ baikal_timezone }}'
+    card_enabled: {{ baikal_card_enabled | lower }}
+    cal_enabled: {{ baikal_cal_enabled | lower }}
+    dav_auth_type: {{ baikal_auth_type }}
+    admin_passwordhash: {{ baikal_admin_password_hash }}
+    failed_access_message: 'user %u authentication failure for Baikal'
+    auth_realm: {{ baikal_auth_realm }}
+    base_uri: ''
+    invite_from: '{{ baikal_invite_from }}'
+
+database:
+    backend: mysql
+    mysql_host: '{{ baikal_db_host }}'
+    mysql_dbname: '{{ baikal_db_name }}'
+    mysql_username: '{{ mariadb_user }}'
+    mysql_password: '{{ mariadb_password }}'
+    encryption_key: '{{ baikal_encryption_key }}'
+    sqlite_file: /var/www/baikal/Specific/db/db.sqlite
+    pgsql_host: ''
+    pgsql_dbname: ''
+    pgsql_username: ''
+    pgsql_password: ''

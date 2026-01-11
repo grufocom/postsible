@@ -163,14 +163,14 @@
       <?php
       $_ENV['SNAPPYMAIL_INCLUDE_AS_API'] = true;
       define('APP_DATA_FOLDER_PATH', '{{ snappymail_data_path }}/');
-      
+
       require_once '{{ snappymail_install_path }}/index.php';
-      
+
       $oConfig = \RainLoop\Api::Config();
       $oPassword = new \SnappyMail\SensitiveString('{{ vault_snappymail_admin_password }}');
       $oConfig->SetPassword($oPassword);
       $oConfig->Save();
-      
+
       echo "Password configured successfully";
       exit(0);
       ?>
@@ -289,6 +289,96 @@
     - "{{ snappymail_data_path }}/_data_/_default_/storage"
   tags: snappymail
 
+- name: Configure SnappyMail Contacts with MySQL
+  blockinfile:
+    path: "{{ snappymail_data_path }}/_data_/_default_/configs/application.ini"
+    marker: "; {mark} ANSIBLE MANAGED BLOCK - Contacts"
+    block: |
+      [contacts]
+      enable = On
+      allow_sync = On
+      sync_interval = 20
+      type = "mysql"
+      pdo_dsn = "host={{ mariadb_host }};port=3306;dbname={{ mariadb_database }}"
+      pdo_user = "{{ mariadb_user }}"
+      pdo_password = "{{ vault_mariadb_password }}"
+    insertafter: '^\[contacts\]'
+    create: yes
+    owner: "{{ snappymail_user }}"
+    group: "{{ snappymail_group }}"
+    mode: '0640'
+  no_log: true
+  tags: snappymail
+
+- name: Create PHP script to initialize Contacts database
+  copy:
+    dest: "{{ snappymail_data_path }}/init_contacts.php"
+    content: |
+      <?php
+      $_ENV['SNAPPYMAIL_INCLUDE_AS_API'] = true;
+      define('APP_DATA_FOLDER_PATH', '{{ snappymail_data_path }}/');
+      
+      require_once '{{ snappymail_install_path }}/index.php';
+      
+      // Get Contacts provider
+      $oAddressBookProvider = \RainLoop\Api::Actions()->AddressBookProvider();
+      
+      if ($oAddressBookProvider) {
+          // This will create the necessary tables if they don't exist
+          $bResult = $oAddressBookProvider->IsSupported();
+          if ($bResult) {
+              echo "Contacts database initialized successfully\n";
+              exit(0);
+          } else {
+              echo "Failed to initialize contacts database\n";
+              exit(1);
+          }
+      } else {
+          echo "AddressBookProvider not available\n";
+          exit(1);
+      }
+      ?>
+    owner: "{{ snappymail_user }}"
+    group: "{{ snappymail_group }}"
+    mode: '0600'
+  tags: snappymail
+
+- name: Initialize Contacts database tables
+  command: php {{ snappymail_data_path }}/init_contacts.php
+  become_user: "{{ snappymail_user }}"
+  register: contacts_init_result
+  changed_when: "'initialized successfully' in contacts_init_result.stdout"
+  failed_when: false
+  tags: snappymail
+
+- name: Display Contacts initialization result
+  debug:
+    var: contacts_init_result.stdout_lines
+  when: contacts_init_result.stdout_lines is defined
+  tags: snappymail
+
+- name: Remove temporary contacts init script
+  file:
+    path: "{{ snappymail_data_path }}/init_contacts.php"
+    state: absent
+  tags: snappymail
+
+- name: Verify SnappyMail contacts tables in database
+  shell: |
+    mysql -u {{ mariadb_user }} -p'{{ mariadb_password }}' {{ mariadb_database }} -e "SHOW TABLES LIKE 'rainloop_%';"
+  register: snappymail_tables_check
+  changed_when: false
+  no_log: true
+  tags: snappymail
+
+- name: Display SnappyMail database tables
+  debug:
+    msg:
+      - "SnappyMail Contacts tables in database {{ mariadb_database }}:"
+      - "{{ snappymail_tables_check.stdout_lines }}"
+  when: snappymail_tables_check.stdout != ""
+  tags: snappymail
+
 - name: Add SnappyMail location to rspamd VHost
   blockinfile:
     path: /etc/nginx/sites-available/rspamd
@@ -373,18 +463,35 @@
       - "✓ Admin credentials have been configured automatically!"
       - "✓ You can login directly with the credentials from your vault."
       - ""
-      - "RECOMMENDED SECURITY STEPS:"
-      - "  1. Login to admin panel (?admin)"
-      - "  2. Go to Security settings"
-      - "  3. Optionally change the admin username"
-      - "  4. Enable 2FA/TOTP for additional security"
-      - ""
       - "Pre-configured settings:"
       - "  IMAP: {{ snappymail_imap_host }}:{{ snappymail_imap_port }} ({{ snappymail_imap_secure | upper }})"
       - "  SMTP: {{ snappymail_smtp_host }}:{{ snappymail_smtp_port }} ({{ snappymail_smtp_secure | upper }})"
       - "  Default Domain: {{ snappymail_default_domain }}"
       - ""
+      - "📇 Contacts Configuration:"
+      - "  Database: {{ mariadb_database }} (shared with Postfix/Dovecot/Baïkal)"
+      - "  CardDAV Sync: Enabled"
+      - "  Tables: rainloop_* (automatically created)"
+      - ""
+      - "🔗 Baïkal CardDAV Integration:"
+      - "  User Settings → Contacts → Enable remote synchronization"
+      - "  CardDAV URL: https://{{ postfix_myhostname }}/dav/card.php/addressbooks/USERNAME/default/"
+      - "  Username: (Baïkal username)"
+      - "  Password: (Baïkal password)"
+      - ""
       - "Installation path: {{ snappymail_install_path }}"
       - "Data path: {{ snappymail_data_path }}"
       - "Logs: {{ snappymail_log_path }}"
+      - ""
+      - "Database Tables in {{ mariadb_database }}:"
+      - "  Postfix/Dovecot: virtual_* tables"
+      - "  Baïkal: principals, calendars, addressbooks, etc."
+      - "  SnappyMail: rainloop_* tables"
+      - "  → All in one database! 🎯"
+      - ""
+      - "RECOMMENDED SECURITY STEPS:"
+      - "  1. Login to admin panel (?admin)"
+      - "  2. Go to Security settings"
+      - "  3. Optionally change the admin username"
+      - "  4. Enable 2FA/TOTP for additional security"
   tags: snappymail

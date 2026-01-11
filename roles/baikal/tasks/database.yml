@@ -1,0 +1,79 @@
+---
+# Baïkal database tasks
+
+# NOTE: Baïkal shares the mailserver database for simplicity
+# All Baïkal tables will be in the same database as mail tables
+# This is safe and recommended for easier management
+
+- name: Verify mailserver database exists
+  mysql_db:
+    name: "{{ baikal_db_name }}"
+    state: present
+    login_unix_socket: /var/run/mysqld/mysqld.sock
+  tags: baikal
+
+- name: Grant Baïkal permissions to mail database user
+  mysql_user:
+    name: "{{ mariadb_user }}"
+    password: "{{ mariadb_password }}"
+    priv: "{{ baikal_db_name }}.*:ALL"
+    state: present
+    login_unix_socket: /var/run/mysqld/mysqld.sock
+  no_log: true
+  tags: baikal
+
+- name: Check if Baïkal database schema exists
+  shell: |
+    mysql -u {{ mariadb_user }} -p'{{ mariadb_password }}' {{ baikal_db_name }} -e "SHOW TABLES LIKE 'principals';" | grep -q principals
+  register: baikal_schema_check
+  failed_when: false
+  changed_when: false
+  no_log: true
+  tags: baikal
+
+- name: Copy Baïkal database schema
+  copy:
+    src: "{{ baikal_install_path }}/Core/Resources/Db/MySQL/db.sql"
+    dest: "/tmp/baikal-schema.sql"
+    remote_src: yes
+    mode: '0600'
+  when: baikal_schema_check.rc != 0
+  tags: baikal
+
+- name: Initialize Baïkal database schema
+  mysql_db:
+    name: "{{ baikal_db_name }}"
+    state: import
+    target: "/tmp/baikal-schema.sql"
+    login_unix_socket: /var/run/mysqld/mysqld.sock
+    login_user: "{{ mariadb_user }}"
+    login_password: "{{ mariadb_password }}"
+  when: baikal_schema_check.rc != 0
+  no_log: true
+  tags: baikal
+
+- name: Remove temporary schema file
+  file:
+    path: "/tmp/baikal-schema.sql"
+    state: absent
+  when: baikal_schema_check.rc != 0
+  tags: baikal
+
+- name: Create default admin principal
+  shell: |
+    mysql -u {{ mariadb_user }} -p'{{ mariadb_password }}' {{ baikal_db_name }} << 'EOSQL'
+    INSERT IGNORE INTO principals (uri, email, displayname) 
+    VALUES ('principals/admin', '', 'Administrator');
+    EOSQL
+  when: baikal_schema_check.rc != 0
+  no_log: true
+  tags: baikal
+
+- name: Display database configuration
+  debug:
+    msg:
+      - "Baïkal database configured successfully"
+      - "Database: {{ baikal_db_name }}"
+      - "User: {{ mariadb_user }}"
+      - "Schema: {{ 'Initialized' if baikal_schema_check.rc != 0 else 'Already exists' }}"
+  tags: baikal

@@ -1,0 +1,65 @@
+---
+# Baïkal configuration tasks
+
+- name: Generate Baïkal admin password hash (SHA256 - Digest format)
+  shell: |
+    echo -n 'admin:{{ baikal_auth_realm }}:{{ vault_baikal_admin_password }}' | sha256sum | awk '{print $1}'
+  register: baikal_admin_hash_result
+  changed_when: false
+  no_log: true
+  tags: baikal
+
+- name: Set admin password hash fact
+  set_fact:
+    baikal_admin_password_hash: "{{ baikal_admin_hash_result.stdout }}"
+  no_log: true
+  tags: baikal
+
+- name: Generate encryption key for database
+  shell: |
+    openssl rand -hex 16
+  register: baikal_encryption_key_result
+  changed_when: false
+  tags: baikal
+
+- name: Set encryption key fact
+  set_fact:
+    baikal_encryption_key: "{{ baikal_encryption_key_result.stdout }}"
+  tags: baikal
+
+- name: Ensure Baïkal config directory exists
+  file:
+    path: "{{ baikal_install_path }}/config"
+    state: directory
+    owner: "{{ baikal_user }}"
+    group: "{{ baikal_group }}"
+    mode: '0755'
+  tags: baikal
+
+- name: Configure Baïkal (config/baikal.yaml)
+  template:
+    src: baikal.yaml.j2
+    dest: "{{ baikal_install_path }}/config/baikal.yaml"
+    owner: "{{ baikal_user }}"
+    group: "{{ baikal_group }}"
+    mode: '0644'
+  tags: baikal
+
+- name: Create INSTALL_DISABLED file (skip web installer)
+  file:
+    path: "{{ baikal_install_path }}/Specific/INSTALL_DISABLED"
+    state: touch
+    owner: "{{ baikal_user }}"
+    group: "{{ baikal_group }}"
+    mode: '0644'
+  tags: baikal
+
+- name: Display configuration status
+  debug:
+    msg:
+      - "✓ Baïkal configuration complete"
+      - "✓ Config file: {{ baikal_install_path }}/config/baikal.yaml"
+      - "✓ Web installer disabled"
+      - "✓ Admin password configured"
+      - "✓ Database connection configured"
+  tags: baikal

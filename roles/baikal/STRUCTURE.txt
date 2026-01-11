@@ -1,0 +1,22 @@
+roles/baikal/
+├── README.md                      # Role documentation
+├── STRUCTURE.txt                  # This file
+├── defaults/
+│   └── main.yml                   # Default variables
+├── files/                         # Static files (if needed)
+├── handlers/
+│   └── main.yml                   # Service handlers
+├── meta/
+│   └── main.yml                   # Role metadata
+├── tasks/
+│   ├── main.yml                   # Main task orchestration
+│   ├── install.yml                # Installation tasks
+│   ├── database.yml               # Database setup
+│   ├── configure.yml              # Baïkal configuration
+│   ├── nginx.yml                  # Nginx integration
+│   └── info.yml                   # Display information
+├── templates/
+│   ├── baikal.yaml.j2            # Main config template
+│   └── system.yaml.j2            # System config template
+└── vars/
+    └── main.yml                   # Role variables (optional)

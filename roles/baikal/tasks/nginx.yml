@@ -1,0 +1,62 @@
+---
+# Nginx configuration for Baïkal
+
+- name: Remove any existing Baïkal blocks (cleanup)
+  shell: |
+    sed -i '/# BEGIN ANSIBLE MANAGED BLOCK - Baïkal/,/# END ANSIBLE MANAGED BLOCK - Baïkal/d' /etc/nginx/sites-available/rspamd
+    sed -i '/# BEGIN ANSIBLE MANAGED - Baïkal/,/# END ANSIBLE MANAGED - Baïkal/d' /etc/nginx/sites-available/rspamd
+  register: cleanup_result
+  changed_when: false
+  failed_when: false
+  tags: baikal
+
+- name: Add Baïkal location to main VHost (inside server block)
+  blockinfile:
+    path: /etc/nginx/sites-available/rspamd
+    marker: "    # {mark} ANSIBLE MANAGED BLOCK - Baïkal"
+    insertbefore: "^\\s*# Deny access to hidden files"
+    block: |2
+          # Baïkal CalDAV/CardDAV Server
+          location {{ baikal_url_path }}/ {
+              alias {{ baikal_install_path }}/html/;
+              index index.php;
+
+              # Deny access to Specific directory
+              location ~ ^{{ baikal_url_path }}/Specific {
+                  deny all;
+              }
+
+              # PHP handling
+              location ~ \.php$ {
+                  include snippets/fastcgi-php.conf;
+                  fastcgi_pass unix:{{ nginx_php_fpm_socket }};
+                  fastcgi_param SCRIPT_FILENAME $request_filename;
+                  include fastcgi_params;
+              }
+
+              # CalDAV/CardDAV specific
+              rewrite ^{{ baikal_url_path }}/cal\.php/(.*) {{ baikal_url_path }}/dav.php last;
+              rewrite ^{{ baikal_url_path }}/card\.php/(.*) {{ baikal_url_path }}/dav.php last;
+          }
+  notify: reload nginx
+  tags: baikal
+
+- name: Test Nginx configuration
+  command: nginx -t
+  changed_when: false
+  register: nginx_test
+  failed_when: nginx_test.rc != 0
+  tags: baikal
+
+- name: Display Nginx test result
+  debug:
+    var: nginx_test.stderr_lines
+  when: nginx_test.rc != 0
+  tags: baikal
+
+- name: Reload Nginx
+  systemd:
+    name: nginx
+    state: reloaded
+  when: nginx_test.rc == 0
+  tags: baikal
