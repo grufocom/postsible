@@ -289,12 +289,20 @@
     - "{{ snappymail_data_path }}/_data_/_default_/storage"
   tags: snappymail
 
+- name: Remove existing [contacts] section from application.ini
+  shell: |
+    sed -i '/^\[contacts\]/,/^$/d' {{ snappymail_data_path }}/_data_/_default_/configs/application.ini
+  args:
+    executable: /bin/bash
+  tags: snappymail
+
 - name: Configure SnappyMail Contacts with MySQL
   blockinfile:
     path: "{{ snappymail_data_path }}/_data_/_default_/configs/application.ini"
     marker: "; {mark} ANSIBLE MANAGED BLOCK - Contacts"
     block: |
       [contacts]
+      ; Enable contacts
       enable = On
       allow_sync = On
       sync_interval = 20
@@ -302,7 +310,7 @@
       pdo_dsn = "host={{ mariadb_host }};port=3306;dbname={{ mariadb_database }}"
       pdo_user = "{{ mariadb_user }}"
       pdo_password = "{{ vault_mariadb_password }}"
-    insertafter: '^\[contacts\]'
+    insertafter: '^\[security\]'
     create: yes
     owner: "{{ snappymail_user }}"
     group: "{{ snappymail_group }}"
