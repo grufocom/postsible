@@ -1,3 +1,8 @@
+---
+# Update roles/baikal/templates/baikal.yaml.j2
+
+# Replace the ENTIRE file with this:
+
 # Baïkal Configuration
 # {{ ansible_managed }}
 
@@ -10,7 +15,7 @@ system:
     admin_passwordhash: {{ baikal_admin_password_hash }}
     failed_access_message: 'user %u authentication failure for Baikal'
     auth_realm: {{ baikal_auth_realm }}
-    base_uri: ''
+    base_uri: '{{ baikal_url_path }}/'
     invite_from: '{{ baikal_invite_from }}'
 
 database:

@@ -5,55 +5,51 @@
   shell: |
     sed -i '/# BEGIN ANSIBLE MANAGED BLOCK - Baïkal/,/# END ANSIBLE MANAGED BLOCK - Baïkal/d' /etc/nginx/sites-available/rspamd
     sed -i '/# BEGIN ANSIBLE MANAGED - Baïkal/,/# END ANSIBLE MANAGED - Baïkal/d' /etc/nginx/sites-available/rspamd
+    sed -i '/# BEGIN ANSIBLE MANAGED BLOCK - Baïkal Well-Known/,/# END ANSIBLE MANAGED BLOCK - Baïkal Well-Known/d' /etc/nginx/sites-available/rspamd
   register: cleanup_result
   changed_when: false
   failed_when: false
   tags: baikal
 
-- name: Add .well-known redirects for CalDAV/CardDAV discovery
-  blockinfile:
-    path: /etc/nginx/sites-available/rspamd
-    marker: "    # {mark} ANSIBLE MANAGED BLOCK - Baïkal Well-Known"
-    insertafter: "^\\s*# ACME challenge for certificate renewal"
-    block: |2
-          # CalDAV/CardDAV Discovery (RFC 6764)
-          location /.well-known/carddav {
-              return 301 $scheme://$host{{ baikal_url_path }}/dav.php;
-          }
-
-          location /.well-known/caldav {
-              return 301 $scheme://$host{{ baikal_url_path }}/dav.php;
-          }
-    state: present
-  tags: baikal
-
-- name: Add Baïkal location to main VHost (inside server block)
+- name: Add Baïkal location to main VHost (inside HTTPS server block)
   blockinfile:
     path: /etc/nginx/sites-available/rspamd
     marker: "    # {mark} ANSIBLE MANAGED BLOCK - Baïkal"
     insertbefore: "^\\s*# Deny access to hidden files"
     block: |2
-          # Baïkal CalDAV/CardDAV Server
+          # CalDAV/CardDAV Discovery (RFC 6764) - MUST be before hidden files deny
+          location ^~ /.well-known/carddav {
+              return 301 $scheme://$host{{ baikal_url_path }}/dav.php;
+          }
+          
+          location ^~ /.well-known/caldav {
+              return 301 $scheme://$host{{ baikal_url_path }}/dav.php;
+          }
+
+          # Baïkal CalDAV/CardDAV Server - Deny Specific directory first
+          location ~ ^{{ baikal_url_path }}/Specific {
+              deny all;
+          }
+
+          # Baïkal PHP files
+          location ~ ^{{ baikal_url_path }}/(.+\.php)(/.*)?$ {
+              alias {{ baikal_install_path }}/html/$1;
+              
+              fastcgi_split_path_info ^(.+\.php)(/?.+)$;
+              fastcgi_pass unix:{{ nginx_php_fpm_socket }};
+              fastcgi_index index.php;
+              fastcgi_param SCRIPT_FILENAME $request_filename;
+              fastcgi_param PATH_INFO $fastcgi_path_info;
+              fastcgi_param REQUEST_METHOD $request_method;
+              include fastcgi_params;
+          }
+
+          # Baïkal static files and directory
           location {{ baikal_url_path }}/ {
               alias {{ baikal_install_path }}/html/;
-              index index.php;
-
-              # Deny access to Specific directory
-              location ~ ^{{ baikal_url_path }}/Specific {
-                  deny all;
-              }
-
-              # PHP handling
-              location ~ \.php$ {
-                  include snippets/fastcgi-php.conf;
-                  fastcgi_pass unix:{{ nginx_php_fpm_socket }};
-                  fastcgi_param SCRIPT_FILENAME $request_filename;
-                  include fastcgi_params;
-              }
-
-              # CalDAV/CardDAV specific
-              rewrite ^{{ baikal_url_path }}/cal\.php/(.*) {{ baikal_url_path }}/dav.php last;
-              rewrite ^{{ baikal_url_path }}/card\.php/(.*) {{ baikal_url_path }}/dav.php last;
+              index dav.php index.php;
+              
+              try_files $uri $uri/ =404;
           }
   notify: reload nginx
   tags: baikal

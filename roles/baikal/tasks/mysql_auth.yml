@@ -1,0 +1,112 @@
+---
+# roles/baikal/tasks/mysql_auth.yml
+# Enables authentication against the existing virtual_users table
+
+- name: Create custom MySQL Auth Backend for Baïkal
+  copy:
+    dest: "{{ baikal_install_path }}/Core/Frameworks/Baikal/Core/VirtualUserAuth.php"
+    content: |
+      <?php
+      /**
+       * Baïkal Virtual Users Authentication Backend
+       * Authenticates against Postfix/Dovecot virtual_users table
+       */
+      namespace Baikal\Core;
+      
+      use Sabre\DAV\Auth\Backend\AbstractBasic;
+      
+      class VirtualUserAuth extends AbstractBasic {
+          protected $pdo;
+          
+          public function __construct(\PDO $pdo) {
+              $this->pdo = $pdo;
+              $this->realm = 'BaikalDAV';
+          }
+          
+          protected function validateUserPass($username, $password) {
+              // Query virtual_users table
+              $stmt = $this->pdo->prepare('
+                  SELECT password 
+                  FROM virtual_users 
+                  WHERE email = :email
+              ');
+              
+              $stmt->execute(['email' => $username]);
+              $result = $stmt->fetch(\PDO::FETCH_ASSOC);
+              
+              if (!$result) {
+                  return false;
+              }
+              
+              // Dovecot uses {SCHEME}hash format
+              // Most common: {BLF-CRYPT}, {SHA512-CRYPT}, {PLAIN}
+              $storedHash = $result['password'];
+              
+              // Check if it's a crypt-style hash
+              if (preg_match('/^\{[A-Z0-9-]+\}(.*)$/', $storedHash, $matches)) {
+                  $hash = $matches[1];
+                  
+                  // Use password_verify for modern hashes
+                  if (password_verify($password, $hash)) {
+                      return true;
+                  }
+                  
+                  // Fallback to crypt() for legacy formats
+                  if (crypt($password, $hash) === $hash) {
+                      return true;
+                  }
+              }
+              
+              // Plain text (not recommended, but supported)
+              if ($storedHash === '{PLAIN}' . $password || $storedHash === $password) {
+                  return true;
+              }
+              
+              return false;
+          }
+      }
+    owner: "{{ baikal_user }}"
+    group: "{{ baikal_group }}"
+    mode: '0644'
+  tags: baikal
+
+- name: Backup original Server.php
+  copy:
+    src: "{{ baikal_install_path }}/Core/Frameworks/Baikal/Core/Server.php"
+    dest: "{{ baikal_install_path }}/Core/Frameworks/Baikal/Core/Server.php.backup-{{ ansible_date_time.iso8601_basic_short }}"
+    remote_src: yes
+  tags: baikal
+
+- name: Replace PDO auth with VirtualUser auth in Server.php
+  replace:
+    path: "{{ baikal_install_path }}/Core/Frameworks/Baikal/Core/Server.php"
+    regexp: '(\$authBackend\s*=\s*new\s+)\\Baikal\\Core\\PDOBasicAuth\(\$this->pdo,\s*\$this->authRealm\);'
+    replace: |
+      // Virtual Users Authentication (Postfix/Dovecot DB)
+              require_once __DIR__ . '/VirtualUserAuth.php';
+              $authBackend = new \Baikal\Core\VirtualUserAuth($this->pdo);
+              $authBackend->setRealm($this->authRealm);
+  notify: clear baikal cache
+  tags: baikal
+
+- name: Display MySQL Auth information
+  debug:
+    msg:
+      - "✓ Baïkal MySQL Authentication enabled"
+      - ""
+      - "Users can now login with their email credentials:"
+      - "  Username: user@domain.com (from virtual_users table)"
+      - "  Password: (their email password)"
+      - ""
+      - "Authentication is handled against:"
+      - "  Database: {{ mariadb_database }}"
+      - "  Table: virtual_users"
+      - ""
+      - "Benefits:"
+      - "  ✓ Single sign-on (same credentials for email and calendars)"
+      - "  ✓ No PHP IMAP extension required"
+      - "  ✓ Direct database authentication (faster)"
+      - "  ✓ Users are automatically valid if they exist in virtual_users"
+      - ""
+      - "Note: Users must use their FULL email address as username!"
+  tags: baikal
