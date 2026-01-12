@@ -16,7 +16,6 @@ A complete Ansible playbook for automated installation of a production-ready mai
 - **🔥 UFW** - Firewall configuration
 - **🚫 Fail2ban** - Brute-force protection (6 jails incl. SnappyMail)
 - **💾 MariaDB** - Virtual users & domains
-- **🦠 ESET ICAP** - Antivirus scanner (optional)
 - **🔐 Security Hardening** - Defense-in-depth approach
 
 ---
