@@ -1,6 +1,6 @@
 #!/bin/bash
 # {{ ansible_managed }}
-# Database management script for Postsible
+# Database management script for Postsible with Baikal integration
 
 set -e
 
@@ -19,8 +19,12 @@ mysql_cmd() {
     mysql -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" -sN -e "$1"
 }
 
+baikal_cmd() {
+    mysql -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" -sN -e "$1"
+}
+
 show_help() {
-    echo "Postsible Database Management Tool"
+    echo "Postsible Database Management Tool (with Baikal integration)"
     echo ""
     echo "Usage: $(basename $0) [COMMAND] [OPTIONS]"
     echo ""
@@ -30,12 +34,12 @@ show_help() {
     echo "  remove-domain DOMAIN      Remove a virtual domain"
     echo ""
     echo "  list-users [DOMAIN]       List all users (or users of a domain)"
-    echo "  add-user EMAIL            Add a virtual user (creates Maildir)"
-    echo "  remove-user EMAIL         Remove a virtual user"
-    echo "  change-password EMAIL     Change user password"
+    echo "  add-user EMAIL            Add a virtual user (creates Maildir + Baikal account)"
+    echo "  remove-user EMAIL         Remove a virtual user (including Baikal)"
+    echo "  change-password EMAIL     Change user password (Mail + Baikal)"
     echo "  enable-user EMAIL         Enable a user"
     echo "  disable-user EMAIL        Disable a user"
-    echo "  create-maildir EMAIL      Create/fix Maildir structure for user"
+    echo "  create-maildir EMAIL      Create/fix Maildir structure for user (repair only)"
     echo ""
     echo "  list-aliases [DOMAIN]     List all aliases (or aliases of a domain)"
     echo "  add-alias SOURCE DEST     Add an alias"
@@ -45,6 +49,137 @@ show_help() {
     echo "  check                     Check database integrity"
     echo "  help                      Show this help message"
     echo ""
+}
+
+# Baikal functions
+create_baikal_user() {
+    local email=$1
+    local password=$2
+    local displayname=$3
+
+    echo -e "${YELLOW}Creating Baikal user for $email...${NC}"
+
+    # Check if user already exists
+    local exists=$(baikal_cmd "SELECT COUNT(*) FROM users WHERE username='$email';")
+    if [[ "$exists" -gt 0 ]]; then
+        echo -e "${YELLOW}Baikal user already exists, skipping...${NC}"
+        return 0
+    fi
+
+    # Generate Baikal password hash (MD5 for Basic Auth in format: user:realm:password)
+    local realm="BaikalDAV"
+    local digest=$(echo -n "$email:$realm:$password" | md5sum | cut -d' ' -f1)
+
+    # Insert user into Baikal
+    if ! baikal_cmd "INSERT INTO users (username, digesta1) VALUES ('$email', '$digest');"; then
+        echo -e "${RED}Error: Could not create Baikal user${NC}"
+        return 1
+    fi
+
+    echo -e "${GREEN}✓ Baikal user created${NC}"
+
+    # Create principal entry
+    baikal_cmd "INSERT IGNORE INTO principals (uri, email, displayname) VALUES ('principals/$email', '$email', '$displayname');" 2>/dev/null
+
+    # Create default addressbook
+    local addressbook_uri="${email%%@*}-contacts"
+    if baikal_cmd "INSERT INTO addressbooks (principaluri, displayname, uri, description, synctoken) VALUES ('principals/$email', 'Contacts', '$addressbook_uri', 'Default addressbook', 1);" 2>/dev/null; then
+        echo -e "${GREEN}✓ Addressbook created${NC}"
+    else
+        echo -e "${YELLOW}Warning: Could not create addressbook${NC}"
+    fi
+
+    # Create default calendar (first in calendars table)
+    if ! baikal_cmd "INSERT INTO calendars (synctoken, components) VALUES (1, 'VEVENT,VTODO');" 2>/dev/null; then
+        echo -e "${YELLOW}Warning: Could not create calendar${NC}"
+        return 0
+    fi
+    
+    # Get the calendar ID
+    local calendar_id=$(baikal_cmd "SELECT LAST_INSERT_ID();")
+    
+    # Create calendar instance
+    local calendar_uri="${email%%@*}-calendar"
+    if baikal_cmd "INSERT INTO calendarinstances (calendarid, principaluri, access, displayname, uri, description, calendarorder, calendarcolor, timezone, transparent, share_invitestatus) VALUES ($calendar_id, 'principals/$email', 1, 'Personal', '$calendar_uri', 'Default calendar', 0, '#3a87adff', 'Europe/Vienna', 0, 2);" 2>/dev/null; then
+        echo -e "${GREEN}✓ Calendar created${NC}"
+    else
+        echo -e "${YELLOW}Warning: Could not create calendar instance${NC}"
+    fi
+
+    echo -e "${GREEN}✓ Baikal setup complete for $email${NC}"
+}
+
+remove_baikal_user() {
+    local email=$1
+
+    echo -e "${YELLOW}Removing Baikal user for $email...${NC}"
+
+    # Check if user exists
+    local exists=$(baikal_cmd "SELECT COUNT(*) FROM users WHERE username='$email';")
+    if [[ "$exists" -eq 0 ]]; then
+        echo -e "${YELLOW}Baikal user does not exist, skipping...${NC}"
+        return 0
+    fi
+
+    # Get principal URI
+    local principal="principals/$email"
+
+    # Delete cards from addressbooks
+    baikal_cmd "DELETE FROM cards WHERE addressbookid IN (SELECT id FROM addressbooks WHERE principaluri='$principal');" 2>/dev/null
+    
+    # Delete addressbooks
+    baikal_cmd "DELETE FROM addressbooks WHERE principaluri='$principal';" 2>/dev/null
+
+    # Get calendar IDs from calendarinstances (not calendars!)
+    local calendar_ids=$(baikal_cmd "SELECT calendarid FROM calendarinstances WHERE principaluri='$principal';" | tr '\n' ',' | sed 's/,$//')
+    
+    if [[ -n "$calendar_ids" ]]; then
+        # Delete calendar instances first
+        baikal_cmd "DELETE FROM calendarinstances WHERE principaluri='$principal';" 2>/dev/null
+        
+        # Delete calendar objects (events/todos)
+        baikal_cmd "DELETE FROM calendarobjects WHERE calendarid IN ($calendar_ids);" 2>/dev/null
+        
+        # Delete calendar changes
+        baikal_cmd "DELETE FROM calendarchanges WHERE calendarid IN ($calendar_ids);" 2>/dev/null
+        
+        # Delete calendars themselves
+        baikal_cmd "DELETE FROM calendars WHERE id IN ($calendar_ids);" 2>/dev/null
+    fi
+
+    # Delete from principals table
+    baikal_cmd "DELETE FROM principals WHERE uri='$principal';" 2>/dev/null
+
+    # Delete user
+    baikal_cmd "DELETE FROM users WHERE username='$email';" 2>/dev/null
+
+    echo -e "${GREEN}✓ Baikal user and data removed${NC}"
+}
+
+change_baikal_password() {
+    local email=$1
+    local password=$2
+
+    echo -e "${YELLOW}Updating Baikal password for $email...${NC}"
+
+    # Check if user exists
+    local exists=$(baikal_cmd "SELECT COUNT(*) FROM users WHERE username='$email';")
+    if [[ "$exists" -eq 0 ]]; then
+        echo -e "${YELLOW}Baikal user does not exist, skipping password update...${NC}"
+        return 0
+    fi
+
+    # Generate new password hash
+    local realm="BaikalDAV"
+    local digest=$(echo -n "$email:$realm:$password" | md5sum | cut -d' ' -f1)
+
+    # Update password
+    baikal_cmd "UPDATE users SET digesta1='$digest' WHERE username='$email';" 2>/dev/null || {
+        echo -e "${RED}Error: Could not update Baikal password${NC}"
+        return 1
+    }
+
+    echo -e "${GREEN}✓ Baikal password updated${NC}"
 }
 
 list_domains() {
@@ -60,7 +195,7 @@ add_domain() {
         echo -e "${RED}Error: Domain name required${NC}"
         exit 1
     fi
-    
+
     echo -e "${YELLOW}Adding domain: $domain${NC}"
     mysql_cmd "INSERT INTO virtual_domains (name) VALUES ('$domain');" 2>/dev/null || {
         echo -e "${RED}Error: Domain already exists or invalid${NC}"
@@ -75,7 +210,7 @@ remove_domain() {
         echo -e "${RED}Error: Domain name required${NC}"
         exit 1
     fi
-    
+
     echo -e "${RED}WARNING: This will delete all users and aliases for $domain!${NC}"
     echo -e "${YELLOW}Are you sure? (yes/no):${NC}"
     read -r confirm
@@ -83,7 +218,7 @@ remove_domain() {
         echo "Cancelled."
         exit 0
     fi
-    
+
     mysql_cmd "DELETE FROM virtual_domains WHERE name='$domain';"
     echo -e "${GREEN}Domain removed!${NC}"
 }
@@ -91,17 +226,74 @@ remove_domain() {
 list_users() {
     local domain=$1
     echo -e "${BLUE}=== Virtual Users ===${NC}"
-    
+
     if [[ -z "$domain" ]]; then
         mysql_cmd "SELECT u.id, u.email, d.name, u.quota, u.enabled, u.created_at FROM virtual_users u JOIN virtual_domains d ON u.domain_id=d.id ORDER BY u.email;" | while IFS=$'\t' read -r id email domain quota enabled created; do
             status=$([ "$enabled" = "1" ] && echo "enabled" || echo "disabled")
-            echo "[$id] $email (domain: $domain, quota: $quota, status: $status, created: $created)"
+            
+            # Check Baikal status
+            local baikal_exists=$(baikal_cmd "SELECT COUNT(*) FROM users WHERE username='$email';")
+            local baikal_status=""
+            if [[ "$baikal_exists" -gt 0 ]]; then
+                baikal_status=" [Baikal: ✓]"
+            else
+                baikal_status=" [Baikal: ✗]"
+            fi
+            
+            echo "[$id] $email (domain: $domain, quota: $quota, status: $status, created: $created)$baikal_status"
         done
     else
         mysql_cmd "SELECT u.id, u.email, u.quota, u.enabled FROM virtual_users u JOIN virtual_domains d ON u.domain_id=d.id WHERE d.name='$domain' ORDER BY u.email;" | while IFS=$'\t' read -r id email quota enabled; do
             status=$([ "$enabled" = "1" ] && echo "enabled" || echo "disabled")
-            echo "[$id] $email (quota: $quota, status: $status)"
+            
+            # Check Baikal status
+            local baikal_exists=$(baikal_cmd "SELECT COUNT(*) FROM users WHERE username='$email';")
+            local baikal_status=""
+            if [[ "$baikal_exists" -gt 0 ]]; then
+                baikal_status=" [Baikal: ✓]"
+            else
+                baikal_status=" [Baikal: ✗]"
+            fi
+            
+            echo "[$id] $email (quota: $quota, status: $status)$baikal_status"
         done
+    fi
+}
+
+create_maildir_internal() {
+    local email=$1
+    local silent=${2:-false}
+
+    # Extract domain and username
+    local domain="${email#*@}"
+    local username="${email%%@*}"
+
+    if [[ "$silent" == "false" ]]; then
+        echo -e "${YELLOW}Creating Maildir structure for $email...${NC}"
+    fi
+
+    local maildir_path="/srv/imap/$domain/$username"
+
+    # Create base directories
+    mkdir -p "$maildir_path"/{Maildir/{cur,new,tmp},Maildir/.Drafts/{cur,new,tmp},Maildir/.Sent/{cur,new,tmp},Maildir/.Trash/{cur,new,tmp},Maildir/.Spam/{cur,new,tmp},Maildir/.Ham/{cur,new,tmp}}
+
+    # Set permissions
+    chown -R vmail:vmail "$maildir_path"
+    chmod -R 0700 "$maildir_path"
+
+    # Create subscriptions file
+    cat > "$maildir_path/Maildir/subscriptions" << EOF
+INBOX
+Drafts
+Sent
+Trash
+Spam
+Ham
+EOF
+    chown vmail:vmail "$maildir_path/Maildir/subscriptions"
+
+    if [[ "$silent" == "false" ]]; then
+        echo -e "${GREEN}Maildir structure created: $maildir_path${NC}"
     fi
 }
 
@@ -111,17 +303,25 @@ add_user() {
         echo -e "${RED}Error: Email address required${NC}"
         exit 1
     fi
-    
+
     # Extract domain
     local domain="${email#*@}"
-    
+    local username="${email%%@*}"
+
     # Check if domain exists
     local domain_id=$(mysql_cmd "SELECT id FROM virtual_domains WHERE name='$domain';")
     if [[ -z "$domain_id" ]]; then
         echo -e "${RED}Error: Domain $domain does not exist. Add it first with: add-domain $domain${NC}"
         exit 1
     fi
-    
+
+    # Get display name
+    echo -e "${YELLOW}Enter display name for $email (optional, press Enter to skip):${NC}"
+    read displayname
+    if [[ -z "$displayname" ]]; then
+        displayname="$username"
+    fi
+
     # Generate password
     echo -e "${YELLOW}Enter password for $email:${NC}"
     read -s password
@@ -129,12 +329,12 @@ add_user() {
     echo -e "${YELLOW}Confirm password:${NC}"
     read -s password_confirm
     echo ""
-    
+
     if [[ "$password" != "$password_confirm" ]]; then
         echo -e "${RED}Error: Passwords do not match${NC}"
         exit 1
     fi
-    
+
     # Hash password with doveadm
     if ! command -v doveadm &> /dev/null; then
         echo -e "${RED}Error: doveadm not found. Install Dovecot first.${NC}"
@@ -143,14 +343,29 @@ add_user() {
     else
         hashed_password=$(doveadm pw -s SHA512-CRYPT -p "$password")
     fi
-    
+
     # Insert user
     mysql_cmd "INSERT INTO virtual_users (domain_id, email, password) VALUES ('$domain_id', '$email', '$hashed_password');" 2>/dev/null || {
         echo -e "${RED}Error: User already exists or invalid${NC}"
         exit 1
     }
-    
-    echo -e "${GREEN}User $email created successfully!${NC}"
+
+    echo -e "${GREEN}User $email created successfully in database!${NC}"
+
+    # Automatically create Maildir structure
+    echo ""
+    create_maildir_internal "$email" false
+
+    # Create Baikal user
+    echo ""
+    create_baikal_user "$email" "$password" "$displayname"
+
+    echo ""
+    echo -e "${GREEN}✓ Complete setup finished!${NC}"
+    echo -e "${BLUE}User can now:${NC}"
+    echo -e "${BLUE}  • Receive and send emails${NC}"
+    echo -e "${BLUE}  • Access contacts via CardDAV${NC}"
+    echo -e "${BLUE}  • Access calendar via CalDAV${NC}"
 }
 
 change_password() {
@@ -159,28 +374,34 @@ change_password() {
         echo -e "${RED}Error: Email address required${NC}"
         exit 1
     fi
-    
+
     echo -e "${YELLOW}Enter new password for $email:${NC}"
     read -s password
     echo ""
     echo -e "${YELLOW}Confirm password:${NC}"
     read -s password_confirm
     echo ""
-    
+
     if [[ "$password" != "$password_confirm" ]]; then
         echo -e "${RED}Error: Passwords do not match${NC}"
         exit 1
     fi
-    
-    # Hash password
+
+    # Hash password for mail
     if command -v doveadm &> /dev/null; then
         hashed_password=$(doveadm pw -s SHA512-CRYPT -p "$password")
     else
         hashed_password=$(mkpasswd -m sha-512 "$password")
     fi
-    
+
+    # Update mail password
     mysql_cmd "UPDATE virtual_users SET password='$hashed_password' WHERE email='$email';"
-    echo -e "${GREEN}Password changed successfully!${NC}"
+    echo -e "${GREEN}Mail password changed successfully!${NC}"
+
+    # Update Baikal password
+    change_baikal_password "$email" "$password"
+
+    echo -e "${GREEN}✓ Password changed for both Mail and Baikal!${NC}"
 }
 
 remove_user() {
@@ -189,23 +410,41 @@ remove_user() {
         echo -e "${RED}Error: Email address required${NC}"
         exit 1
     fi
-    
-    echo -e "${RED}WARNING: This will delete the user and all their emails!${NC}"
+
+    echo -e "${RED}WARNING: This will delete:${NC}"
+    echo -e "${RED}  • The mail user and all emails${NC}"
+    echo -e "${RED}  • The Baikal account (contacts & calendars)${NC}"
     echo -e "${YELLOW}Are you sure? (yes/no):${NC}"
     read -r confirm
     if [[ "$confirm" != "yes" ]]; then
         echo "Cancelled."
         exit 0
     fi
-    
+
+    # Remove from mail database
     mysql_cmd "DELETE FROM virtual_users WHERE email='$email';"
-    echo -e "${GREEN}User removed!${NC}"
+    echo -e "${GREEN}User removed from mail database!${NC}"
+
+    # Remove from Baikal
+    remove_baikal_user "$email"
+
+    # Extract domain and username for maildir path
+    local domain="${email#*@}"
+    local username="${email%%@*}"
+    local maildir_path="/srv/imap/$domain/$username"
+
+    if [[ -d "$maildir_path" ]]; then
+        echo -e "${YELLOW}Maildir still exists at: $maildir_path${NC}"
+        echo -e "${YELLOW}Remove manually if needed: rm -rf $maildir_path${NC}"
+    fi
+
+    echo -e "${GREEN}✓ User completely removed!${NC}"
 }
 
 list_aliases() {
     local domain=$1
     echo -e "${BLUE}=== Virtual Aliases ===${NC}"
-    
+
     if [[ -z "$domain" ]]; then
         mysql_cmd "SELECT a.id, a.source, a.destination, d.name FROM virtual_aliases a JOIN virtual_domains d ON a.domain_id=d.id ORDER BY a.source;" | while IFS=$'\t' read -r id source dest domain; do
             echo "[$id] $source → $dest (domain: $domain)"
@@ -220,28 +459,28 @@ list_aliases() {
 add_alias() {
     local source=$1
     local destination=$2
-    
+
     if [[ -z "$source" ]] || [[ -z "$destination" ]]; then
         echo -e "${RED}Error: Source and destination required${NC}"
         echo "Usage: add-alias source@domain.com destination@domain.com"
         exit 1
     fi
-    
+
     # Extract domain
     local domain="${source#*@}"
-    
+
     # Check if domain exists
     local domain_id=$(mysql_cmd "SELECT id FROM virtual_domains WHERE name='$domain';")
     if [[ -z "$domain_id" ]]; then
         echo -e "${RED}Error: Domain $domain does not exist${NC}"
         exit 1
     fi
-    
+
     mysql_cmd "INSERT INTO virtual_aliases (domain_id, source, destination) VALUES ('$domain_id', '$source', '$destination');" 2>/dev/null || {
         echo -e "${RED}Error: Alias already exists or invalid${NC}"
         exit 1
     }
-    
+
     echo -e "${GREEN}Alias created: $source → $destination${NC}"
 }
 
@@ -251,24 +490,26 @@ remove_alias() {
         echo -e "${RED}Error: Source address required${NC}"
         exit 1
     fi
-    
+
     mysql_cmd "DELETE FROM virtual_aliases WHERE source='$source';"
     echo -e "${GREEN}Alias removed!${NC}"
 }
 
 show_stats() {
     echo -e "${BLUE}=== Database Statistics ===${NC}"
-    
+
     local domain_count=$(mysql_cmd "SELECT COUNT(*) FROM virtual_domains;")
     local user_count=$(mysql_cmd "SELECT COUNT(*) FROM virtual_users;")
     local alias_count=$(mysql_cmd "SELECT COUNT(*) FROM virtual_aliases;")
     local enabled_users=$(mysql_cmd "SELECT COUNT(*) FROM virtual_users WHERE enabled=1;")
-    
+    local baikal_users=$(baikal_cmd "SELECT COUNT(*) FROM users;")
+
     echo "Domains: $domain_count"
     echo "Users: $user_count (enabled: $enabled_users)"
     echo "Aliases: $alias_count"
+    echo "Baikal users: $baikal_users"
     echo ""
-    
+
     echo -e "${BLUE}=== Users per Domain ===${NC}"
     mysql_cmd "SELECT d.name, COUNT(u.id) FROM virtual_domains d LEFT JOIN virtual_users u ON d.id=u.domain_id GROUP BY d.name;" | while IFS=$'\t' read -r domain count; do
         echo "$domain: $count users"
@@ -277,7 +518,7 @@ show_stats() {
 
 check_database() {
     echo -e "${BLUE}=== Database Integrity Check ===${NC}"
-    
+
     # Check for orphaned records
     local orphaned=$(mysql_cmd "SELECT COUNT(*) FROM virtual_users WHERE domain_id NOT IN (SELECT id FROM virtual_domains);")
     if [[ "$orphaned" -gt 0 ]]; then
@@ -285,7 +526,7 @@ check_database() {
     else
         echo -e "${GREEN}No orphaned user records${NC}"
     fi
-    
+
     # Check for duplicate emails
     local duplicates=$(mysql_cmd "SELECT COUNT(*) FROM (SELECT email FROM virtual_users GROUP BY email HAVING COUNT(*) > 1) AS dups;")
     if [[ "$duplicates" -gt 0 ]]; then
@@ -293,7 +534,20 @@ check_database() {
     else
         echo -e "${GREEN}No duplicate emails${NC}"
     fi
+
+    # Check Baikal sync
+    echo ""
+    echo -e "${BLUE}=== Baikal Sync Check ===${NC}"
+    local mail_users=$(mysql_cmd "SELECT COUNT(*) FROM virtual_users;")
+    local baikal_users=$(baikal_cmd "SELECT COUNT(*) FROM users;")
     
+    if [[ "$mail_users" -ne "$baikal_users" ]]; then
+        echo -e "${YELLOW}WARNING: Mail users ($mail_users) != Baikal users ($baikal_users)${NC}"
+        echo -e "${YELLOW}Some users may be missing in Baikal${NC}"
+    else
+        echo -e "${GREEN}Mail and Baikal user count matches${NC}"
+    fi
+
     echo -e "${GREEN}Database check completed${NC}"
 }
 
@@ -303,39 +557,15 @@ create_maildir() {
         echo -e "${RED}Error: Email address required${NC}"
         exit 1
     fi
-    
-    # Extract domain and username
-    local domain="${email#*@}"
-    local username="${email%%@*}"
-    
+
     # Check if user exists
     local user_exists=$(mysql_cmd "SELECT COUNT(*) FROM virtual_users WHERE email='$email';")
     if [[ "$user_exists" -eq 0 ]]; then
         echo -e "${RED}Error: User $email does not exist in database${NC}"
         exit 1
     fi
-    
-    echo -e "${YELLOW}Creating/fixing Maildir structure for $email...${NC}"
-    local maildir_path="/srv/imap/$domain/$username"
-    
-    # Create base directories
-    mkdir -p "$maildir_path"/{Maildir/{cur,new,tmp},Maildir/.Drafts/{cur,new,tmp},Maildir/.Sent/{cur,new,tmp},Maildir/.Trash/{cur,new,tmp},Maildir/.Spam/{cur,new,tmp}}
-    
-    # Set permissions
-    chown -R vmail:vmail "$maildir_path"
-    chmod -R 0700 "$maildir_path"
-    
-    # Create subscriptions file
-    cat > "$maildir_path/Maildir/subscriptions" << EOF
-INBOX
-Drafts
-Sent
-Trash
-Spam
-EOF
-    chown vmail:vmail "$maildir_path/Maildir/subscriptions"
-    
-    echo -e "${GREEN}Maildir structure created/fixed: $maildir_path${NC}"
+
+    create_maildir_internal "$email" false
 }
 
 # Main command dispatcher
