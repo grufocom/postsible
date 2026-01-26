@@ -102,6 +102,67 @@
     mode: '0644'
   notify: restart rspamd
 
+# dmarc Configuration
+- name: Configure rspamd dmarc
+  template:
+    src: dmarc.conf.j2
+    dest: /etc/rspamd/local.d/dmarc.conf
+    owner: _rspamd
+    group: _rspamd
+    mode: '0644'
+  notify: restart rspamd
+
+# external-services Configuration
+- name: Configure rspamd external-services
+  template:
+    src: external_services.conf.j2
+    dest: /etc/rspamd/local.d/external_services.conf
+    owner: _rspamd
+    group: _rspamd
+    mode: '0644'
+  notify: restart rspamd
+
+# fuzzy-check Configuration
+- name: Configure rspamd ruzzy-check
+  template:
+    src: fuzzy-check.conf.j2
+    dest: /etc/rspamd/local.d/fuzzy-check.conf
+    owner: _rspamd
+    group: _rspamd
+    mode: '0644'
+  notify: restart rspamd
+
+# histroy Configuration
+# r
+- name: Configure rspamd history
+  template:
+    src: history.conf.j2
+    dest: /etc/rspamd/local.d/history.conf
+    owner: _rspamd
+    group: _rspamd
+    mode: '0644'
+  notify: restart rspamd
+
+# rbl Configuration
+- name: Configure rspamd rbl
+  template:
+    src: rbl.conf.j2
+    dest: /etc/rspamd/local.d/rbl.conf
+    owner: _rspamd
+    group: _rspamd
+    mode: '0644'
+  notify: restart rspamd
+
+# spl Configuration
+- name: Configure rspamd spl
+  template:
+    src: spl.conf.j2
+    dest: /etc/rspamd/local.d/spl.conf
+    owner: _rspamd
+    group: _rspamd
+    mode: '0644'
+  notify: restart rspamd
+
 # Metrics Configuration
 - name: Configure rspamd metrics
   template:

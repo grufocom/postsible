@@ -1,0 +1,35 @@
+# IP-basierte RBLs
+zen_spamhaus {
+  rbl = "zen.spamhaus.org";
+  symbol = "RBL_SPAMHAUS";
+  score = 4.0;
+  check = ["received"];
+  whitelist = ["list.dnswl.org"];
+}
+
+# Domain/URL-basierte RBLs
+dbl_spamhaus {
+  rbl = "dbl.spamhaus.org";
+  symbol = "DBL_SPAMHAUS";
+  score = 4.0;
+  no_ip = true;
+  check = ["emails", "dkim", "helo", "urls"];
+  whitelist = ["list.dnswl.org"];
+}
+
+surbl_multi {
+  rbl = "multi.surbl.org";
+  symbol = "SURBL_MULTI";
+  score = 3.0;
+  no_ip = true;
+  check = ["urls"];
+  whitelist = ["list.dnswl.org"];
+}
+
+# DNSWL (reduziert Spam-Score)
+dns_wl {
+  rbl = "list.dnswl.org";
+  symbol = "RBL_DNSWL";
+  score = -2.5;
+  is_whitelist = true;
+}
