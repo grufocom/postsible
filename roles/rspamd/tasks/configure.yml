@@ -125,8 +125,8 @@
 # fuzzy-check Configuration
 - name: Configure rspamd ruzzy-check
   template:
-    src: fuzzy-check.conf.j2
-    dest: /etc/rspamd/local.d/fuzzy-check.conf
+    src: fuzzy_check.conf.j2
+    dest: /etc/rspamd/local.d/fuzzy_check.conf
     owner: _rspamd
     group: _rspamd
     mode: '0644'
@@ -134,10 +134,10 @@
 
 # histroy Configuration
 # r
-- name: Configure rspamd history
+- name: Configure rspamd history_redis
   template:
-    src: history.conf.j2
-    dest: /etc/rspamd/local.d/history.conf
+    src: history_redis.conf.j2
+    dest: /etc/rspamd/local.d/history_redis.conf
     owner: _rspamd
     group: _rspamd
     mode: '0644'
@@ -153,11 +153,11 @@
     mode: '0644'
   notify: restart rspamd
 
-# spl Configuration
-- name: Configure rspamd spl
+# spf Configuration
+- name: Configure rspamd spf
   template:
-    src: spl.conf.j2
-    dest: /etc/rspamd/local.d/spl.conf
+    src: spf.conf.j2
+    dest: /etc/rspamd/local.d/spf.conf
     owner: _rspamd
     group: _rspamd
     mode: '0644'
