@@ -3,6 +3,4 @@ user = {{ mariadb_user }}
 password = {{ mariadb_password }}
 hosts = 127.0.0.1
 dbname = {{ mariadb_database }}
-query = SELECT destination \
-        FROM virtual_aliases \
-        WHERE source = CONCAT(SUBSTRING_INDEX('%s', '+', 1), '@', '%d')
+query = SELECT destination FROM virtual_aliases WHERE source = SUBSTRING_INDEX('%s', '+', 1)
