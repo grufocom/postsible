@@ -1,0 +1,25 @@
+---
+# Example configuration for InfCloud
+
+# Use subdomain (recommended)
+infcloud_use_subdomain: true
+infcloud_subdomain: "cal"  # Results in cal.example.com
+
+# Use path-based (alternative)
+# infcloud_use_subdomain: false
+# infcloud_base_path: "/cal"
+# URLs will be: /cal/ and optionally /contacts/
+
+# Localization
+infcloud_language: "en_US"  # Available: en_US, de_DE, fr_FR, etc.
+infcloud_timezone: "Europe/Vienna"
+infcloud_first_day_of_week: 1  # Monday
+
+# Features
+infcloud_enable_calendar: true
+infcloud_enable_contacts: true
+infcloud_enable_projects: false  # Tasks/TODOs (needs CalDAV VTODO support)
+
+# Branding
+infcloud_title: "My Company Calendar"
+infcloud_logo_text: "MyCompany"

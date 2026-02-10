@@ -1,0 +1,181 @@
+---
+- name: Install required packages
+  apt:
+    name:
+      - unzip
+      - curl
+    state: present
+    update_cache: yes
+
+- name: Create InfCloud installation directory
+  file:
+    path: "{{ infcloud_install_path }}"
+    state: directory
+    owner: "{{ infcloud_web_user }}"
+    group: "{{ infcloud_web_group }}"
+    mode: '0755'
+
+- name: Check if InfCloud is already installed
+  stat:
+    path: "{{ infcloud_install_path }}/index.html"
+  register: infcloud_installed
+
+- name: Download InfCloud
+  get_url:
+    url: "{{ infcloud_download_url }}"
+    dest: "/tmp/infcloud-{{ infcloud_version }}.zip"
+    mode: '0644'
+  when: not infcloud_installed.stat.exists
+
+- name: Create temporary extraction directory
+  file:
+    path: "/tmp/infcloud-extract"
+    state: directory
+    mode: '0755'
+  when: not infcloud_installed.stat.exists
+
+- name: Extract InfCloud
+  unarchive:
+    src: "/tmp/infcloud-{{ infcloud_version }}.zip"
+    dest: "/tmp/infcloud-extract/"
+    remote_src: yes
+  when: not infcloud_installed.stat.exists
+
+- name: Find extracted files
+  find:
+    paths: "/tmp/infcloud-extract"
+    file_type: any
+    recurse: no
+  register: extracted_contents
+  when: not infcloud_installed.stat.exists
+
+- name: Debug extracted contents
+  debug:
+    var: extracted_contents
+  when: not infcloud_installed.stat.exists
+
+- name: Copy InfCloud files (if single directory)
+  shell: |
+    if [ -d "/tmp/infcloud-extract/InfCloud_{{ infcloud_version }}" ]; then
+      cp -r /tmp/infcloud-extract/InfCloud_{{ infcloud_version }}/* {{ infcloud_install_path }}/
+    elif [ $(ls -A /tmp/infcloud-extract | wc -l) -eq 1 ]; then
+      cp -r /tmp/infcloud-extract/*/* {{ infcloud_install_path }}/
+    else
+      cp -r /tmp/infcloud-extract/* {{ infcloud_install_path }}/
+    fi
+    chown -R {{ infcloud_web_user }}:{{ infcloud_web_group }} {{ infcloud_install_path }}
+  args:
+    executable: /bin/bash
+  when: not infcloud_installed.stat.exists
+
+- name: Remove temporary extraction directory
+  file:
+    path: "/tmp/infcloud-extract"
+    state: absent
+  when: not infcloud_installed.stat.exists
+
+- name: Remove download file
+  file:
+    path: "/tmp/infcloud-{{ infcloud_version }}.zip"
+    state: absent
+
+- name: Verify InfCloud installation
+  stat:
+    path: "{{ infcloud_install_path }}/index.html"
+  register: infcloud_verify
+  failed_when: not infcloud_verify.stat.exists
+
+- name: Deploy InfCloud configuration
+  template:
+    src: config.js.j2
+    dest: "{{ infcloud_install_path }}/config.js"
+    owner: "{{ infcloud_web_user }}"
+    group: "{{ infcloud_web_group }}"
+    mode: '0644'
+  notify: reload nginx
+
+- name: Set correct permissions on InfCloud directory
+  file:
+    path: "{{ infcloud_install_path }}"
+    owner: "{{ infcloud_web_user }}"
+    group: "{{ infcloud_web_group }}"
+    recurse: yes
+    mode: '0755'
+
+- name: Deploy Nginx configuration (subdomain)
+  template:
+    src: nginx-subdomain.conf.j2
+    dest: "/etc/nginx/sites-available/infcloud.conf"
+    owner: root
+    group: root
+    mode: '0644'
+  when: infcloud_use_subdomain
+  notify: reload nginx
+
+- name: Check if InfCloud block already exists in rspamd vhost
+  shell: grep -q "BEGIN ANSIBLE MANAGED BLOCK - InfCloud" /etc/nginx/sites-available/rspamd
+  register: infcloud_block_exists
+  changed_when: false
+  failed_when: false
+  when: not infcloud_use_subdomain
+
+- name: Insert InfCloud location block into rspamd vhost
+  blockinfile:
+    path: "/etc/nginx/sites-available/rspamd"
+    marker: "    # {mark} ANSIBLE MANAGED BLOCK - InfCloud"
+    insertafter: "    # END ANSIBLE MANAGED BLOCK - Baïkal"
+    block: |2
+          # InfCloud CalDAV/CardDAV Web Client
+          location {{ infcloud_base_path }} {
+              alias {{ infcloud_install_path }};
+              index index.html;
+      
+              try_files $uri $uri/ {{ infcloud_base_path }}/index.html;
+      
+              # Cache static files
+              location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+                  expires 1y;
+                  add_header Cache-Control "public, immutable";
+              }
+      
+              # Deny access to sensitive files
+              location ~ /\. {
+                  deny all;
+              }
+          }
+      
+          # Optional: Separate contacts interface
+          location /contacts {
+              alias {{ infcloud_install_path }};
+              index index.html;
+      
+              try_files $uri $uri/ /contacts/index.html;
+      
+              location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+                  expires 1y;
+                  add_header Cache-Control "public, immutable";
+              }
+          }
+    state: present
+  when: not infcloud_use_subdomain and infcloud_block_exists.rc != 0
+  notify: reload nginx
+
+- name: Enable InfCloud site (subdomain)
+  file:
+    src: "/etc/nginx/sites-available/infcloud.conf"
+    dest: "/etc/nginx/sites-enabled/infcloud.conf"
+    state: link
+  when: infcloud_use_subdomain
+  notify: reload nginx
+
+- name: Test Nginx configuration
+  command: nginx -t
+  register: nginx_test
+  changed_when: false
+  failed_when: nginx_test.rc != 0
+
+- name: Ensure Nginx is running
+  service:
+    name: nginx
+    state: started
+    enabled: yes

@@ -66,6 +66,7 @@
   apt:
     name:
       - nginx-common
+      - libnginx-mod-http-dav-ext
     state: present
     force_apt_get: yes
   environment:
@@ -81,7 +82,7 @@
 
 - name: Force reinstall nginx-common if mime.types missing
   shell: |
-    apt-get install --reinstall -y nginx-common
+    apt-get install --reinstall -y nginx-common libnginx-mod-http-dav-ext
   environment:
     DEBIAN_FRONTEND: noninteractive
   when: not mime_types_after_common.stat.exists
@@ -418,4 +419,3 @@
         3. Deploy SnappyMail role
       {% endif %}
   tags: nginx
-

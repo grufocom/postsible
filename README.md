@@ -8,6 +8,7 @@ A complete Ansible playbook for automated installation of a production-ready mai
 
 - **📬 Postfix** - SMTP server with virtual domains
 - **📭 Dovecot** - IMAP/POP3 with Sieve support
+- **📭 Subaddressing / + Addressing** for flexible aliases in main mailbox
 - **🛡️ Rspamd** - Spam filter with Bayes learning
 - **🔐 DKIM/DMARC/SPF** - Email authentication (CRITICAL!)
 - **🌐 SnappyMail** - Modern webmail interface
@@ -417,6 +418,49 @@ mysql -u root -p mailserver -e "
   WHERE ci.principaluri = 'principals/user@example.com';
 "
 ```
+
+### Subaddressing / + Addressing (Catch-All Suffix)
+Postsible now supports subaddressing using the + symbol. This allows users to add arbitrary suffixes to their email addresses without creating new mailboxes.
+
+**Example:**
+Primary address: hans.meiser@domain.com
+Subaddress: hans.meiser+newsletter@domain.com
+
+All emails will automatically be delivered to the hans.meiser mailbox.
+
+**Use Cases:**
+Filter emails by project, newsletter, or source
+Track where emails originate from
+
+No extra database entries or mailbox management required
+
+**Technical Details:**
+Postfix: main.cf contains
+recipient_delimiter = +
+
+Dovecot: 10-mail.conf contains
+mailbox_delimiter = +
+
+**SQL Maps:** virtual-mailbox-maps, virtual-alias-maps, email2email handle the stripping of the + suffix
+Dovecot SQL Queries: %{u}@%{d} ensures correct user resolution
+
+Admin Examples:
+```bash
+# Test email locally with Postfix
+echo "Test mail" | sendmail hans.meiser+1234@domain.com
+# Fetch mail via Dovecot
+doveadm fetch text subject hans.meiser+abc@domain.com
+```
+
+Sieve Filtering Example:
+
+```bash
+require ["fileinto"];
+if address :contains "to" "+newsletter" {
+    fileinto "Newsletter";
+}
+```
+
 
 ---
 

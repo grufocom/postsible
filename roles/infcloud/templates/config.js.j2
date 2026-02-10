@@ -1,0 +1,118 @@
+/*
+InfCloud - the open source CalDAV/CardDAV Web Client
+{{ ansible_managed }}
+*/
+
+var globalInterfaceLanguage='{{ infcloud_language }}';
+var globalInterfaceCustomLanguages=[];
+
+// Calendar and CardDAV server URLs - MUST BE ABSOLUTE!
+var globalNetworkCheckSettings={
+    href: 'https://{{ ansible_fqdn }}/dav/dav.php/',
+    hrefLabel: null,
+    crossDomain: null,
+    forceReadOnly: null,
+    withCredentials: false,
+    timeout: 90000,
+    lockTimeOut: 10000,
+    checkContentType: true,
+    settingsAccount: true,
+    delegation: false,
+    ignoreAlarms: false,
+    backgroundCalendars: []
+};
+
+var globalNetworkAccountSettings=[
+    {
+        href: 'https://{{ ansible_fqdn }}/dav/dav.php/',
+        userAuth: {
+            userName: '',
+            userPassword: ''
+        },
+        timeOut: 90000,
+        lockTimeOut: 10000,
+        checkContentType: true,
+        settingsAccount: true,
+        delegation: false,
+        ignoreAlarms: false,
+        backgroundCalendars: []
+    },
+    {
+        href: 'https://{{ ansible_fqdn }}/dav/dav.php/',
+        userAuth: {
+            userName: '',
+            userPassword: ''
+        },
+        timeOut: 90000,
+        lockTimeOut: 10000,
+        checkContentType: true,
+        settingsAccount: true
+    }
+];
+
+// Interface settings
+var globalSettings={
+    version: '{{ infcloud_version }}',
+{% if infcloud_enable_calendar %}
+    loadedcalendarcollections: true,
+    activecalendarcollections: true,
+{% endif %}
+{% if infcloud_enable_contacts %}
+    loadedaddressbookcollections: true,
+    activeaddressbookcollections: true,
+{% endif %}
+    timezonesupport: true,
+    timezone: '{{ infcloud_timezone }}',
+    rewritetimezonecomponent: true,
+    removeunknowntimezone: false,
+    
+    // Week starts on (0=Sunday, 1=Monday)
+    datepickerfirstdayofweek: {{ infcloud_first_day_of_week }},
+    
+    // Calendar view
+    defaultactiveapp: {% if infcloud_enable_calendar %}'CalDavZAP'{% elif infcloud_enable_contacts %}'CardDavMATE'{% else %}null{% endif %},
+    
+    // UI
+    appcustomlogo: '{{ infcloud_logo_text }}',
+    
+    // Contact form settings
+    contactstorefn: ['prefix', 'last', 'middle', 'first', 'suffix'],
+    
+    // Advanced settings
+    timeformatagenda: 'HH:mm',
+    timeformatbasic: 'HH:mm',
+    
+    // Sync intervals (ms)
+    syncresourcesinterval: 120000,
+    syncresourcestimeout: 90000,
+    
+    // Cache
+    cacheUpdateInterval: {{ infcloud_cache_update }}
+};
+
+// Available modules
+{% if infcloud_enable_calendar %}
+var globalEnabledCalDAVCollections = [''];
+var globalEnabledCalDAVTodoCollections = {% if infcloud_enable_projects %}['']{% else %}[]{% endif %};
+{% endif %}
+
+{% if infcloud_enable_contacts %}
+var globalEnabledCardDAVCollections = [''];
+{% endif %}
+
+// Login screen
+var globalLoginScreen = 'PROMPT';  // PROMPT, HIDDEN, or username
+
+// Cross-domain requests
+var globalCrossOrigin = false;
+var globalCrossOriginHeader = null;
+
+// Localization
+var globalDatepickerFirstDayOfWeek = {{ infcloud_first_day_of_week }};
+var globalDatepickerFormat = 'dd.mm.yy';
+
+// UI Theme
+var globalActiveApp = {% if infcloud_enable_calendar %}'CalDavZAP'{% elif infcloud_enable_contacts %}'CardDavMATE'{% else %}null{% endif %};
+
+// Debugging
+var globalDebug = false;

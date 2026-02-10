@@ -391,7 +391,7 @@
   blockinfile:
     path: /etc/nginx/sites-available/rspamd
     marker: "    # {mark} ANSIBLE MANAGED BLOCK - SnappyMail"
-    insertbefore: "^\\s*# Health check"
+    insertafter: "# INSERT SNAPPY HERE"
     block: |2
           # SnappyMail Webmail
           location {{ snappymail_url_path }}/ {

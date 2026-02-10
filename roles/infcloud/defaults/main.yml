@@ -1,0 +1,42 @@
+---
+# InfCloud default variables
+
+# Version
+infcloud_version: "0.13.1"
+infcloud_download_url: "https://www.inf-it.com/InfCloud_{{ infcloud_version }}.zip"
+
+# Installation paths
+infcloud_install_path: "/var/www/infcloud"
+infcloud_web_user: "www-data"
+infcloud_web_group: "www-data"
+
+# Domain configuration
+infcloud_domain: "{{ ansible_fqdn }}"
+infcloud_subdomain: "cal"  # Only used if infcloud_use_subdomain is true
+infcloud_use_subdomain: false  # Set to true for subdomain (cal.example.com), false for path (/cal/)
+infcloud_base_path: "/cal"  # Path when using path-based deployment
+
+# Baikal integration
+infcloud_caldav_url: "https://{{ baikal_domain | default(ansible_fqdn) }}/dav.php/"
+infcloud_carddav_url: "https://{{ baikal_domain | default(ansible_fqdn) }}/dav.php/"
+
+# Interface settings
+infcloud_language: "en_US"
+infcloud_timezone: "Europe/Vienna"
+infcloud_first_day_of_week: 1  # 0=Sunday, 1=Monday
+
+# Features
+infcloud_enable_calendar: true
+infcloud_enable_contacts: true
+infcloud_enable_projects: false  # Tasks/Projects (requires CalDAV VTODO support)
+
+# SSL
+infcloud_ssl_cert: "/etc/letsencrypt/live/{{ infcloud_subdomain }}.{{ infcloud_domain }}/fullchain.pem"
+infcloud_ssl_key: "/etc/letsencrypt/live/{{ infcloud_subdomain }}.{{ infcloud_domain }}/privkey.pem"
+
+# UI customization
+infcloud_title: "Calendar & Contacts"
+infcloud_logo_text: "{{ infcloud_domain }}"
+
+# Cache busting
+infcloud_cache_update: "{{ ansible_date_time.epoch }}"

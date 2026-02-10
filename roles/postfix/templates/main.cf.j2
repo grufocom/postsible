@@ -8,6 +8,11 @@ mydomain = {{ postfix_mydomain }}
 myorigin = {{ postfix_myorigin }}
 mydestination = localhost
 
+# Subaddressing (plus addressing)
+{% if postfix_recipient_delimiter is defined %}
+recipient_delimiter = {{ postfix_recipient_delimiter }}
+{% endif %}
+
 # Network
 inet_interfaces = {{ postfix_inet_interfaces }}
 inet_protocols = {{ postfix_inet_protocols }}

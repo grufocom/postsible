@@ -97,6 +97,17 @@
         - webmail
         - phase4
 
+    - role: baikal
+      tags:
+        - baikal
+        - caldav
+        - phase4
+
+    - role: infcloud
+      tags: 
+        - infcloud
+        - phase4
+
 #    - role: snappymail_mailadmin
 #      tags:
 #        - snappymail_mailadmin

@@ -34,6 +34,8 @@ postfix_mydomain: "{{ mail_primary_domain }}"
 postfix_myorigin: "$mydomain"
 postfix_inet_interfaces: "all"
 postfix_inet_protocols: "ipv4"
+# Subaddressing (plus addressing)
+postfix_recipient_delimiter: "+"
 
 # Dovecot Settings
 dovecot_mail_location: "maildir:/srv/imap/%d/%n/"
@@ -47,6 +49,25 @@ rspamd_webui_password: "{{ vault_rspamd_webui_password }}"
 snappymail_domain: "webmail.{{ mail_primary_domain }}"
 snappymail_admin_user: "admin"
 snappymail_admin_password: "{{ vault_snappymail_admin_password }}"
+
+# Infcloud Settings
+infcloud_use_subdomain: false
+infcloud_base_path: "/cal"
+#infcloud_subdomain: "cal"  # Results in cal.example.com
+
+# Localization
+infcloud_language: "de_DE"  # Available: en_US, de_DE, fr_FR, etc.
+infcloud_timezone: "Europe/Vienna"
+infcloud_first_day_of_week: 1  # Monday
+
+# Features
+infcloud_enable_calendar: true
+infcloud_enable_contacts: true
+infcloud_enable_projects: false  # Tasks/TODOs (needs CalDAV VTODO support)
+
+# Branding
+infcloud_title: "My Company Calendar"
+infcloud_logo_text: "{{ mail_primary_domain }}"
 
 # Nginx Settings
 nginx_worker_processes: "auto"
