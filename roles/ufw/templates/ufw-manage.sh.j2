@@ -114,7 +114,7 @@ test_rules() {
     echo -e "${COLOR_YELLOW}Testing Port Accessibility:${COLOR_NC}"
     
     # Test open ports
-    for port in 25 587 993 80 443; do
+    for port in 25 587 {{ mail_imap_port }} {{ mail_smtp_port }} 80 443; do
         if ss -tuln | grep -q ":$port "; then
             echo -e "  Port $port: ${COLOR_GREEN}LISTENING${COLOR_NC}"
         else
