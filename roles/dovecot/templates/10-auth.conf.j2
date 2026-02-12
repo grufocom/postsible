@@ -4,6 +4,8 @@
 # Dovecot 2.4.1: auth_allow_cleartext statt disable_plaintext_auth
 auth_allow_cleartext = {{ 'no' if dovecot_disable_plaintext_auth else 'yes' }}
 auth_mechanisms = {{ dovecot_auth_mechanisms }}
+auth_allow_weak_schemes = yes
+auth_cache_negative_ttl = 0
 
 # Authentication cache
 auth_cache_size = {{ dovecot_auth_cache_size }}

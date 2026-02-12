@@ -18,5 +18,6 @@ imap_logout_format = {{ dovecot_imap_logout_format }}
 auth_verbose = {{ 'yes' if dovecot_auth_verbose else 'no' }}
 auth_debug = {{ 'yes' if dovecot_auth_debug else 'no' }}
 mail_debug = {{ 'yes' if dovecot_mail_debug else 'no' }}
+#log_debug = category=ssl
 
 # verbose_ssl wurde in Dovecot 2.4.1 entfernt

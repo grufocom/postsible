@@ -8,8 +8,9 @@ default_client_limit = {{ dovecot_default_client_limit }}
 # IMAP specific
 protocol imap {
   mail_max_userip_connections = {{ dovecot_mail_max_userip_connections }}
+		imap_client_workarounds = delay-newmail
   imap_idle_notify_interval = {{ dovecot_imap_idle_notify_interval }}
-  imap_capability = +SPECIAL-USE
+  imap_capability = IMAP4rev1 LITERAL+ SASL-IR LOGIN-REFERRALS ID ENABLE IDLE SORT SORT=DISPLAY THREAD=REFERENCES THREAD=REFS MULTIAPPEND URL-PARTIAL CATENATE UNSELECT CHILDREN NAMESPACE UIDPLUS LIST-EXTENDED I18NLEVEL=1 CONDSTORE QRESYNC ESEARCH ESORT SEARCHRES WITHIN CONTEXT=SEARCH LIST-STATUS BINARY MOVE SNIPPET=FUZZY PREVIEW=FUZZY STATUS=SIZE SAVEDATE LITERAL+ NOTIFY SPECIAL-USE
   mail_plugins = quota imap_quota imap_sieve
 }
 

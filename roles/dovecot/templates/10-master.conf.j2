@@ -7,8 +7,9 @@ service imap-login {
 				listen = 127.0.0.1
   }
   inet_listener imaps {
-    port = 993
+    port = {{ mail_imap_port }}
     ssl = yes
+				listen = *
   }
   
   process_min_avail = 8
@@ -111,3 +112,11 @@ service stats {
     mode = 0660
   }
 }
+
+service anvil {
+  unix_listener anvil {
+    group = mail
+    mode = 0660
+  }
+}
+
