@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Autodiscover xmlns="http://schemas.microsoft.com/exchange/autodiscover/responseschema/2006">
+  <Response xmlns="http://schemas.microsoft.com/exchange/autodiscover/outlook/responseschema/2006a">
+    <Account>
+      <AccountType>email</AccountType>
+      <Action>settings</Action>
+      
+      <Protocol>
+        <Type>IMAP</Type>
+        <Server>{{ autoconfig_imap_hostname }}</Server>
+        <Port>{{ autoconfig_imap_port }}</Port>
+        <LoginName>%EMAILADDRESS%</LoginName>
+        <SPA>off</SPA>
+        <SSL>{% if autoconfig_imap_socket_type == 'SSL' %}on{% else %}off{% endif %}</SSL>
+        <Encryption>{% if autoconfig_imap_socket_type == 'STARTTLS' %}TLS{% else %}SSL{% endif %}</Encryption>
+        <AuthRequired>on</AuthRequired>
+      </Protocol>
+      
+      <Protocol>
+        <Type>SMTP</Type>
+        <Server>{{ autoconfig_smtp_hostname }}</Server>
+        <Port>{{ autoconfig_smtp_port }}</Port>
+        <LoginName>%EMAILADDRESS%</LoginName>
+        <SPA>off</SPA>
+        <SSL>{% if autoconfig_smtp_socket_type == 'SSL' %}on{% else %}off{% endif %}</SSL>
+        <Encryption>{% if autoconfig_smtp_socket_type == 'STARTTLS' %}TLS{% else %}SSL{% endif %}</Encryption>
+        <AuthRequired>on</AuthRequired>
+        <UsePOPAuth>off</UsePOPAuth>
+        <SMTPLast>off</SMTPLast>
+      </Protocol>
+    </Account>
+  </Response>
+</Autodiscover>

@@ -1,0 +1,28 @@
+---
+# tasks file for autoconfig
+- name: Include DNS check tasks
+  ansible.builtin.include_tasks: check_dns.yml
+
+- name: Include directory setup tasks
+  ansible.builtin.include_tasks: setup_directories.yml
+
+- name: Include autoconfig file generation
+  ansible.builtin.include_tasks: generate_autoconfig.yml
+
+- name: Include autodiscover configuration (optional)
+  ansible.builtin.include_tasks: autodiscover.yml
+  when: autoconfig_enable_autodiscover | default(true)
+
+- name: Include nginx HTTP configuration for certbot
+  ansible.builtin.include_tasks: nginx_http.yml
+
+- name: Include certbot certificate tasks
+  ansible.builtin.include_tasks: certbot.yml
+
+- name: Include nginx HTTPS configuration
+  ansible.builtin.include_tasks: nginx_https.yml
+
+- name: Include autodiscover nginx configuration (optional)
+  ansible.builtin.include_tasks: autodiscover_nginx.yml
+  when: autoconfig_enable_autodiscover | default(true)
+

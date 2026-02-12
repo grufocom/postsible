@@ -1,0 +1,57 @@
+---
+# tasks/certbot.yml
+- name: Ensure certbot is installed
+  ansible.builtin.package:
+    name:
+      - certbot
+      - python3-certbot-nginx
+    state: present
+
+- name: Check if certificate already exists
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/live/autoconfig.{{ item }}/fullchain.pem"
+  register: cert_exists
+  loop: "{{ mail_virtual_domains }}"
+
+- name: Obtain Let's Encrypt certificate for autoconfig domains
+  ansible.builtin.command: >
+    certbot certonly
+    --webroot
+    --webroot-path /var/www/certbot
+    --email {{ mail_letsencrypt_email }}
+    --agree-tos
+    --no-eff-email
+    --non-interactive
+    -d autoconfig.{{ item.item }}
+  when: not item.stat.exists
+  loop: "{{ cert_exists.results }}"
+  loop_control:
+    label: "autoconfig.{{ item.item }}"
+  register: certbot_result
+  failed_when: 
+    - certbot_result.rc != 0
+    - "'Certificate not yet due for renewal' not in certbot_result.stdout"
+
+- name: Create certbot renewal hook directory
+  ansible.builtin.file:
+    path: /etc/letsencrypt/renewal-hooks/deploy
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Create certbot reload hook for nginx
+  ansible.builtin.copy:
+    content: |
+      #!/bin/bash
+      systemctl reload nginx
+    dest: /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Setup certbot auto-renewal timer
+  ansible.builtin.systemd:
+    name: certbot.timer
+    enabled: true
+    state: started

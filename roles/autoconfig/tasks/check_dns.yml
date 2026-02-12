@@ -1,0 +1,36 @@
+---
+# tasks/check_dns.yml
+- name: Get mail server IP address
+  ansible.builtin.set_fact:
+    mail_server_ip: "{{ ansible_default_ipv4.address }}"
+
+- name: Check DNS record for autoconfig subdomain
+  ansible.builtin.command: "dig +short autoconfig.{{ item }} A"
+  register: autoconfig_dns_check
+  changed_when: false
+  failed_when: false
+  loop: "{{ mail_virtual_domains }}"
+  check_mode: false
+
+- name: Display DNS check results
+  ansible.builtin.debug:
+    msg: "autoconfig.{{ item.item }}: {{ item.stdout | default('NOT FOUND') }}"
+  loop: "{{ autoconfig_dns_check.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Warn if DNS records are missing or incorrect
+  ansible.builtin.fail:
+    msg: |
+      DNS record for autoconfig.{{ item.item }} is missing or incorrect!
+      Expected: {{ mail_server_ip }}
+      Found: {{ item.stdout | default('NONE') }}
+      
+      Please create the following DNS record:
+      autoconfig.{{ item.item }}  IN  A  {{ mail_server_ip }}
+  when: 
+    - item.stdout != mail_server_ip
+    - not autoconfig_skip_dns_check | default(false)
+  loop: "{{ autoconfig_dns_check.results }}"
+  loop_control:
+    label: "{{ item.item }}"

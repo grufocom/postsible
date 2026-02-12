@@ -17,7 +17,9 @@ A complete Ansible playbook for automated installation of a production-ready mai
 - **🔥 UFW** - Firewall configuration
 - **🚫 Fail2ban** - Brute-force protection (6 jails incl. SnappyMail)
 - **💾 MariaDB** - Virtual users & domains
+- **🦠 ESET ICAP** - Antivirus scanner (optional)
 - **🔐 Security Hardening** - Defense-in-depth approach
+- **⚙️ Autoconfig / Autodiscover Role**
 
 ---
 
@@ -79,6 +81,8 @@ example.com.           IN MX   10 mail.example.com.
 
 # A Record (Server IP)
 mail.example.com.      IN A    192.168.1.100
+autoconfig.example.com. IN CNAME mail.example.com
+autodiscover.example.com. IN CNAME mail.example.com
 
 # PTR Record (Reverse DNS - at your hosting provider)
 100.1.168.192.in-addr.arpa. IN PTR mail.example.com.
@@ -461,6 +465,44 @@ if address :contains "to" "+newsletter" {
 }
 ```
 
+### Autoconfig / Autodiscover Role
+- Automatic Thunderbird autoconfig (Mozilla standard)
+- Automatic Outlook / ActiveSync autodiscover (Microsoft standard)
+- DNS validation for autoconfig.domain.tld
+- Nginx configuration with HTTP → HTTPS upgrade
+- Fully idempotent, works for all virtual domains
+- Automatic Let's Encrypt certificate provisioning via Certbot
+
+**Deployment / Nginx Integration Notes**
+
+- Each virtual domain gets its own autoconfig subdirectory:
+
+```bash
+/var/www/autoconfig/<domain>/mail/config-v1.1.xml
+```
+
+- Thunderbird / Lightning expects the XML at:
+
+```bash
+https://autoconfig.example.com/mail/config-v1.1.xml
+```
+
+- Certbot automatically requests certificates for the autoconfig subdomain.
+- Nginx handles both HTTP → HTTPS redirection and serving of autoconfig files.
+
+**Example structure for multiple domains:**
+
+/var/www/autoconfig/
+├── example.com/
+│   └── mail/config-v1.1.xml
+├── example.net/
+│   └── mail/config-v1.1.xml
+
+
+Fully automated via the Ansible autoconfig role:
+- Generates XML files per domain
+- Ensures Nginx configuration is correct
+- Requests and renews SSL certificates
 
 ---
 

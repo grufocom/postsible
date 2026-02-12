@@ -1,0 +1,50 @@
+---
+# tasks/setup_directories.yml
+- name: Ensure nginx is installed
+  ansible.builtin.package:
+    name: nginx
+    state: present
+
+- name: Create certbot webroot directory
+  ansible.builtin.file:
+    path: /var/www/certbot
+    state: directory
+    owner: www-data
+    group: www-data
+    mode: '0755'
+
+- name: Create autoconfig base directory
+  ansible.builtin.file:
+    path: /var/www/autoconfig
+    state: directory
+    owner: www-data
+    group: www-data
+    mode: '0755'
+
+- name: Create autoconfig domain directories
+  ansible.builtin.file:
+    path: "/var/www/autoconfig/{{ item }}"
+    state: directory
+    owner: www-data
+    group: www-data
+    mode: '0755'
+  loop: "{{ mail_virtual_domains }}"
+
+- name: Create mail subdirectory for autoconfig files
+  ansible.builtin.file:
+    path: "/var/www/autoconfig/{{ item }}/mail"
+    state: directory
+    owner: www-data
+    group: www-data
+    mode: '0755'
+  loop: "{{ mail_virtual_domains }}"
+
+- name: Create .well-known/autoconfig directory for Microsoft
+  ansible.builtin.file:
+    path: "/var/www/autoconfig/{{ item }}/.well-known/autoconfig/mail"
+    state: directory
+    owner: www-data
+    group: www-data
+    mode: '0755'
+  loop: "{{ mail_virtual_domains }}"
+  when: autoconfig_enable_autodiscover | default(true)

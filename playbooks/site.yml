@@ -108,6 +108,11 @@
         - infcloud
         - phase4
 
+    - role: autoconfig
+      tags: 
+        - autoconfig
+        - phase4
+
 #    - role: snappymail_mailadmin
 #      tags:
 #        - snappymail_mailadmin

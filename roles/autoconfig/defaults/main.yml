@@ -1,0 +1,30 @@
+---
+# defaults/main.yml
+# Mail server configuration
+autoconfig_mail_hostname: "mail.{{ mail_primary_domain }}"
+autoconfig_imap_hostname: "{{ autoconfig_mail_hostname }}"
+autoconfig_smtp_hostname: "{{ autoconfig_mail_hostname }}"
+
+# Port configuration
+autoconfig_imap_port: "{{ mail_imap_port | default(993) }}"
+autoconfig_imap_socket_type: "SSL"  # SSL or STARTTLS
+autoconfig_smtp_port: "{{ mail_smtp_port | default(465) }}"
+autoconfig_smtp_socket_type: "SSL"  # SSL or STARTTLS
+
+# Authentication
+autoconfig_imap_auth: "password-cleartext"  # password-cleartext, password-encrypted, OAuth2
+autoconfig_smtp_auth: "password-cleartext"
+autoconfig_username_type: "%EMAILADDRESS%"  # %EMAILADDRESS%, %EMAILLOCALPART%
+
+# Features
+autoconfig_enable_autodiscover: true  # Microsoft Outlook autodiscover
+autoconfig_skip_dns_check: false  # Set to true to skip DNS validation
+autoconfig_remove_http_config: false  # Set to true to remove HTTP config after HTTPS is set up
+
+# Display names
+autoconfig_provider_name: "{{ mail_primary_domain | upper }} Mail"
+autoconfig_provider_shortname: "{{ mail_primary_domain | upper }}"
+autoconfig_provider_documentation_url: "https://{{ mail_primary_domain }}/support"
+
+# Certificate settings
+autoconfig_cert_path: "/etc/letsencrypt/live/autoconfig.{{ mail_primary_domain }}"

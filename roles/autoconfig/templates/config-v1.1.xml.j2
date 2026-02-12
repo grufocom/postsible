@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<clientConfig version="1.1">
+  <emailProvider id="{{ item }}">
+    <domain>{{ item }}</domain>
+    <displayName>{{ autoconfig_provider_name }}</displayName>
+    <displayShortName>{{ autoconfig_provider_shortname }}</displayShortName>
+    
+    <!-- IMAP Configuration -->
+    <incomingServer type="imap">
+      <hostname>{{ autoconfig_imap_hostname }}</hostname>
+      <port>{{ autoconfig_imap_port }}</port>
+      <socketType>{{ autoconfig_imap_socket_type }}</socketType>
+      <authentication>{{ autoconfig_imap_auth }}</authentication>
+      <username>{{ autoconfig_username_type }}</username>
+    </incomingServer>
+    
+    <!-- SMTP Configuration -->
+    <outgoingServer type="smtp">
+      <hostname>{{ autoconfig_smtp_hostname }}</hostname>
+      <port>{{ autoconfig_smtp_port }}</port>
+      <socketType>{{ autoconfig_smtp_socket_type }}</socketType>
+      <authentication>{{ autoconfig_smtp_auth }}</authentication>
+      <username>{{ autoconfig_username_type }}</username>
+    </outgoingServer>
+    
+    <!-- Documentation -->
+    <documentation url="{{ autoconfig_provider_documentation_url }}">
+      <descr lang="en">General information about {{ autoconfig_provider_name }}</descr>
+      <descr lang="de">Allgemeine Informationen über {{ autoconfig_provider_name }}</descr>
+    </documentation>
+  </emailProvider>
+  
+  <!-- Client Configuration Hints -->
+  <clientConfigUpdate url="https://autoconfig.{{ item }}/mail/config-v1.1.xml" />
+</clientConfig>

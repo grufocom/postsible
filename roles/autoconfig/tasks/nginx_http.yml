@@ -1,0 +1,34 @@
+---
+# tasks/nginx_http.yml
+- name: Create nginx HTTP configuration for certbot (per domain)
+  ansible.builtin.template:
+    src: nginx_http.conf.j2
+    dest: "/etc/nginx/sites-available/autoconfig-{{ item }}-http"
+    owner: root
+    group: root
+    mode: '0644'
+  loop: "{{ mail_virtual_domains }}"
+  notify: reload nginx
+
+- name: Enable nginx HTTP configuration for certbot
+  ansible.builtin.file:
+    src: "/etc/nginx/sites-available/autoconfig-{{ item }}-http"
+    dest: "/etc/nginx/sites-enabled/autoconfig-{{ item }}-http"
+    state: link
+  loop: "{{ mail_virtual_domains }}"
+  notify: reload nginx
+
+- name: Test nginx configuration
+  ansible.builtin.command: nginx -t
+  register: nginx_test
+  changed_when: false
+  failed_when: nginx_test.rc != 0
+
+- name: Ensure nginx is running
+  ansible.builtin.service:
+    name: nginx
+    state: started
+    enabled: true
+
+- name: Flush handlers to reload nginx before certbot
+  ansible.builtin.meta: flush_handlers

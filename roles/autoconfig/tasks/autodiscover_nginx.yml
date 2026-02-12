@@ -1,0 +1,120 @@
+---
+# tasks/autodiscover_nginx.yml
+- name: Check DNS record for autodiscover subdomain
+  ansible.builtin.command: "dig +short autodiscover.{{ item }} A"
+  register: autodiscover_dns_check
+  changed_when: false
+  failed_when: false
+  loop: "{{ mail_virtual_domains }}"
+  check_mode: false
+  when: autoconfig_enable_autodiscover | default(true)
+
+- name: Display autodiscover DNS check results
+  ansible.builtin.debug:
+    msg: "autodiscover.{{ item.item }}: {{ item.stdout | default('NOT FOUND') }}"
+  loop: "{{ autodiscover_dns_check.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: 
+    - autoconfig_enable_autodiscover | default(true)
+    - autodiscover_dns_check is defined
+
+- name: Warn if autodiscover DNS records are missing
+  ansible.builtin.debug:
+    msg: |
+      WARNING: DNS record for autodiscover.{{ item.item }} is missing or incorrect!
+      Expected: {{ mail_server_ip }}
+      Found: {{ item.stdout | default('NONE') }}
+      
+      Autodiscover will still work via autoconfig.{{ item.item }} for most clients.
+      For full Outlook support, create: autodiscover.{{ item.item }}  IN  A  {{ mail_server_ip }}
+  when: 
+    - autoconfig_enable_autodiscover | default(true)
+    - autodiscover_dns_check is defined
+    - item.stdout != mail_server_ip
+  loop: "{{ autodiscover_dns_check.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Create nginx HTTP configuration for autodiscover (per domain)
+  ansible.builtin.template:
+    src: nginx_autodiscover_http.conf.j2
+    dest: "/etc/nginx/sites-available/autodiscover-{{ item }}-http"
+    owner: root
+    group: root
+    mode: '0644'
+  loop: "{{ mail_virtual_domains }}"
+  notify: reload nginx
+  when: 
+    - autoconfig_enable_autodiscover | default(true)
+    - autodiscover_dns_check.results | selectattr('item', 'equalto', item) | selectattr('stdout', 'equalto', mail_server_ip) | list | length > 0
+
+- name: Enable nginx HTTP configuration for autodiscover
+  ansible.builtin.file:
+    src: "/etc/nginx/sites-available/autodiscover-{{ item }}-http"
+    dest: "/etc/nginx/sites-enabled/autodiscover-{{ item }}-http"
+    state: link
+  loop: "{{ mail_virtual_domains }}"
+  notify: reload nginx
+  when: 
+    - autoconfig_enable_autodiscover | default(true)
+    - autodiscover_dns_check.results | selectattr('item', 'equalto', item) | selectattr('stdout', 'equalto', mail_server_ip) | list | length > 0
+
+- name: Flush handlers to reload nginx before certbot
+  ansible.builtin.meta: flush_handlers
+  when: autoconfig_enable_autodiscover | default(true)
+
+- name: Check if autodiscover certificate already exists
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/live/autodiscover.{{ item }}/fullchain.pem"
+  register: autodiscover_cert_exists
+  loop: "{{ mail_virtual_domains }}"
+  when: 
+    - autoconfig_enable_autodiscover | default(true)
+    - autodiscover_dns_check.results | selectattr('item', 'equalto', item) | selectattr('stdout', 'equalto', mail_server_ip) | list | length > 0
+
+- name: Obtain Let's Encrypt certificate for autodiscover domains
+  ansible.builtin.command: >
+    certbot certonly
+    --webroot
+    --webroot-path /var/www/certbot
+    --email {{ mail_letsencrypt_email }}
+    --agree-tos
+    --no-eff-email
+    --non-interactive
+    -d autodiscover.{{ item.item }}
+  when: 
+    - autoconfig_enable_autodiscover | default(true)
+    - not item.stat.exists
+    - autodiscover_dns_check.results | selectattr('item', 'equalto', item.item) | selectattr('stdout', 'equalto', mail_server_ip) | list | length > 0
+  loop: "{{ autodiscover_cert_exists.results }}"
+  loop_control:
+    label: "autodiscover.{{ item.item }}"
+  register: autodiscover_certbot_result
+  failed_when: 
+    - autodiscover_certbot_result.rc != 0
+    - "'Certificate not yet due for renewal' not in autodiscover_certbot_result.stdout"
+
+- name: Create nginx HTTPS configuration for autodiscover (per domain)
+  ansible.builtin.template:
+    src: nginx_autodiscover_https.conf.j2
+    dest: "/etc/nginx/sites-available/autodiscover-{{ item }}-https"
+    owner: root
+    group: root
+    mode: '0644'
+  loop: "{{ mail_virtual_domains }}"
+  notify: reload nginx
+  when: 
+    - autoconfig_enable_autodiscover | default(true)
+    - autodiscover_dns_check.results | selectattr('item', 'equalto', item) | selectattr('stdout', 'equalto', mail_server_ip) | list | length > 0
+
+- name: Enable nginx HTTPS configuration for autodiscover
+  ansible.builtin.file:
+    src: "/etc/nginx/sites-available/autodiscover-{{ item }}-https"
+    dest: "/etc/nginx/sites-enabled/autodiscover-{{ item }}-https"
+    state: link
+  loop: "{{ mail_virtual_domains }}"
+  notify: reload nginx
+  when: 
+    - autoconfig_enable_autodiscover | default(true)
+    - autodiscover_dns_check.results | selectattr('item', 'equalto', item) | selectattr('stdout', 'equalto', mail_server_ip) | list | length > 0

@@ -1,0 +1,19 @@
+---
+# tasks/autodiscover.yml
+- name: Create Autodiscover directory
+  ansible.builtin.file:
+    path: "/var/www/autoconfig/{{ item }}/autodiscover"
+    state: directory
+    owner: www-data
+    group: www-data
+    mode: '0755'
+  loop: "{{ mail_virtual_domains }}"
+
+- name: Generate Microsoft Autodiscover XML files
+  ansible.builtin.template:
+    src: autodiscover.xml.j2
+    dest: "/var/www/autoconfig/{{ item }}/autodiscover/autodiscover.xml"
+    owner: www-data
+    group: www-data
+    mode: '0644'
+  loop: "{{ mail_virtual_domains }}"
