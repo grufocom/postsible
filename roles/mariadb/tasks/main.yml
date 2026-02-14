@@ -29,7 +29,7 @@
 
 - name: Check current root authentication method
   shell: |
-    mysql -u root -e "SELECT plugin FROM mysql.user WHERE User='root' AND Host='localhost';" 2>/dev/null | tail -1
+    mysql -u root -e "SELECT plugin FROM mysql.user WHERE User='root' AND Host='127.0.0.1';" 2>/dev/null | tail -1
   register: mysql_root_plugin
   changed_when: false
   failed_when: false
@@ -59,7 +59,7 @@
     - name: Change root authentication to mysql_native_password
       shell: |
         mysql -u root <<EOF
-        ALTER USER 'root'@'localhost' IDENTIFIED VIA mysql_native_password USING PASSWORD('{{ mariadb_root_password }}');
+        ALTER USER 'root'@'127.0.0.1' IDENTIFIED VIA mysql_native_password USING PASSWORD('{{ mariadb_root_password }}');
         FLUSH PRIVILEGES;
         EOF
       no_log: true

@@ -16,7 +16,8 @@ vault_rspamd_webui_password: "CHANGE_ME_RspamdWebUI789!"
 # SnappyMail Admin
 vault_snappymail_admin_password: "CHANGE_ME_SnappyAdminPass321!"
 
+# Baikal
+vault_baikal_admin_password: "CHANGE_ME_BaikalAdminPass321!"
+
 # Optional: Additional secrets
 # vault_backup_encryption_key: "..."
-# vault_api_token: "..."
-# vault_eset_license_key: "..."

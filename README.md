@@ -85,7 +85,7 @@ cp inventory/group_vars/mailservers/vault.yml.example \
 nano inventory/group_vars/mailservers/vault.yml
 
 # Encrypt vault
-ansible-vault encrypt inventory/group_vars/mailservers/vault.yml
+ansible-vault encrypt --ask-vault-password inventory/group_vars/mailservers/vault.yml
 ```
 
 ### 4. Configure DNS Records
