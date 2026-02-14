@@ -134,15 +134,6 @@
     mode: '0644'
   tags: common
 
-- name: Disable unnecessary services
-  systemd:
-    name: "{{ item }}"
-    enabled: no
-    state: stopped
-  loop: "{{ common_disabled_services }}"
-  ignore_errors: yes
-  tags: common
-
 - name: Harden SSH configuration
   template:
     src: sshd_config.j2
