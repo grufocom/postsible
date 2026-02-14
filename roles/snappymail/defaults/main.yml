@@ -16,7 +16,7 @@ snappymail_group: "www-data"
 
 # URL path (subpath under main domain)
 snappymail_url_path: "/wm"
-snappymail_domain: "{{ ansible_fqdn }}"  # Uses mail.example.com
+snappymail_domain: "{{ ansible_fqdn }}"  # Uses mail.{{ mail_primary_domain }}
 
 # Admin credentials (for initial setup)
 snappymail_admin_login: "admin"

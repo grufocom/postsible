@@ -11,7 +11,7 @@ common_locales:
 common_default_locale: "de_AT.UTF-8"
 
 # Hostname (wird normalerweise aus Inventory übernommen)
-# common_hostname: "mail.example.com"
+# common_hostname: "mail.{{ mail_primary_domain }}"
 
 # NTP Servers
 common_ntp_servers:

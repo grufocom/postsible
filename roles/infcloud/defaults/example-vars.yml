@@ -3,7 +3,7 @@
 
 # Use subdomain (recommended)
 infcloud_use_subdomain: true
-infcloud_subdomain: "cal"  # Results in cal.example.com
+infcloud_subdomain: "cal"  # Results in cal.{{ mail_primary_domain }}
 
 # Use path-based (alternative)
 # infcloud_use_subdomain: false

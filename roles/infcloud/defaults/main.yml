@@ -13,7 +13,7 @@ infcloud_web_group: "www-data"
 # Domain configuration
 infcloud_domain: "{{ ansible_fqdn }}"
 infcloud_subdomain: "cal"  # Only used if infcloud_use_subdomain is true
-infcloud_use_subdomain: false  # Set to true for subdomain (cal.example.com), false for path (/cal/)
+infcloud_use_subdomain: false  # Set to true for subdomain (cal.{{ mail_primary_domain }}), false for path (/cal/)
 infcloud_base_path: "/cal"  # Path when using path-based deployment
 
 # Baikal integration

@@ -356,7 +356,7 @@ snappymail_admin_password: "{{ vault_snappymail_admin_password }}"
 # Infcloud Settings
 infcloud_use_subdomain: false
 infcloud_base_path: "/cal"
-#infcloud_subdomain: "cal"  # Results in cal.example.com
+#infcloud_subdomain: "cal"  # Results in cal.{{ mail_primary_domain }}
 
 # Localization
 infcloud_language: "de_DE"  # Available: en_US, de_DE, fr_FR, etc.

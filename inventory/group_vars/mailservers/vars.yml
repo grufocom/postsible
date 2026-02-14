@@ -11,12 +11,12 @@ common_locales:
 common_default_locale: "de_AT.UTF-8"
 
 # Mail Configuration
-mail_primary_domain: "example.com"
+mail_primary_domain: "{{ mail_primary_domain }}"
 mail_virtual_domains:
-  - example.com
+  - {{ mail_primary_domain }}
 
-mail_admin_email: "admin@example.com"
-mail_letsencrypt_email: "admin@example.com"
+mail_admin_email: "admin@{{ mail_primary_domain }}"
+mail_letsencrypt_email: "admin@{{ mail_primary_domain }}"
 mail_ssl_cert_path: "/etc/letsencrypt/live/{{ mail_primary_domain }}"
 
 # MariaDB Settings (Non-Sensitive)
