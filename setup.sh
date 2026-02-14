@@ -321,6 +321,9 @@ mail_admin_email: "$ADMIN_EMAIL"
 mail_letsencrypt_email: "$ADMIN_EMAIL"
 mail_ssl_cert_path: "/etc/letsencrypt/live/{{ mail_primary_domain }}"
 
+mail_imap_port: 993
+mail_smtp_port: 465
+
 # MariaDB Settings (Non-Sensitive)
 mariadb_database: "mailserver"
 mariadb_user: "mailuser"
