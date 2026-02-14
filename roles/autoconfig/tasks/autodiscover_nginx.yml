@@ -83,10 +83,11 @@
     --no-eff-email
     --non-interactive
     -d autodiscover.{{ item.item }}
-  when: 
+  when:
     - autoconfig_enable_autodiscover | default(true)
-    - not item.stat.exists
+    - autodiscover_dns_check.results is defined
     - autodiscover_dns_check.results | selectattr('item', 'equalto', item.item) | selectattr('stdout', 'equalto', mail_server_ip) | list | length > 0
+    - (autodiscover_dns_check.results | selectattr('item', 'equalto', item.item) | map(attribute='stat') | first | default({})).exists | default(false) | bool == false
   loop: "{{ autodiscover_cert_exists.results }}"
   loop_control:
     label: "autodiscover.{{ item.item }}"

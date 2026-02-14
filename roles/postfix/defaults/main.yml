@@ -8,7 +8,7 @@ postfix_myorigin: "$mydomain"
 
 # Network settings
 postfix_inet_interfaces: "all"
-postfix_inet_protocols: "ipv4"
+postfix_inet_protocols: "all"
 
 # Mail processing
 postfix_message_size_limit: 52428800

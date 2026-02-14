@@ -4,90 +4,124 @@ InfCloud - the open source CalDAV/CardDAV Web Client
 */
 
 var globalInterfaceLanguage='{{ infcloud_language }}';
-var globalInterfaceCustomLanguages=[];
+var globalLoginScreen = 'HIDDEN';
+var globalSearchTransformAlphabet = 'abcdefghijklmnopqrstuvwxyzäöüß';
+var globalAutoLoadCollections = false;
+var globalAlwaysShowLoginButton = false;
 
-// Calendar and CardDAV server URLs - MUST BE ABSOLUTE!
-var globalNetworkCheckSettings={
-    href: 'https://{{ ansible_fqdn }}/dav/dav.php/',
-    hrefLabel: null,
-    crossDomain: null,
-    forceReadOnly: null,
+// Sorting alphabet (German)
+var globalSortAlphabet = 'abcdefghijklmnopqrstuvwxyzäöüß';
+var globalSortAlphabetUpperCase = 'ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÜ';
+
+// UI animations
+var globalContactDataMinVisiblePercentage = 0.1;
+var globalEditorFadeAnimation = 200;
+var globalHideInfoMessageAfter = 1000;
+
+// LOGIN & NETWORK (Base URL, overridden later)
+var globalNetworkCheckSettings = {
+    href: 'https://{{ ansible_fqdn }}/dav/dav.php/principals/',
+    crossDomain: false,
     withCredentials: false,
-    timeout: 90000,
-    lockTimeOut: 10000,
-    checkContentType: true,
     settingsAccount: true,
-    delegation: false,
+    timeOut: 90000,
+    lockTimeOut: 10000,
+    delegation: true,
+    additionalResources: [],
+    hrefLabel: null,
+    forceReadOnly: null,
     ignoreAlarms: false,
     backgroundCalendars: []
 };
 
-var globalNetworkAccountSettings=[
-    {
-        href: 'https://{{ ansible_fqdn }}/dav/dav.php/',
-        userAuth: {
-            userName: '',
-            userPassword: ''
-        },
-        timeOut: 90000,
-        lockTimeOut: 10000,
-        checkContentType: true,
-        settingsAccount: true,
-        delegation: false,
-        ignoreAlarms: false,
-        backgroundCalendars: []
-    },
-    {
-        href: 'https://{{ ansible_fqdn }}/dav/dav.php/',
-        userAuth: {
-            userName: '',
-            userPassword: ''
-        },
-        timeOut: 90000,
-        lockTimeOut: 10000,
-        checkContentType: true,
-        settingsAccount: true
-    }
-];
+// Placeholder for dynamic account settings
+var globalNetworkAccountSettings = [];
 
-// Interface settings
-var globalSettings={
+// Function to extract username from email
+function getUsernameFromEmail(email) {
+    return email.split('@')[0];
+}
+
+// Post-login function: Set dynamic paths
+function onLogin() {
+    var username = globalLoginUser;
+    var usernamePart = getUsernameFromEmail(username);
+
+    // Update principal URL
+    globalNetworkCheckSettings.href = 'https://{{ ansible_fqdn }}/dav/dav.php/principals/' + username + '/';
+
+    // Account settings with collections
+    globalNetworkAccountSettings = [{
+        href: 'https://{{ ansible_fqdn }}/dav/dav.php/',
+        crossDomain: false,
+        withCredentials: false,
+        settingsAccount: true,
+        loadedcalendarcollections: [
+            {
+                href: 'https://{{ ansible_fqdn }}/dav/dav.php/calendars/' + username + '/' + usernamePart + '-calendar/',
+                displayname: 'My Calendar'
+            }
+        ],
+        loadedaddressbookcollections: [
+            {
+                href: 'https://{{ ansible_fqdn }}/dav/dav.php/addressbooks/' + username + '/' + usernamePart + '-contacts/',
+                displayname: 'My Contacts'
+            }
+        ]
+    }];
+
+    // Reload config
+    if (typeof loadConfig === 'function') {
+        loadConfig();
+    }
+}
+
+// Global settings (single definition)
+var globalSettings = {
     version: '{{ infcloud_version }}',
-{% if infcloud_enable_calendar %}
+    {% if infcloud_enable_calendar %}
     loadedcalendarcollections: true,
     activecalendarcollections: true,
-{% endif %}
-{% if infcloud_enable_contacts %}
+    {% endif %}
+    {% if infcloud_enable_contacts %}
     loadedaddressbookcollections: true,
     activeaddressbookcollections: true,
-{% endif %}
+    {% endif %}
     timezonesupport: true,
     timezone: '{{ infcloud_timezone }}',
     rewritetimezonecomponent: true,
     removeunknowntimezone: false,
-    
+
     // Week starts on (0=Sunday, 1=Monday)
     datepickerfirstdayofweek: {{ infcloud_first_day_of_week }},
-    
-    // Calendar view
+
+    // Default app
     defaultactiveapp: {% if infcloud_enable_calendar %}'CalDavZAP'{% elif infcloud_enable_contacts %}'CardDavMATE'{% else %}null{% endif %},
-    
+
     // UI
     appcustomlogo: '{{ infcloud_logo_text }}',
-    
-    // Contact form settings
+
+    // Contact form
     contactstorefn: ['prefix', 'last', 'middle', 'first', 'suffix'],
-    
-    // Advanced settings
+
+    // Time formats
     timeformatagenda: 'HH:mm',
     timeformatbasic: 'HH:mm',
-    
+
     // Sync intervals (ms)
     syncresourcesinterval: 120000,
     syncresourcestimeout: 90000,
-    
+
     // Cache
-    cacheUpdateInterval: {{ infcloud_cache_update }}
+    cacheUpdateInterval: {{ infcloud_cache_update }},
+
+    // CalDAV limits: Months past/future to load
+    eventStartPastLimit: 3,
+    eventStartFutureLimit: 3,
+    todoPastLimit: 1,
+
+    // Settings storage location (recommended)
+    settingsType: 'principal-URL'
 };
 
 // Available modules
@@ -100,10 +134,7 @@ var globalEnabledCalDAVTodoCollections = {% if infcloud_enable_projects %}['']{%
 var globalEnabledCardDAVCollections = [''];
 {% endif %}
 
-// Login screen
-var globalLoginScreen = 'PROMPT';  // PROMPT, HIDDEN, or username
-
-// Cross-domain requests
+// Cross-Domain
 var globalCrossOrigin = false;
 var globalCrossOriginHeader = null;
 
@@ -116,3 +147,4 @@ var globalActiveApp = {% if infcloud_enable_calendar %}'CalDavZAP'{% elif infclo
 
 // Debugging
 var globalDebug = false;
+

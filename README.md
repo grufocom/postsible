@@ -13,6 +13,7 @@ A complete Ansible playbook for automated installation of a production-ready mai
 - **🔐 DKIM/DMARC/SPF** - Email authentication (CRITICAL!)
 - **🌐 SnappyMail** - Modern webmail interface
 - **📅 Baikal** - CalDAV/CardDAV server for calendars & contacts
+- **🌐 InfCloud** - Web-based CalDAV/CardDAV client (no native app needed)
 - **🔒 Let's Encrypt** - Automatic SSL certificates
 - **🔥 UFW** - Firewall configuration
 - **🚫 Fail2ban** - Brute-force protection (6 jails incl. SnappyMail)
@@ -79,7 +80,7 @@ ansible-vault encrypt inventory/group_vars/mailservers/vault.yml
 # MX Record
 example.com.           IN MX   10 mail.example.com.
 
-# A Record (Server IP)
+# A Record (Server IP) - don't forget IPV6 if you want to use it!
 mail.example.com.      IN A    192.168.1.100
 autoconfig.example.com. IN CNAME mail.example.com
 autodiscover.example.com. IN CNAME mail.example.com
@@ -159,6 +160,7 @@ ansible-playbook playbooks/site.yml --tags phase4 --ask-vault-pass
 - **certbot** - Let's Encrypt SSL certificates
 - **snappymail** - Webmail interface
 - **baikal** - CalDAV/CardDAV server
+- **infcloud** - Web CalDAV/CardDAV client
 
 ### Phase 5: Security
 ```bash
@@ -291,6 +293,11 @@ After successful deployment:
 - **URL:** `https://webmail.example.com` or `https://mail.example.com/wm/`
 - **Login:** Complete email address + password
 
+### InfCloud (Web Calendar/Contacts)
+- **URL:** https://cloud.example.com or https://mail.example.com/cloud/
+- **Login:** Complete email address + password
+- **Features:** Calendar (CalDAV), Contacts (CardDAV), Tasks - browser-based, no app installation needed
+
 ### Baikal (CalDAV/CardDAV)
 - **URL:** `https://dav.example.com` or `https://mail.example.com/dav/`
 - **Login:** Complete email address + password
@@ -317,7 +324,22 @@ After successful deployment:
 
 ---
 
-## 📅 Baikal CalDAV/CardDAV
+## 📅 Calendar & Contacts (InfCloud + Baikal)
+
+🎉 InfCloud - Web Client (Primary Access)
+https://cloud.example.com
+Login: user@example.com + password
+
+✅ Calendars & Events
+✅ Contacts management  
+✅ Tasks/Todos
+✅ Mobile-friendly
+✅ Multi-user ready
+✅ Automatic user provisioning via maildb-manage
+
+🔧 Baikal - Server Backend (Mobile/Desktop Sync)
+
+For native apps (iOS, Android, Thunderbird, Outlook)
 
 ### Client Configuration
 
@@ -339,7 +361,7 @@ After successful deployment:
 - **Base URL:** `https://dav.example.com/dav.php/`
 - **Login:** Email address + password
 
-### Automatic Synchronization
+### 🔄 Automatic Synchronization
 
 When users are created via `maildb-manage add-user`:
 - ✅ Baikal account is created automatically
@@ -347,6 +369,15 @@ When users are created via `maildb-manage add-user`:
 - ✅ Default addressbook "Contacts" is created
 - ✅ Passwords are synchronized between mail & Baikal
 - ✅ All Baikal data is removed when deleting users
+
+### 📦 Import Existing Data
+**Import Calendars (.ics)**
+Recommended: Thunderbird + Lightning → Import → Syncs to Baikal
+
+**Import Contacts (.vcf)**
+Recommended: Thunderbird + CardBook → Import → Syncs to Baikal
+
+No manual database imports needed - data syncs automatically to server.
 
 ---
 
@@ -364,8 +395,8 @@ tail -f /var/log/rspamd/rspamd.log
 tail -f /var/log/nginx/access.log
 
 # Baikal logs (via Nginx)
-tail -f /var/log/nginx/baikal-access.log
-tail -f /var/log/nginx/baikal-error.log
+tail -f /var/log/nginx/rspamd-access.log
+tail -f /var/log/nginx/rspamd-error.log
 ```
 
 ### Service Status
@@ -603,6 +634,7 @@ postsible/
 │   ├── certbot/                            # SSL
 │   ├── snappymail/                         # Webmail
 │   ├── baikal/                             # CalDAV/CardDAV server
+│   ├── infcloud/                           # Web CalDAV/CardDAV client
 │   ├── fail2ban/                           # Brute-force protection
 │   └── eset_icap/                          # Antivirus (optional)
 ├── playbooks/

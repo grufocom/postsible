@@ -90,17 +90,17 @@ create_baikal_user() {
     fi
 
     # Create default calendar (first in calendars table)
-    if ! baikal_cmd "INSERT INTO calendars (synctoken, components) VALUES (1, 'VEVENT,VTODO');" 2>/dev/null; then
-        echo -e "${YELLOW}Warning: Could not create calendar${NC}"
-        return 0
+				local calendar_id=$(baikal_cmd "SELECT id FROM calendars WHERE synctoken=1 AND components='VEVENT,VTODO' ORDER BY id DESC LIMIT 1;")
+
+    if [[ -z "$calendar_id" ]]; then
+        # FALLBACK: Neuen Kalender erstellen
+        baikal_cmd "INSERT INTO calendars (synctoken, components) VALUES (1, 'VEVENT,VTODO');"
+        calendar_id=$(baikal_cmd "SELECT LAST_INSERT_ID();")
     fi
     
-    # Get the calendar ID
-    local calendar_id=$(baikal_cmd "SELECT LAST_INSERT_ID();")
-    
     # Create calendar instance
-    local calendar_uri="${email%%@*}-calendar"
-    if baikal_cmd "INSERT INTO calendarinstances (calendarid, principaluri, access, displayname, uri, description, calendarorder, calendarcolor, timezone, transparent, share_invitestatus) VALUES ($calendar_id, 'principals/$email', 1, 'Personal', '$calendar_uri', 'Default calendar', 0, '#3a87adff', 'Europe/Vienna', 0, 2);" 2>/dev/null; then
+				local calendar_uri="${email%%@*}-calendar"
+   	if baikal_cmd "INSERT INTO calendarinstances (calendarid, principaluri, access, displayname, uri, description, calendarorder, calendarcolor, timezone, transparent, share_invitestatus) VALUES ($calendar_id, 'principals/$email', 1, 'Personal', '$calendar_uri', 'Default calendar', 0, '#3a87adff', 'Europe/Vienna', 0, 2);" 2>/dev/null; then
         echo -e "${GREEN}✓ Calendar created${NC}"
     else
         echo -e "${YELLOW}Warning: Could not create calendar instance${NC}"
