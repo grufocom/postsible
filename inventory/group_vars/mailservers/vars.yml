@@ -24,6 +24,9 @@ mariadb_database: "mailserver"
 mariadb_user: "mailuser"
 mariadb_host: "localhost"
 
+mail_imap_port: 993
+mail_smtp_port: 465
+
 # MariaDB Passwords (from Vault)
 mariadb_root_password: "{{ vault_mariadb_root_password }}"
 mariadb_password: "{{ vault_mariadb_password }}"
