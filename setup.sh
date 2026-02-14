@@ -15,66 +15,6 @@ echo "Postsible Mailserver - Setup"
 echo "=========================================="
 echo ""
 
-# Interactive mode - ask for missing values
-if [ "$INTERACTIVE" = true ] || [ -z "$DOMAIN" ]; then
-    echo -e "${YELLOW}=== Mail Server Configuration ===${NC}"
-    echo ""
-    
-    if [ -z "$REMOTE_HOST" ]; then
-        read -p "Deploy to remote server? (y/n) [n]: " deploy_remote
-        if [[ "$deploy_remote" =~ ^[Yy]$ ]]; then
-            REMOTE_MODE=true
-            read -p "Enter server IP or hostname: " REMOTE_HOST
-            read -p "SSH user [$REMOTE_USER]: " input_user
-            REMOTE_USER=${input_user:-$REMOTE_USER}
-        fi
-    fi
-    
-    if [ -z "$DOMAIN" ]; then
-        read -p "Primary mail domain (e.g., example.com): " DOMAIN
-    fi
-    
-    if [ -z "$MX_HOSTNAME" ]; then
-        read -p "Mail server hostname (e.g., mail.$DOMAIN) [mail.$DOMAIN]: " MX_HOSTNAME
-        MX_HOSTNAME=${MX_HOSTNAME:-mail.$DOMAIN}
-    fi
-    
-    if [ -z "$ADMIN_EMAIL" ]; then
-        read -p "Admin email address [admin@$DOMAIN]: " ADMIN_EMAIL
-        ADMIN_EMAIL=${ADMIN_EMAIL:-admin@$DOMAIN}
-    fi
-    
-    echo ""
-    echo -e "${GREEN}Configuration Summary:${NC}"
-    [ "$REMOTE_MODE" = true ] && echo "Deployment: Remote ($REMOTE_USER@$REMOTE_HOST)" || echo "Deployment: Local"
-    echo "Domain: $DOMAIN"
-    echo "Hostname: $MX_HOSTNAME"
-    echo "Admin Email: $ADMIN_EMAIL"
-    echo ""
-    read -p "Continue with this configuration? (y/n) [y]: " confirm
-    if [[ "$confirm" =~ ^[Nn]$ ]]; then
-        echo "Setup cancelled."
-        exit 0
-    fi
-fi
-
-# Validate required values
-if [ -z "$DOMAIN" ]; then
-    echo -e "${RED}Error: Domain is required${NC}"
-    echo "Use --domain <domain> or --interactive"
-    exit 1
-fi
-
-if [ -z "$MX_HOSTNAME" ]; then
-    MX_HOSTNAME="mail.$DOMAIN"
-fi
-
-if [ -z "$ADMIN_EMAIL" ]; then
-    ADMIN_EMAIL="admin@$DOMAIN"
-fi
-
-echo ""
-
 # Parse arguments
 REMOTE_MODE=false
 REMOTE_HOST=""
@@ -143,8 +83,68 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Interactive mode - ask for missing values
+if [ "$INTERACTIVE" = true ] || [ -z "$DOMAIN" ]; then
+    echo -e "${YELLOW}=== Mail Server Configuration ===${NC}"
+    echo ""
+
+    if [ -z "$REMOTE_HOST" ]; then
+        read -p "Deploy to remote server? (y/n) [n]: " deploy_remote
+        if [[ "$deploy_remote" =~ ^[Yy]$ ]]; then
+            REMOTE_MODE=true
+            read -p "Enter server IP or hostname: " REMOTE_HOST
+            read -p "SSH user [$REMOTE_USER]: " input_user
+            REMOTE_USER=${input_user:-$REMOTE_USER}
+        fi
+    fi
+
+    if [ -z "$DOMAIN" ]; then
+        read -p "Primary mail domain (e.g., example.com): " DOMAIN
+    fi
+
+    if [ -z "$MX_HOSTNAME" ]; then
+        read -p "Mail server hostname (e.g., mail.$DOMAIN) [mail.$DOMAIN]: " MX_HOSTNAME
+        MX_HOSTNAME=${MX_HOSTNAME:-mail.$DOMAIN}
+    fi
+
+    if [ -z "$ADMIN_EMAIL" ]; then
+        read -p "Admin email address [admin@$DOMAIN]: " ADMIN_EMAIL
+        ADMIN_EMAIL=${ADMIN_EMAIL:-admin@$DOMAIN}
+    fi
+
+    echo ""
+    echo -e "${GREEN}Configuration Summary:${NC}"
+    [ "$REMOTE_MODE" = true ] && echo "Deployment: Remote ($REMOTE_USER@$REMOTE_HOST)" || echo "Deployment: Local"
+    echo "Domain: $DOMAIN"
+    echo "Hostname: $MX_HOSTNAME"
+    echo "Admin Email: $ADMIN_EMAIL"
+    echo ""
+    read -p "Continue with this configuration? (y/n) [y]: " confirm
+    if [[ "$confirm" =~ ^[Nn]$ ]]; then
+        echo "Setup cancelled."
+        exit 0
+    fi
+fi
+
+# Validate required values
+if [ -z "$DOMAIN" ]; then
+    echo -e "${RED}Error: Domain is required${NC}"
+    echo "Use --domain <domain> or --interactive"
+    exit 1
+fi
+
+if [ -z "$MX_HOSTNAME" ]; then
+    MX_HOSTNAME="mail.$DOMAIN"
+fi
+
+if [ -z "$ADMIN_EMAIL" ]; then
+    ADMIN_EMAIL="admin@$DOMAIN"
+fi
+
+echo ""
+
 # Check if running as root (only for local mode)
-if [ "$REMOTE_MODE" = false ] && [ "$EUID" -ne 0 ]; then 
+if [ "$REMOTE_MODE" = false ] && [ "$EUID" -ne 0 ]; then
     echo -e "${RED}Error: This script must be run as root for local setup${NC}"
     exit 1
 fi
@@ -196,14 +196,14 @@ echo ""
 # SSH Key Management
 if [ "$REMOTE_MODE" = true ]; then
     echo "Setting up SSH access to remote host..."
-    
+
     # Generate SSH key if not exists
     if [ ! -f ~/.ssh/id_ed25519 ]; then
         echo "Generating SSH key..."
         ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N "" -C "ansible@postsible"
         echo -e "${GREEN}SSH key generated${NC}"
     fi
-    
+
     # Test SSH connection
     echo "Testing SSH connection to $REMOTE_USER@$REMOTE_HOST..."
     if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes $REMOTE_USER@$REMOTE_HOST "echo 'SSH OK'" &> /dev/null; then
@@ -212,7 +212,7 @@ if [ "$REMOTE_MODE" = true ]; then
         echo -e "${YELLOW}SSH key-based authentication not configured${NC}"
         echo "Attempting to copy SSH key to remote host..."
         echo "You will be prompted for the password of $REMOTE_USER@$REMOTE_HOST"
-        
+
         if command -v ssh-copy-id &> /dev/null; then
             ssh-copy-id -i ~/.ssh/id_ed25519.pub $REMOTE_USER@$REMOTE_HOST
         else
@@ -222,7 +222,7 @@ if [ "$REMOTE_MODE" = true ]; then
             echo ""
             read -p "Press Enter after copying the key..."
         fi
-        
+
         # Test again
         if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes $REMOTE_USER@$REMOTE_HOST "echo 'SSH OK'" &> /dev/null; then
             echo -e "${GREEN}SSH key successfully configured!${NC}"
@@ -241,7 +241,7 @@ else
         chmod 600 ~/.ssh/authorized_keys
         echo -e "${GREEN}SSH key generated and added to authorized_keys${NC}"
     fi
-    
+
     echo "Testing SSH connection to localhost..."
     if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 root@localhost "echo 'SSH OK'" &> /dev/null; then
         echo -e "${GREEN}SSH connection successful!${NC}"
@@ -267,10 +267,10 @@ mailservers:
       ansible_host: $REMOTE_HOST
       ansible_user: $REMOTE_USER
       ansible_python_interpreter: /usr/bin/python3
-      
+
       # Server identification
       common_hostname: $MX_HOSTNAME
-      
+
       # Uncomment if SSH password is needed:
       # ansible_ssh_pass: "{{ vault_ansible_ssh_pass }}"
       # Uncomment if sudo password is needed:
@@ -290,7 +290,7 @@ mailservers:
     $MX_HOSTNAME:
       ansible_connection: local
       ansible_python_interpreter: /usr/bin/python3
-      
+
       # Server identification
       common_hostname: $MX_HOSTNAME
 EOF
@@ -302,8 +302,16 @@ if [ ! -f "inventory/group_vars/mailservers/vars.yml" ]; then
     echo "Creating vars.yml with your configuration..."
     cat > inventory/group_vars/mailservers/vars.yml << EOF
 ---
-# Postsible Mailserver Configuration
+# Postsible Mailserver Configuration (Public)
+# Sensitive data is in vault.yml (encrypted)
 # Generated by setup.sh on $(date)
+
+# Common Settings
+common_timezone: "Europe/Vienna"
+common_locales:
+  - de_AT.UTF-8
+  - en_US.UTF-8
+common_default_locale: "de_AT.UTF-8"
 
 # Mail Configuration
 mail_primary_domain: "$DOMAIN"
@@ -311,20 +319,14 @@ mail_virtual_domains:
   - $DOMAIN
 mail_admin_email: "$ADMIN_EMAIL"
 mail_letsencrypt_email: "$ADMIN_EMAIL"
-
-# Common Settings
-common_timezone: "Europe/Vienna"
-common_locales:
-  - de_AT.UTF-8
-  - en_US.UTF-8
-common_default_locale: "en_US.UTF-8"
+mail_ssl_cert_path: "/etc/letsencrypt/live/{{ mail_primary_domain }}"
 
 # MariaDB Settings (Non-Sensitive)
 mariadb_database: "mailserver"
 mariadb_user: "mailuser"
 mariadb_host: "localhost"
 
-# Passwords from Vault
+# MariaDB Passwords (from Vault)
 mariadb_root_password: "{{ vault_mariadb_root_password }}"
 mariadb_password: "{{ vault_mariadb_password }}"
 
@@ -334,6 +336,9 @@ postfix_mydomain: "{{ mail_primary_domain }}"
 postfix_myorigin: "\$mydomain"
 postfix_inet_interfaces: "all"
 postfix_inet_protocols: "ipv4"
+
+# Subaddressing (plus addressing)
+postfix_recipient_delimiter: "+"
 
 # Dovecot Settings
 dovecot_mail_location: "maildir:/srv/imap/%d/%n/"
@@ -348,16 +353,42 @@ snappymail_domain: "webmail.{{ mail_primary_domain }}"
 snappymail_admin_user: "admin"
 snappymail_admin_password: "{{ vault_snappymail_admin_password }}"
 
+# Infcloud Settings
+infcloud_use_subdomain: false
+infcloud_base_path: "/cal"
+#infcloud_subdomain: "cal"  # Results in cal.example.com
+
+# Localization
+infcloud_language: "de_DE"  # Available: en_US, de_DE, fr_FR, etc.
+infcloud_timezone: "Europe/Vienna"
+infcloud_first_day_of_week: 1  # Monday
+
+# Features
+infcloud_enable_calendar: true
+infcloud_enable_contacts: true
+infcloud_enable_projects: false  # Tasks/TODOs (needs CalDAV VTODO support)
+
+# Branding
+infcloud_title: "My Company Calendar"
+infcloud_logo_text: "{{ mail_primary_domain }}"
+
 # Nginx Settings
 nginx_worker_processes: "auto"
 nginx_worker_connections: 1024
 
 # UFW Firewall Settings
 ufw_ssh_port: 22
-ufw_ssh_trusted_ips: []
-  # Add your trusted IPs here:
-  # - ip: "YOUR_IP"
-  #   comment: "Your description"
+ufw_ssh_trusted_ips:
+  # Add your own IPs here:
+  # - ip: "YOUR_HOME_IP"
+  #   comment: "Home Office"
+  # - ip: "YOUR_OFFICE_IP/24"
+  #   comment: "Office Network"
+
+ufw_enable_smtps: true   # Port 465 (some clients need SMTP over SSL)
+ufw_enable_pop3s: false  # Port 995 (usually not needed)
+ufw_rate_limit_smtp: false  # Set to true for SMTP rate limiting
+ufw_logging_level: "low"
 
 # Fail2ban Settings
 fail2ban_bantime: 3600
@@ -365,8 +396,10 @@ fail2ban_findtime: 600
 fail2ban_maxretry: 5
 fail2ban_destemail: "{{ mail_admin_email }}"
 
-# ESET ICAP Settings (optional)
+# ESET ICAP Settings
 eset_icap_enabled: false
+eset_icap_host: "localhost"
+eset_icap_port: 1344
 EOF
     echo -e "${GREEN}Configuration file created: inventory/group_vars/mailservers/vars.yml${NC}"
 fi
