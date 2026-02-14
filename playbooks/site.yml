@@ -33,7 +33,7 @@
       tags: always
 
   roles:
-    # Phase 1: Basis-Infrastruktur
+    # Phase 1: Basic-infrastructur
     - role: common
       tags:
         - common
@@ -113,14 +113,7 @@
         - autoconfig
         - phase4
 
-#    - role: snappymail_mailadmin
-#      tags:
-#        - snappymail_mailadmin
-#        - snappymail
-#        - webmail
-#        - phase4
-
-    # Phase 5: Sicherheit
+    # Phase 5: Security
     - role: fail2ban
       tags:
         - fail2ban

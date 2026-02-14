@@ -7,11 +7,6 @@
     path: "/etc/letsencrypt/live/{{ nginx_server_name }}/fullchain.pem"
   register: letsencrypt_server_cert
 
-- name: Check if Let's Encrypt certificate exists for webmail domain
-  stat:
-    path: "/etc/letsencrypt/live/{{ nginx_webmail_server_name }}/fullchain.pem"
-  register: letsencrypt_webmail_cert
-
 - name: Check if Let's Encrypt certificate exists for primary domain
   stat:
     path: "/etc/letsencrypt/live/{{ mail_primary_domain }}/fullchain.pem"
@@ -31,16 +26,6 @@
     nginx_ssl_enabled: true
   when: letsencrypt_server_cert.stat.exists
 
-- name: Set SSL certificate facts (Let's Encrypt for webmail domain)
-  set_fact:
-    nginx_ssl_cert: "/etc/letsencrypt/live/{{ nginx_webmail_server_name }}/fullchain.pem"
-    nginx_ssl_key: "/etc/letsencrypt/live/{{ nginx_webmail_server_name }}/privkey.pem"
-    nginx_ssl_source: "Let's Encrypt ({{ nginx_webmail_server_name }})"
-    nginx_ssl_enabled: true
-  when: 
-    - not letsencrypt_server_cert.stat.exists
-    - letsencrypt_webmail_cert.stat.exists
-
 - name: Set SSL certificate facts (Let's Encrypt for primary domain)
   set_fact:
     nginx_ssl_cert: "/etc/letsencrypt/live/{{ mail_primary_domain }}/fullchain.pem"
@@ -49,7 +34,6 @@
     nginx_ssl_enabled: true
   when: 
     - not letsencrypt_server_cert.stat.exists
-    - not letsencrypt_webmail_cert.stat.exists
     - letsencrypt_primary_cert.stat.exists
 
 - name: Set SSL certificate facts (Custom certificate)
@@ -62,7 +46,6 @@
     - nginx_custom_ssl_cert is defined
     - custom_cert.stat.exists
     - not letsencrypt_server_cert.stat.exists
-    - not letsencrypt_webmail_cert.stat.exists
     - not letsencrypt_primary_cert.stat.exists
 
 - name: Set SSL certificate facts (Fallback to snakeoil)
@@ -73,7 +56,6 @@
     nginx_ssl_enabled: false
   when:
     - not letsencrypt_server_cert.stat.exists
-    - not letsencrypt_webmail_cert.stat.exists
     - not letsencrypt_primary_cert.stat.exists
     - not (nginx_custom_ssl_cert is defined and custom_cert.stat.exists)
 

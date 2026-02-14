@@ -349,7 +349,7 @@ rspamd_webui_enabled: true
 rspamd_webui_password: "{{ vault_rspamd_webui_password }}"
 
 # SnappyMail Settings
-snappymail_domain: "webmail.{{ mail_primary_domain }}"
+snappymail_domain: "{{ mail_primary_domain }}"
 snappymail_admin_user: "admin"
 snappymail_admin_password: "{{ vault_snappymail_admin_password }}"
 

@@ -10,14 +10,7 @@ certbot_plugin: "nginx"
 # Domains to get certificates for
 # Each domain gets its own certificate
 certbot_domains:
-  - "mail.example.com"
-
-# Alternative: Multi-domain certificate (all domains in one cert)
-# certbot_multi_domain_cert: true
-# certbot_cert_name: "grufo-mail"
-# certbot_all_domains:
-#   - "mail.example.com"
-#   - "webmail.example.com"
+  - "{{ mail_primary_domain }}"
 
 # Staging (test mode, doesn't count against rate limits)
 certbot_staging: false  # Set to true for testing

@@ -49,14 +49,14 @@ rspamd_webui_enabled: true
 rspamd_webui_password: "{{ vault_rspamd_webui_password }}"
 
 # SnappyMail Settings
-snappymail_domain: "webmail.{{ mail_primary_domain }}"
+snappymail_domain: "{{ mail_primary_domain }}"
 snappymail_admin_user: "admin"
 snappymail_admin_password: "{{ vault_snappymail_admin_password }}"
 
 # Infcloud Settings
 infcloud_use_subdomain: false
 infcloud_base_path: "/cal"
-#infcloud_subdomain: "cal"  # Results in cal.example.com
+#infcloud_subdomain: "cal"  # Results in cal.{{ mail_primary_domain }}
 
 # Localization
 infcloud_language: "de_DE"  # Available: en_US, de_DE, fr_FR, etc.

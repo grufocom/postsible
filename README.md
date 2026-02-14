@@ -306,7 +306,7 @@ VALUES (
 After successful deployment:
 
 ### Webmail
-- **URL:** `https://webmail.example.com` or `https://mail.example.com/wm/`
+- **URL:** `https://mail.example.com/wm/`
 - **Login:** Complete email address + password
 
 ### InfCloud (Web Calendar/Contacts)

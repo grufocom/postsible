@@ -15,7 +15,6 @@ nginx_https_port: 443
 
 # Server names
 nginx_server_name: "{{ ansible_fqdn }}"
-nginx_webmail_server_name: "webmail.{{ mail_primary_domain }}"
 
 # SSL Configuration (will be auto-detected, these are fallbacks)
 nginx_ssl_cert: "/etc/ssl/certs/ssl-cert-snakeoil.pem"
