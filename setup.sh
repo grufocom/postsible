@@ -428,6 +428,9 @@ vault_rspamd_webui_password: "CHANGE_ME_$(openssl rand -base64 16 | tr -d '/+=' 
 # SnappyMail Admin Password
 vault_snappymail_admin_password: "CHANGE_ME_$(openssl rand -base64 16 | tr -d '/+=' | cut -c1-20)"
 
+# Baikal Admin Password
+vault_baikal_admin_password: "CHANGE_ME_$(openssl rand -base64 16 | tr -d '/+=' | cut -c1-20)"
+
 # Optional: SSH/Sudo passwords for remote deployment
 # vault_ansible_ssh_pass: "YOUR_SSH_PASSWORD"
 # vault_ansible_become_pass: "YOUR_SUDO_PASSWORD"
