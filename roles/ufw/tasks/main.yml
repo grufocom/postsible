@@ -2,10 +2,21 @@
 ---
 - name: Install UFW
   apt:
-    name: ufw
+    name:
+      - ufw
+      - iptables
     state: present
     update_cache: true
   tags: ufw
+
+- name: Configure sysctl parameters
+  sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    state: present
+    reload: yes
+  loop: "{{ common_sysctl_params | dict2items }}"
+  tags: common
 
 - name: Reset UFW to default state (only on first run)
   ufw:

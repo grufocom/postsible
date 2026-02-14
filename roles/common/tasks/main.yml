@@ -143,15 +143,6 @@
   ignore_errors: yes
   tags: common
 
-- name: Configure sysctl parameters
-  sysctl:
-    name: "{{ item.key }}"
-    value: "{{ item.value }}"
-    state: present
-    reload: yes
-  loop: "{{ common_sysctl_params | dict2items }}"
-  tags: common
-
 - name: Harden SSH configuration
   template:
     src: sshd_config.j2
