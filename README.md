@@ -2,6 +2,22 @@
 
 A complete Ansible playbook for automated installation of a production-ready mail server on Debian 13.
 
+### Foreword
+
+Postsible was born out of frustration — and conviction.
+
+Over time, I found myself increasingly dissatisfied with existing mail server solutions. Many of them come with significant overhead, unnecessary complexity, or architectural decisions that did not align with my expectations of a clean and maintainable system. At the same time, I was unable to find an actively maintained open-source project that offered exactly what I expect from a modern mail server: clarity, robustness, security, and operational simplicity without excessive abstraction layers.
+
+In parallel, the ongoing geopolitical developments and the accelerating integration of AI into cloud-based mail platforms prompted me to rethink my reliance on hosted services. Email remains one of the most critical communication tools for businesses. For me, this raised an important question: Should such an essential infrastructure component be increasingly centralized, opaque, and externally controlled — or should it be operated independently, transparently, and with full ownership?
+
+Postsible is my answer to that question.
+
+The goal of this project is to provide a clean, modern, and securely hardened mail platform tailored for small to medium-sized businesses. It focuses on covering the essential features required in professional environments while avoiding unnecessary complexity.
+
+This project is intended for those who want a properly secured, classic Linux mail server — without mandatory Docker stacks, without hidden layers, and without cloud dependency. It is for administrators who value transparency, control, and long-term maintainability.
+
+Postsible aims to make self-hosting email practical again — straightforward, reliable, and future-proof.
+
 ---
 
 ## 📧 Features
