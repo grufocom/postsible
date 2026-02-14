@@ -20,11 +20,6 @@ common_ntp_servers:
   - 2.debian.pool.ntp.org
   - 3.debian.pool.ntp.org
 
-# Services to disable (adjust as needed)
-common_disabled_services:
-  - bluetooth
-  - ModemManager
-
 # Sysctl parameters for mail server optimization
 common_sysctl_params:
   # Network optimization
