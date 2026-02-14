@@ -19,7 +19,7 @@ baikal_group: "www-data"
 
 # Database - SHARED with mailserver
 # Uses the same database and credentials as Postfix/Dovecot
-baikal_db_host: "127.0.0.1"
+baikal_db_host: "localhost"
 baikal_db_name: "{{ mariadb_database }}"  # Uses mailserver database
 # Database credentials from mariadb role:
 # mariadb_user: defined in mariadb role
