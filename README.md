@@ -131,6 +131,18 @@ ansible-playbook playbooks/site.yml --tags phase2 --ask-vault-pass
 # etc.
 ```
 
+### 6. Admin User Credentials
+
+After deployment, the admin user is automatically created with a secure password:
+```bash
+# View admin credentials
+cat /root/admin-credentials.txt
+
+# IMPORTANT: Save the password securely, then delete the file!
+rm /root/admin-credentials.txt
+```
+
+The admin user email is: `admin@example.com` (or whatever you configured as `mail_admin_email`)
 ---
 
 ## 📋 System Requirements
@@ -224,6 +236,45 @@ Postfix and Nginx automatically detect Let's Encrypt certificates:
 - Automatic DKIM key generation (2048-bit)
 - ARC signing enabled
 - Strict DMARC policy (configurable)
+
+---
+
+## 🔑 Admin User Setup
+
+### Automatic Creation
+
+During deployment, Postsible automatically creates an admin user with:
+- **Email:** Your configured `mail_admin_email` (default: `admin@yourdomain.com`)
+- **Password:** Auto-generated secure 20-character password
+- **Credentials saved to:** `/root/admin-credentials.txt`
+
+**After first login:**
+1. Save the password to your password manager
+2. Delete the credentials file: `rm /root/admin-credentials.txt`
+3. Optionally change the password: `maildb-manage change-password admin@example.com`
+
+### First Login
+
+**Webmail (SnappyMail):**
+- URL: `https://mail.example.com/wm/`
+- Username: Full email address (e.g., `admin@example.com`)
+- Password: From `/root/admin-credentials.txt`
+
+**InfCloud (Calendar/Contacts):**
+- URL: `https://mail.example.com/cal/`
+- Username: Full email address
+- Password: Same as webmail
+
+**Baikal (Calendar/Contacts management):**
+- URL: `https://mail.example.com/dav/admin/`
+- Username: admin
+- Password: From ansible vault
+
+**Email Client (Thunderbird, Outlook, etc.):**
+- IMAP: `mail.example.com:993` (SSL/TLS)
+- SMTP: `mail.example.com:587` (STARTTLS)
+- Username: Full email address
+- Password: Same as webmail
 
 ---
 
