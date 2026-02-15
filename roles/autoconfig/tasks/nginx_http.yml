@@ -7,7 +7,7 @@
     owner: root
     group: root
     mode: '0644'
-  loop: "{{ mail_primary_domain }}"
+  loop: "{{ mail_virtual_domains }}"
   notify: reload nginx
 
 - name: Enable nginx HTTP configuration for certbot
@@ -15,7 +15,7 @@
     src: "/etc/nginx/sites-available/autoconfig-{{ item }}-http"
     dest: "/etc/nginx/sites-enabled/autoconfig-{{ item }}-http"
     state: link
-  loop: "{{ mail_primary_domain }}"
+  loop: "{{ mail_virtual_domains }}"
   notify: reload nginx
 
 - name: Test nginx configuration

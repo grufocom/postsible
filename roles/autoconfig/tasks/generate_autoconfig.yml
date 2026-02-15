@@ -7,7 +7,7 @@
     owner: www-data
     group: www-data
     mode: '0644'
-  loop: "{{ mail_primary_domain }}"
+  loop: "{{ mail_virtual_domains }}"
 
 - name: Copy autoconfig to .well-known location (for some clients)
   ansible.builtin.copy:
@@ -17,5 +17,5 @@
     owner: www-data
     group: www-data
     mode: '0644'
-  loop: "{{ mail_primary_domain }}"
+  loop: "{{ mail_virtual_domains }}"
   when: autoconfig_enable_autodiscover | default(true)

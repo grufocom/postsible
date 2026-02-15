@@ -11,7 +11,7 @@
   ansible.builtin.stat:
     path: "/etc/letsencrypt/live/autoconfig.{{ item }}/fullchain.pem"
   register: cert_exists
-  loop: "{{ mail_primary_domain }}"
+  loop: "{{ mail_virtual_domains }}"
 
 - name: Obtain Let's Encrypt certificate for autoconfig domains
   ansible.builtin.command: >
