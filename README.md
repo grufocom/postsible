@@ -85,7 +85,7 @@ cp inventory/group_vars/mailservers/vault.yml.example \
 nano inventory/group_vars/mailservers/vault.yml
 
 # Encrypt vault
-ansible-vault encrypt --ask-vault-password inventory/group_vars/mailservers/vault.yml
+ansible-vault encrypt inventory/group_vars/mailservers/vault.yml
 ```
 
 ### 4. Configure DNS Records
@@ -134,6 +134,7 @@ ansible-playbook playbooks/site.yml --tags phase2 --ask-vault-pass
 ### 6. Admin User Credentials
 
 After deployment, the admin user is automatically created with a secure password:
+
 ```bash
 # View admin credentials
 cat /root/admin-credentials.txt
@@ -141,8 +142,8 @@ cat /root/admin-credentials.txt
 # IMPORTANT: Save the password securely, then delete the file!
 rm /root/admin-credentials.txt
 ```
-The admin user email is: `admin@example.com` (or whatever you configured as `mail_admin_email`)
 
+The admin user email is: `admin@example.com` (or whatever you configured as `mail_admin_email`)
 
 ---
 
@@ -283,39 +284,188 @@ During deployment, Postsible automatically creates an admin user with:
 
 ### Using maildb-manage (recommended)
 
-The `maildb-manage` script simplifies management and automatically synchronizes with Baikal:
+The `maildb-manage` script supports both **interactive** and **non-interactive** (CLI parameters) usage and automatically synchronizes with Baikal.
+
+#### Interactive Mode (prompts for input)
+
+```bash
+# Add user - will prompt for password and display name
+maildb-manage add-user user@example.com
+
+# Change password - will prompt for new password
+maildb-manage change-password user@example.com
+
+# Remove user - will ask for confirmation
+maildb-manage remove-user user@example.com
+```
+
+#### Non-Interactive Mode (CLI parameters)
+
+**Add Users:**
+
+```bash
+# With specific password
+maildb-manage add-user user@example.com --password 'MySecurePass123!'
+
+# With auto-generated password (shows password on screen)
+maildb-manage add-user user@example.com --auto-password
+
+# With display name and auto-password
+maildb-manage add-user user@example.com --displayname 'John Doe' --auto-password
+
+# Quiet mode (only outputs password - useful for scripts)
+PASSWORD=$(maildb-manage add-user user@example.com --auto-password --quiet)
+echo "Password: $PASSWORD"
+```
+
+**Change Passwords:**
+
+```bash
+# Set specific password
+maildb-manage change-password user@example.com --password 'NewPassword123!'
+
+# Auto-generate new password
+maildb-manage change-password user@example.com --auto-password
+```
+
+**Remove Users/Domains/Aliases (skip confirmation):**
+
+```bash
+# Remove without confirmation prompt
+maildb-manage remove-user user@example.com --force
+maildb-manage remove-domain old-domain.com --force
+maildb-manage remove-alias alias@example.com --force
+```
+
+#### Domain Management
 
 ```bash
 # Add domain
-maildb-manage add-domain example.com
+maildb-manage add-domain newdomain.com
 
-# List domains
+# List all domains
 maildb-manage list-domains
 
-# Add user (also creates Baikal account with calendar & addressbook)
-maildb-manage add-user user@example.com
+# Remove domain (WARNING: deletes all users!)
+maildb-manage remove-domain olddomain.com
+```
 
-# List users (shows Baikal status too)
+#### User Management
+
+```bash
+# List all users (shows Baikal sync status)
 maildb-manage list-users
+
+# List users for specific domain
 maildb-manage list-users example.com
 
-# Change password (synchronizes mail & Baikal)
-maildb-manage change-password user@example.com
+# Enable/disable user
+maildb-manage enable-user user@example.com
+maildb-manage disable-user user@example.com
 
-# Remove user (also removes Baikal data)
-maildb-manage remove-user user@example.com
+# Repair Maildir structure
+maildb-manage create-maildir user@example.com
+```
 
+#### Alias Management
+
+```bash
 # Add alias
-maildb-manage add-alias alias@example.com user@example.com
+maildb-manage add-alias sales@example.com john@example.com
 
-# Show statistics
+# List all aliases
+maildb-manage list-aliases
+
+# List aliases for specific domain
+maildb-manage list-aliases example.com
+
+# Remove alias
+maildb-manage remove-alias sales@example.com
+```
+
+#### Statistics & Checks
+
+```bash
+# Show database statistics
 maildb-manage stats
 
-# Check database integrity (incl. mail/Baikal sync)
+# Check database integrity (Mail + Baikal sync)
 maildb-manage check
 
 # Help
 maildb-manage help
+```
+
+### Bulk User Creation (Script Example)
+
+Create multiple users automatically:
+
+```bash
+#!/bin/bash
+# Create users from list
+# Format: email,displayname
+
+cat << 'EOF' > users-to-create.txt
+john.doe@example.com,John Doe
+jane.smith@example.com,Jane Smith
+bob.johnson@example.com,Bob Johnson
+EOF
+
+while IFS=, read -r email displayname; do
+    echo "Creating user: $email"
+    PASSWORD=$(maildb-manage add-user "$email" \
+        --displayname "$displayname" \
+        --auto-password \
+        --quiet)
+    echo "$email,$PASSWORD" >> /root/new-users.csv
+done < users-to-create.txt
+
+echo "All users created! Passwords saved to /root/new-users.csv"
+echo "IMPORTANT: Send passwords securely to users, then delete the file!"
+echo "rm /root/new-users.csv"
+```
+
+### Common Workflows
+
+**Onboarding New User:**
+
+```bash
+# 1. Create user with auto-password
+PASSWORD=$(maildb-manage add-user john.doe@example.com \
+    --displayname 'John Doe' \
+    --auto-password)
+
+# 2. Send credentials securely (e.g., via encrypted email or password manager)
+echo "Email: john.doe@example.com"
+echo "Password: $PASSWORD"
+echo "Webmail: https://mail.example.com/wm/"
+echo "Calendar: https://mail.example.com/cal/"
+
+# 3. User can change password after first login via SnappyMail settings
+```
+
+**Setting Up Department Aliases:**
+
+```bash
+# Add users
+maildb-manage add-user john@company.com --auto-password
+maildb-manage add-user jane@company.com --auto-password
+maildb-manage add-user bob@company.com --auto-password
+
+# Create department aliases
+maildb-manage add-alias sales@company.com john@company.com
+maildb-manage add-alias support@company.com jane@company.com
+maildb-manage add-alias info@company.com bob@company.com
+```
+
+**Password Reset:**
+
+```bash
+# Generate new password for user
+maildb-manage change-password user@example.com --auto-password
+
+# Or set specific password
+maildb-manage change-password user@example.com --password 'NewSecurePass123!'
 ```
 
 ### Manual via SQL (for advanced users)
@@ -353,6 +503,53 @@ VALUES (
 
 ---
 
+## 🔒 Security Best Practices
+
+### Password Management
+
+**Auto-Generated Passwords:**
+- Postsible generates secure 20-character passwords
+- Mix of uppercase, lowercase, and numbers
+- Use `--auto-password` for all new users
+
+**Password Storage:**
+- Never store passwords in plain text files long-term
+- Use a password manager (KeePass, Bitwarden, 1Password)
+- Delete `/root/admin-credentials.txt` after saving
+- Delete any CSV files with passwords after distributing
+
+**Password Rotation:**
+
+```bash
+# Change password for specific user
+maildb-manage change-password user@example.com --auto-password
+
+# Bulk password rotation (use with caution!)
+maildb-manage list-users | grep -oP '[\w.-]+@[\w.-]+' | while read email; do
+    echo "Resetting password for $email"
+    maildb-manage change-password "$email" --auto-password
+done
+```
+
+### Credential Files
+
+**After deployment, secure these files:**
+
+```bash
+# Admin credentials (delete after saving!)
+cat /root/admin-credentials.txt  # Save password first!
+rm /root/admin-credentials.txt
+
+# DKIM keys (keep these safe!)
+cat /root/dkim-dns-records.txt  # Copy to DNS
+chmod 600 /var/lib/rspamd/dkim/*.key
+
+# Deployment summary
+cat /etc/postsible/deployment_summary.txt
+```
+
+---
+
 ## 🌐 Access Credentials
 
 After successful deployment:
@@ -362,15 +559,15 @@ After successful deployment:
 - **Login:** Complete email address + password
 
 ### InfCloud (Web Calendar/Contacts)
-- **URL:** https://cloud.example.com or https://mail.example.com/cloud/
+- **URL:** https://mail.example.com/cal/
 - **Login:** Complete email address + password
 - **Features:** Calendar (CalDAV), Contacts (CardDAV), Tasks - browser-based, no app installation needed
 
 ### Baikal (CalDAV/CardDAV)
-- **URL:** `https://dav.example.com` or `https://mail.example.com/dav/`
+- **URL:** `https://mail.example.com/dav/`
 - **Login:** Complete email address + password
-- **CalDAV:** `https://dav.example.com/dav.php/calendars/user@example.com/`
-- **CardDAV:** `https://dav.example.com/dav.php/addressbooks/user@example.com/`
+- **CalDAV:** `https://mail.example.com/dav/dav.php/calendars/user@example.com/`
+- **CardDAV:** `https://mail.example.com/dav/dav.php/addressbooks/user@example.com/`
 
 **Important:** Baikal accounts are created automatically when users are added via `maildb-manage add-user`. Each user receives:
 - Default calendar "Personal"
@@ -394,18 +591,20 @@ After successful deployment:
 
 ## 📅 Calendar & Contacts (InfCloud + Baikal)
 
-🎉 InfCloud - Web Client (Primary Access)
-https://cloud.example.com
+🎉 **InfCloud - Web Client (Primary Access)**
+
+https://mail.example.com/cal/
+
 Login: user@example.com + password
 
-✅ Calendars & Events
+✅ Calendars & Events  
 ✅ Contacts management  
-✅ Tasks/Todos
-✅ Mobile-friendly
-✅ Multi-user ready
+✅ Tasks/Todos  
+✅ Mobile-friendly  
+✅ Multi-user ready  
 ✅ Automatic user provisioning via maildb-manage
 
-🔧 Baikal - Server Backend (Mobile/Desktop Sync)
+🔧 **Baikal - Server Backend (Mobile/Desktop Sync)**
 
 For native apps (iOS, Android, Thunderbird, Outlook)
 
@@ -414,19 +613,19 @@ For native apps (iOS, Android, Thunderbird, Outlook)
 #### iOS/macOS
 1. **Settings → Accounts → Add Account**
 2. **Other → CalDAV/CardDAV Account**
-3. **Server:** `dav.example.com` (or `mail.example.com/dav`)
+3. **Server:** `mail.example.com/dav`
 4. **Username:** Complete email address
 5. **Password:** Your mail password
 
 #### Thunderbird
 1. **Install add-on:** TbSync + Provider for CalDAV & CardDAV
 2. **Add account → CalDAV & CardDAV**
-3. **Server:** `https://dav.example.com/dav.php/`
+3. **Server:** `https://mail.example.com/dav/dav.php/`
 4. **Username:** Email address
 
 #### Android
 - **DAVx⁵** from F-Droid/Play Store
-- **Base URL:** `https://dav.example.com/dav.php/`
+- **Base URL:** `https://mail.example.com/dav/dav.php/`
 - **Login:** Email address + password
 
 ### 🔄 Automatic Synchronization
@@ -439,10 +638,11 @@ When users are created via `maildb-manage add-user`:
 - ✅ All Baikal data is removed when deleting users
 
 ### 📦 Import Existing Data
-**Import Calendars (.ics)**
+
+**Import Calendars (.ics)**  
 Recommended: Thunderbird + Lightning → Import → Syncs to Baikal
 
-**Import Contacts (.vcf)**
+**Import Contacts (.vcf)**  
 Recommended: Thunderbird + CardBook → Import → Syncs to Baikal
 
 No manual database imports needed - data syncs automatically to server.
@@ -483,7 +683,7 @@ rspamc stat
 /usr/local/bin/rspamd-stats.sh
 
 # Baikal (via PHP-FPM)
-systemctl status php8.2-fpm
+systemctl status php8.4-fpm
 systemctl status nginx
 
 # Fail2ban
@@ -515,49 +715,49 @@ mysql -u root -p mailserver -e "SELECT * FROM users;"
 
 # Check calendars of a user
 mysql -u root -p mailserver -e "
-  SELECT ci.displayname, ci.uri, c.components 
-  FROM calendarinstances ci 
-  JOIN calendars c ON ci.calendarid = c.id 
+  SELECT ci.displayname, ci.uri, c.components
+  FROM calendarinstances ci
+  JOIN calendars c ON ci.calendarid = c.id
   WHERE ci.principaluri = 'principals/user@example.com';
 "
 ```
 
 ### Subaddressing / + Addressing (Catch-All Suffix)
-Postsible now supports subaddressing using the + symbol. This allows users to add arbitrary suffixes to their email addresses without creating new mailboxes.
 
-**Example:**
-Primary address: hans.meiser@domain.com
-Subaddress: hans.meiser+newsletter@domain.com
+Postsible supports subaddressing using the + symbol. This allows users to add arbitrary suffixes to their email addresses without creating new mailboxes.
+
+**Example:**  
+Primary address: `hans.meiser@domain.com`  
+Subaddress: `hans.meiser+newsletter@domain.com`
 
 All emails will automatically be delivered to the hans.meiser mailbox.
 
 **Use Cases:**
-Filter emails by project, newsletter, or source
-Track where emails originate from
-
-No extra database entries or mailbox management required
+- Filter emails by project, newsletter, or source
+- Track where emails originate from
+- No extra database entries or mailbox management required
 
 **Technical Details:**
-Postfix: main.cf contains
-recipient_delimiter = +
 
-Dovecot: 10-mail.conf contains
-mailbox_delimiter = +
+Postfix: `main.cf` contains `recipient_delimiter = +`  
+Dovecot: `10-mail.conf` contains `mailbox_delimiter = +`
 
-**SQL Maps:** virtual-mailbox-maps, virtual-alias-maps, email2email handle the stripping of the + suffix
-Dovecot SQL Queries: %{u}@%{d} ensures correct user resolution
+**SQL Maps:** virtual-mailbox-maps, virtual-alias-maps, email2email handle the stripping of the + suffix  
+Dovecot SQL Queries: `%{u}@%{d}` ensures correct user resolution
 
-Admin Examples:
+**Admin Examples:**
+
 ```bash
 # Test email locally with Postfix
 echo "Test mail" | sendmail hans.meiser+1234@domain.com
+
 # Fetch mail via Dovecot
 doveadm fetch text subject hans.meiser+abc@domain.com
 ```
 
-Sieve Filtering Example:
+**Sieve Filtering Example:**
 
-```bash
+```sieve
 require ["fileinto"];
 if address :contains "to" "+newsletter" {
     fileinto "Newsletter";
@@ -565,6 +765,7 @@ if address :contains "to" "+newsletter" {
 ```
 
 ### Autoconfig / Autodiscover Role
+
 - Automatic Thunderbird autoconfig (Mozilla standard)
 - Automatic Outlook / ActiveSync autodiscover (Microsoft standard)
 - DNS validation for autoconfig.domain.tld
@@ -574,29 +775,30 @@ if address :contains "to" "+newsletter" {
 
 **Deployment / Nginx Integration Notes**
 
-- Each virtual domain gets its own autoconfig subdirectory:
+Each virtual domain gets its own autoconfig subdirectory:
 
-```bash
+```
 /var/www/autoconfig/<domain>/mail/config-v1.1.xml
 ```
 
-- Thunderbird / Lightning expects the XML at:
+Thunderbird / Lightning expects the XML at:
 
-```bash
+```
 https://autoconfig.example.com/mail/config-v1.1.xml
 ```
 
-- Certbot automatically requests certificates for the autoconfig subdomain.
-- Nginx handles both HTTP → HTTPS redirection and serving of autoconfig files.
+Certbot automatically requests certificates for the autoconfig subdomain.  
+Nginx handles both HTTP → HTTPS redirection and serving of autoconfig files.
 
 **Example structure for multiple domains:**
 
+```
 /var/www/autoconfig/
 ├── example.com/
 │   └── mail/config-v1.1.xml
 ├── example.net/
 │   └── mail/config-v1.1.xml
-
+```
 
 Fully automated via the Ansible autoconfig role:
 - Generates XML files per domain
@@ -643,10 +845,36 @@ dig -x YOUR_SERVER_IP +short
 # https://mxtoolbox.com/SuperTool.aspx
 ```
 
+### Can't Login to Webmail
+
+```bash
+# Check if user exists
+maildb-manage list-users | grep your-email@example.com
+
+# Check Baikal sync status
+maildb-manage check
+
+# Reset password
+maildb-manage change-password your-email@example.com --auto-password
+
+# Check Dovecot authentication
+doveadm auth test your-email@example.com
+```
+
+### Lost Admin Password
+
+```bash
+# Generate new password for admin
+maildb-manage change-password admin@example.com --auto-password
+
+# Or set specific password
+maildb-manage change-password admin@example.com --password 'NewSecurePass123!'
+```
+
 ### Baikal Not Working
 ```bash
 # Check PHP-FPM status
-systemctl status php8.2-fpm
+systemctl status php8.4-fpm
 
 # Test Nginx config
 nginx -t
@@ -664,8 +892,8 @@ INSERT INTO users (username, digesta1) VALUES ('test@example.com', 'hash');
 
 # Clear browser cache and try again
 # Check CalDAV/CardDAV discovery URLs:
-curl -I https://dav.example.com/.well-known/caldav
-curl -I https://dav.example.com/.well-known/carddav
+curl -I https://mail.example.com/.well-known/caldav
+curl -I https://mail.example.com/.well-known/carddav
 ```
 
 ### Firewall Issues
@@ -742,16 +970,16 @@ tar czf config-backup.tar.gz /etc/postfix /etc/dovecot /etc/rspamd /etc/nginx
 ## 🤝 Known Issues & Solutions
 
 ### rspamd Neural Network Crashes
-**Problem:** Neural network module causes segmentation faults
-**Solution:** Neural network is disabled by default (`rspamd_enable_neural: false`)
+**Problem:** Neural network module causes segmentation faults  
+**Solution:** Neural network is disabled by default (`rspamd_enable_neural: false`)  
 **Bayes filter alone is sufficient for 95% of spam detection**
 
 ### sign_headers Causes DKIM Crash
-**Problem:** Custom `sign_headers` list leads to rspamd crash
+**Problem:** Custom `sign_headers` list leads to rspamd crash  
 **Solution:** Removed from template, rspamd uses sensible defaults
 
 ### Baikal Calendars Not Deleted
-**Problem:** Manual user deletion leaves Baikal data behind
+**Problem:** Manual user deletion leaves Baikal data behind  
 **Solution:** Always use `maildb-manage remove-user` - the script automatically removes all Baikal data (calendars, calendarinstances, addressbooks, cards, principals)
 
 ---
@@ -787,7 +1015,7 @@ Developed as a comprehensive mail server solution focusing on:
 
 For issues:
 1. Check logs (`/var/log/mail/`, `/var/log/rspamd/`, `/var/log/nginx/`)
-2. Check service status (`systemctl status postfix dovecot rspamd php8.2-fpm`)
+2. Check service status (`systemctl status postfix dovecot rspamd php8.4-fpm`)
 3. Create GitHub issues: https://github.com/grufocom/postsible/issues
 4. Consult community forum
 
