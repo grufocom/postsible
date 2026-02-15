@@ -4,11 +4,40 @@
 
 set -e
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+# Detect if terminal supports colors
+if [[ -t 1 ]]; then
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[1;33m'
+    BLUE='\033[1;34m'
+    BOLD='\033[1m'
+    NC='\033[0m'
+else
+    RED=''
+    GREEN=''
+    YELLOW=''
+    BLUE=''
+    BOLD=''
+    NC=''
+fi
+
+print_header() {
+    printf "\n${BLUE}==========================================${NC}\n"
+    printf "${BOLD}%s${NC}\n" "$1"
+    printf "${BLUE}==========================================${NC}\n\n"
+}
+
+print_success() {
+    printf "${GREEN}✓${NC} %s\n" "$1"
+}
+
+print_warning() {
+    printf "${YELLOW}! %s${NC}\n" "$1"
+}
+
+print_error() {
+    printf "${RED}✗ %s${NC}\n" "$1"
+}
 
 echo "=========================================="
 echo "Postsible Mailserver - Setup"
@@ -439,50 +468,48 @@ EOF
     echo -e "${YELLOW}Note: Copy and encrypt this file before deployment!${NC}"
 fi
 
-echo ""
-echo "=========================================="
-echo -e "${GREEN}Setup Complete!${NC}"
-echo "=========================================="
-echo ""
-echo -e "${GREEN}✓${NC} Configuration created for: $DOMAIN"
-echo -e "${GREEN}✓${NC} Hostname: $MX_HOSTNAME"
-echo -e "${GREEN}✓${NC} Admin Email: $ADMIN_EMAIL"
-if [ "$REMOTE_MODE" = true ]; then
-    echo -e "${GREEN}✓${NC} Target: $REMOTE_USER@$REMOTE_HOST"
-else
-    echo -e "${GREEN}✓${NC} Target: Local deployment"
-fi
-echo ""
+print_header "Setup Complete!"
 
-echo -e "${YELLOW}Next steps:${NC}"
+print_success "Configuration created for: $DOMAIN"
+print_success "Hostname: $MX_HOSTNAME"
+print_success "Admin Email: $ADMIN_EMAIL"
+
+if [ "$REMOTE_MODE" = true ]; then
+    print_success "Target: $REMOTE_USER@$REMOTE_HOST"
+else
+    print_success "Target: Local deployment"
+fi
+
 echo ""
-echo "1. ${YELLOW}Create encrypted vault file:${NC}"
-echo "   cp inventory/group_vars/mailservers/vault.yml.example \\"
-echo "      inventory/group_vars/mailservers/vault.yml"
-echo "   # Edit the file and change all CHANGE_ME passwords"
-echo "   ansible-vault encrypt inventory/group_vars/mailservers/vault.yml"
-echo ""
-echo "2. ${YELLOW}Configure DNS records for $DOMAIN:${NC}"
-echo "   MX Record:  $DOMAIN → $MX_HOSTNAME (Priority: 10)"
-echo "   A Record:   $MX_HOSTNAME → $REMOTE_HOST"
-echo "   PTR Record: $REMOTE_HOST → $MX_HOSTNAME (Reverse DNS)"
-echo "   SPF:        $DOMAIN TXT \"v=spf1 mx -all\""
-echo "   SPF:        $MX_HOSTNAME TXT \"v=spf1 a -all\""
-echo ""
-echo "3. ${YELLOW}Test connection:${NC}"
-echo "   ansible mailservers -m ping --ask-vault-pass"
-echo ""
-echo "4. ${YELLOW}Run deployment:${NC}"
-echo "   ansible-playbook playbooks/site.yml --ask-vault-pass"
-echo ""
-echo "5. ${YELLOW}After deployment, add DKIM and DMARC records:${NC}"
-echo "   DKIM: Check /root/dkim-dns-records.txt on the server"
-echo "   DMARC: _dmarc.$DOMAIN TXT \"v=DMARC1; p=quarantine; rua=mailto:$ADMIN_EMAIL\""
-echo ""
-echo -e "${YELLOW}Important files created:${NC}"
-echo "  • inventory/hosts.yml"
-echo "  • inventory/group_vars/mailservers/vars.yml"
-echo "  • inventory/group_vars/mailservers/vault.yml.example"
-echo ""
-echo "For more information, see README.md"
-echo "=========================================="
+printf "${YELLOW}${BOLD}Next Steps:${NC}\n\n"
+
+printf "${BOLD}1. Create encrypted vault file:${NC}\n"
+printf "   cp inventory/group_vars/mailservers/vault.yml.example inventory/group_vars/mailservers/vault.yml\n"
+printf "   # Edit the file and change all CHANGE_ME passwords\n"
+printf "   ansible-vault encrypt -ask-vault-pass inventory/group_vars/mailservers/vault.yml\n\n"
+
+printf "${BOLD}2. Configure DNS records for %s:${NC}\n" "$DOMAIN"
+printf "   MX Record:  %s → %s (Priority: 10)\n" "$DOMAIN" "$MX_HOSTNAME"
+printf "   A Record:   %s → %s\n" "$MX_HOSTNAME" "${REMOTE_HOST:-localhost}"
+printf "   PTR Record: %s → %s (Reverse DNS)\n" "${REMOTE_HOST:-localhost}" "$MX_HOSTNAME"
+printf "   SPF:        %s TXT \"v=spf1 mx -all\"\n" "$DOMAIN"
+printf "   SPF:        %s TXT \"v=spf1 a -all\"\n\n" "$MX_HOSTNAME"
+
+printf "${BOLD}3. Test connection:${NC}\n"
+printf "   ansible mailservers -m ping --ask-vault-pass\n\n"
+
+printf "${BOLD}4. Run deployment:${NC}\n"
+printf "   ansible-playbook playbooks/site.yml --ask-vault-pass\n\n"
+
+printf "${BOLD}5. After deployment, add DKIM and DMARC records:${NC}\n"
+printf "   DKIM:  Check /root/dkim-dns-records.txt on the server\n"
+printf "   DMARC: _dmarc.%s TXT \"v=DMARC1; p=quarantine; rua=mailto:%s\"\n\n" "$DOMAIN" "$ADMIN_EMAIL"
+
+printf "${YELLOW}${BOLD}Important files created:${NC}\n"
+printf "  • inventory/hosts.yml\n"
+printf "  • inventory/group_vars/mailservers/vars.yml\n"
+printf "  • inventory/group_vars/mailservers/vault.yml.example\n\n"
+
+printf "For more information, see README.md\n"
+printf "${BLUE}==========================================${NC}\n"
+
