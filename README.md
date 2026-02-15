@@ -141,8 +141,9 @@ cat /root/admin-credentials.txt
 # IMPORTANT: Save the password securely, then delete the file!
 rm /root/admin-credentials.txt
 ```
-
 The admin user email is: `admin@example.com` (or whatever you configured as `mail_admin_email`)
+
+
 ---
 
 ## 📋 System Requirements
