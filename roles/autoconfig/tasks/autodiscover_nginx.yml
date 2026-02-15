@@ -5,7 +5,7 @@
   register: autodiscover_dns_check
   changed_when: false
   failed_when: false
-  loop: "{{ mail_virtual_domains }}"
+  loop: "{{ mail_primary_domain }}"
   check_mode: false
   when: autoconfig_enable_autodiscover | default(true)
 
@@ -43,7 +43,7 @@
     owner: root
     group: root
     mode: '0644'
-  loop: "{{ mail_virtual_domains }}"
+  loop: "{{ mail_primary_domain }}"
   notify: reload nginx
   when: 
     - autoconfig_enable_autodiscover | default(true)
@@ -54,7 +54,7 @@
     src: "/etc/nginx/sites-available/autodiscover-{{ item }}-http"
     dest: "/etc/nginx/sites-enabled/autodiscover-{{ item }}-http"
     state: link
-  loop: "{{ mail_virtual_domains }}"
+  loop: "{{ mail_primary_domain }}"
   notify: reload nginx
   when: 
     - autoconfig_enable_autodiscover | default(true)
@@ -68,7 +68,7 @@
   ansible.builtin.stat:
     path: "/etc/letsencrypt/live/autodiscover.{{ item }}/fullchain.pem"
   register: autodiscover_cert_exists
-  loop: "{{ mail_virtual_domains }}"
+  loop: "{{ mail_primary_domain }}"
   when: 
     - autoconfig_enable_autodiscover | default(true)
     - autodiscover_dns_check.results | selectattr('item', 'equalto', item) | selectattr('stdout', 'equalto', mail_server_ip) | list | length > 0
@@ -103,7 +103,7 @@
     owner: root
     group: root
     mode: '0644'
-  loop: "{{ mail_virtual_domains }}"
+  loop: "{{ mail_primary_domain }}"
   notify: reload nginx
   when: 
     - autoconfig_enable_autodiscover | default(true)
@@ -114,7 +114,7 @@
     src: "/etc/nginx/sites-available/autodiscover-{{ item }}-https"
     dest: "/etc/nginx/sites-enabled/autodiscover-{{ item }}-https"
     state: link
-  loop: "{{ mail_virtual_domains }}"
+  loop: "{{ mail_primary_domain }}"
   notify: reload nginx
   when: 
     - autoconfig_enable_autodiscover | default(true)

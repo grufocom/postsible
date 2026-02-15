@@ -7,7 +7,7 @@
     owner: www-data
     group: www-data
     mode: '0755'
-  loop: "{{ mail_virtual_domains }}"
+  loop: "{{ autoconfig_all_domains }}"
 
 - name: Generate Microsoft Autodiscover XML files
   ansible.builtin.template:
@@ -16,4 +16,4 @@
     owner: www-data
     group: www-data
     mode: '0644'
-  loop: "{{ mail_virtual_domains }}"
+  loop: "{{ autoconfig_all_domains }}"

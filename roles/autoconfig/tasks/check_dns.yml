@@ -9,7 +9,7 @@
   register: autoconfig_dns_check
   changed_when: false
   failed_when: false
-  loop: "{{ mail_virtual_domains }}"
+  loop: "{{ mail_primary_domain }}"
   check_mode: false
 
 - name: Display DNS check results

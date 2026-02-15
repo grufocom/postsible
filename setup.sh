@@ -343,7 +343,7 @@ common_locales:
 common_default_locale: "de_AT.UTF-8"
 
 # Mail Configuration
-mail_primary_domain: "$DOMAIN"
+mail_primary_domain: "$MX_HOSTNAME"
 mail_virtual_domains:
   - $DOMAIN
 mail_admin_email: "$ADMIN_EMAIL"

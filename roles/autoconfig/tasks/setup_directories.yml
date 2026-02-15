@@ -28,7 +28,7 @@
     owner: www-data
     group: www-data
     mode: '0755'
-  loop: "{{ mail_virtual_domains }}"
+  loop: "{{ mail_primary_domain }}"
 
 - name: Create mail subdirectory for autoconfig files
   ansible.builtin.file:
@@ -37,7 +37,7 @@
     owner: www-data
     group: www-data
     mode: '0755'
-  loop: "{{ mail_virtual_domains }}"
+  loop: "{{ mail_primary_domain }}"
 
 - name: Create .well-known/autoconfig directory for Microsoft
   ansible.builtin.file:
@@ -46,5 +46,5 @@
     owner: www-data
     group: www-data
     mode: '0755'
-  loop: "{{ mail_virtual_domains }}"
+  loop: "{{ mail_primary_domain }}"
   when: autoconfig_enable_autodiscover | default(true)

@@ -7,7 +7,7 @@
     owner: root
     group: root
     mode: '0644'
-  loop: "{{ mail_virtual_domains }}"
+  loop: "{{ mail_primary_domain }}"
   notify: reload nginx
 
 - name: Enable nginx HTTPS configuration
@@ -15,14 +15,14 @@
     src: "/etc/nginx/sites-available/autoconfig-{{ item }}-https"
     dest: "/etc/nginx/sites-enabled/autoconfig-{{ item }}-https"
     state: link
-  loop: "{{ mail_virtual_domains }}"
+  loop: "{{ mail_primary_domain }}"
   notify: reload nginx
 
 - name: Remove HTTP-only configuration (keep both actually for certbot renewals)
   ansible.builtin.file:
     path: "/etc/nginx/sites-enabled/autoconfig-{{ item }}-http"
     state: absent
-  loop: "{{ mail_virtual_domains }}"
+  loop: "{{ mail_primary_domain }}"
   notify: reload nginx
   when: autoconfig_remove_http_config | default(false)
 
