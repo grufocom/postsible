@@ -3,7 +3,6 @@
 - name: Postsible Mailserver - Complete Installation
   hosts: mailservers
   become: yes
-
   pre_tasks:
     - name: Display deployment information
       debug:
@@ -104,12 +103,12 @@
         - phase4
 
     - role: infcloud
-      tags: 
+      tags:
         - infcloud
         - phase4
 
     - role: autoconfig
-      tags: 
+      tags:
         - autoconfig
         - phase4
 
@@ -143,6 +142,56 @@
       tags:
         - always
 
+    - name: Check if admin user already exists
+      shell: |
+        mysql -u root -p'{{ mariadb_root_password }}' {{ mariadb_database }} -sN -e "SELECT COUNT(*) FROM virtual_users WHERE email='{{ mail_admin_email }}';"
+      register: admin_user_exists
+      changed_when: false
+      tags: always
+
+    - name: Create admin user with auto-generated password
+      shell: |
+        /usr/local/bin/maildb-manage add-user {{ mail_admin_email }} --auto-password --displayname "Administrator" --quiet
+      register: admin_password_output
+      when: admin_user_exists.stdout == "0"
+      tags: always
+
+    - name: Save admin password to file
+      copy:
+        content: |
+          Postsible Admin User Credentials
+          ================================
+          Email: {{ mail_admin_email }}
+          Password: {{ admin_password_output.stdout }}
+          
+          Created: {{ ansible_date_time.iso8601 }}
+          
+          IMPORTANT: Save this password securely and delete this file!
+          
+          Access:
+          - Webmail: https://{{ snappymail_domain }}
+          - CalDAV/CardDAV: https://{{ common_hostname }}/dav/
+          - InfCloud: https://{{ common_hostname }}/cal/
+        dest: /root/admin-credentials.txt
+        mode: '0600'
+      when: admin_user_exists.stdout == "0"
+      tags: always
+
+    - name: Display admin user information
+      debug:
+        msg:
+          - "==================================================="
+          - "Admin User Created!"
+          - "==================================================="
+          - "Email: {{ mail_admin_email }}"
+          - "Password: {{ admin_password_output.stdout }}"
+          - ""
+          - "Credentials saved to: /root/admin-credentials.txt"
+          - "Please save the password securely and delete the file!"
+          - "==================================================="
+      when: admin_user_exists.stdout == "0"
+      tags: always
+
     - name: Display completion information
       debug:
         msg:
@@ -151,12 +200,14 @@
           - "==================================================="
           - "Webmail: https://{{ snappymail_domain }}"
           - "Rspamd WebUI: https://{{ common_hostname }}/rspamd"
+          - "CalDAV/CardDAV: https://{{ common_hostname }}/dav/"
+          - "InfCloud: https://{{ common_hostname }}/cal/"
           - "IMAP: {{ common_hostname }}:993 (SSL/TLS)"
           - "SMTP Submission: {{ common_hostname }}:587 (STARTTLS)"
           - "==================================================="
           - "Next Steps:"
           - "1. Configure DNS records (MX, SPF, DKIM, DMARC)"
-          - "2. Add virtual domains and users to MariaDB"
+          - "2. Save admin password from /root/admin-credentials.txt"
           - "3. Test email sending/receiving"
           - "4. Configure backup strategy"
           - "==================================================="
@@ -167,17 +218,19 @@
         content: |
           Postsible Mailserver Deployment Summary
           ========================================
-
           Deployment Date: {{ ansible_date_time.iso8601 }}
           Hostname: {{ common_hostname }}
           Primary Domain: {{ mail_primary_domain }}
+          Admin Email: {{ mail_admin_email }}
           OS: {{ ansible_distribution }} {{ ansible_distribution_version }}
-
+          
           Services Installed:
           - Postfix (SMTP)
           - Dovecot (IMAP/LMTP/Sieve)
           - Rspamd (Spam Filter)
           - SnappyMail (Webmail)
+          - Baikal (CalDAV/CardDAV)
+          - InfCloud (Web Calendar/Contacts)
           - Nginx (Web Server)
           - MariaDB (Database)
           - Certbot (Let's Encrypt)
@@ -186,23 +239,32 @@
           {% if eset_icap_enabled %}
           - ESET ICAP (Antivirus)
           {% endif %}
-
+          
           Access Points:
           - Webmail: https://{{ snappymail_domain }}
           - Rspamd WebUI: https://{{ common_hostname }}/rspamd
+          - CalDAV/CardDAV: https://{{ common_hostname }}/dav/
+          - InfCloud: https://{{ common_hostname }}/cal/
           - IMAP: {{ common_hostname }}:993
           - SMTP: {{ common_hostname }}:587
-
+          
           Database:
           - Name: {{ mariadb_database }}
           - User: {{ mariadb_user }}
           - Host: {{ mariadb_host }}
-
+          
           Important Files:
           - Maildir: /srv/imap/
           - Logs: /var/log/mail/
           - Config: /etc/postsible/
-
+          - Admin Credentials: /root/admin-credentials.txt (DELETE AFTER SAVING!)
+          
+          User Management:
+          - Add user: maildb-manage add-user user@example.com
+          - Add user (auto-password): maildb-manage add-user user@example.com --auto-password
+          - List users: maildb-manage list-users
+          - Change password: maildb-manage change-password user@example.com
+          - Help: maildb-manage help
         dest: /etc/postsible/deployment_summary.txt
         mode: '0644'
       tags: always

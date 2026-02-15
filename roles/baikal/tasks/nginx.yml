@@ -32,9 +32,7 @@
 
           location ^~ /dav/admin/ {
               alias {{ baikal_install_path }}/html/admin/;
-
-              auth_basic "Baikal Admin";
-              auth_basic_user_file /etc/nginx/.htpasswd;
+              index index.php;
 
               location ~ \.php$ {
                   fastcgi_pass unix:/run/php/php8.4-fpm.sock;

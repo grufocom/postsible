@@ -163,6 +163,24 @@
   when: mariadb_insert_initial_domains | default(true)
   tags: mariadb
 
+- name: Ensure MySQL log directory exists
+  file:
+    path: /var/log/mysql
+    state: directory
+    owner: mysql
+    group: mysql
+    mode: '0755'
+  tags: mariadb
+
+- name: Ensure slow query log file exists
+  file:
+    path: /var/log/mysql/slow.log
+    state: touch
+    owner: mysql
+    group: mysql
+    mode: '0640'
+  tags: mariadb
+
 - name: Configure MariaDB for mail server
   template:
     src: mailserver.cnf.j2
