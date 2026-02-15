@@ -486,7 +486,7 @@ printf "${YELLOW}${BOLD}Next Steps:${NC}\n\n"
 printf "${BOLD}1. Create encrypted vault file:${NC}\n"
 printf "   cp inventory/group_vars/mailservers/vault.yml.example inventory/group_vars/mailservers/vault.yml\n"
 printf "   # Edit the file and change all CHANGE_ME passwords\n"
-printf "   ansible-vault encrypt -ask-vault-pass inventory/group_vars/mailservers/vault.yml\n\n"
+printf "   ansible-vault encrypt --ask-vault-pass inventory/group_vars/mailservers/vault.yml\n\n"
 
 printf "${BOLD}2. Configure DNS records for %s:${NC}\n" "$DOMAIN"
 printf "   MX Record:  %s → %s (Priority: 10)\n" "$DOMAIN" "$MX_HOSTNAME"
