@@ -1,6 +1,6 @@
 # {{ ansible_managed }}
 user = {{ mariadb_user }}
 password = {{ mariadb_password }}
-hosts = localhost
+hosts = 127.0.0.1
 dbname = {{ mariadb_database }}
 query = query = SELECT 1 FROM virtual_users WHERE email = SUBSTRING_INDEX('%s', '+', 1) AND enabled = 1
