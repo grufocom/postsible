@@ -356,7 +356,7 @@ mail_smtp_port: 465
 # MariaDB Settings (Non-Sensitive)
 mariadb_database: "mailserver"
 mariadb_user: "mailuser"
-mariadb_host: "localhost"
+mariadb_host: "127.0.0.1"
 
 # MariaDB Passwords (from Vault)
 mariadb_root_password: "{{ vault_mariadb_root_password }}"
