@@ -32,7 +32,7 @@ baikal_card_enabled: true
 # Settings
 baikal_timezone: "Europe/Vienna"
 baikal_invite_from: "noreply@{{ postfix_myhostname }}"
-baikal_auth_type: "Apache"
+baikal_auth_type: "Basic" # Basic, Digest, Apache
 baikal_auth_realm: "BaikalDAV"
 
 # Admin

@@ -373,7 +373,7 @@
 
 - name: Verify SnappyMail contacts tables in database
   shell: |
-    mysql -u {{ mariadb_user }} -p'{{ mariadb_password }}' {{ mariadb_database }} -e "SHOW TABLES LIKE 'rainloop_%';"
+    mysql -h {{ mariadb_host }} -u {{ mariadb_user }} -p'{{ mariadb_password }}' {{ mariadb_database }} -e "SHOW TABLES LIKE 'rainloop_%';"
   register: snappymail_tables_check
   changed_when: false
   no_log: true

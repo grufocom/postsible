@@ -22,7 +22,7 @@ protocol pop3 {
 
 # LMTP specific - WICHTIG: auth_username_format LEER lassen!
 protocol lmtp {
-  postmaster_address = postmaster@{{ mail_primary_domain }}
+  postmaster_address = {{ mail_admin_email }}
   
   # KRITISCH: Standard 20-lmtp.conf hat auth_username_format gesetzt
   # Das MUSS leer sein damit die komplette Email-Adresse verwendet wird

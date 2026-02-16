@@ -367,7 +367,7 @@ postfix_myhostname: "{{ common_hostname }}"
 postfix_mydomain: "{{ mail_primary_domain }}"
 postfix_myorigin: "\$mydomain"
 postfix_inet_interfaces: "all"
-postfix_inet_protocols: "ipv4"
+postfix_inet_protocols: "all"
 
 # Subaddressing (plus addressing)
 postfix_recipient_delimiter: "+"

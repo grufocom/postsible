@@ -19,16 +19,16 @@
 - name: Generate DKIM keys for domains
   shell: |
     rspamadm dkim_keygen -s 'dkim' -b 2048 -d {{ item.item }} \
-      -k /var/lib/rspamd/dkim/{{ item.item }}.key \
-      > /var/lib/rspamd/dkim/{{ item.item }}.txt
+      -k /var/lib/rspamd/dkim/{{ item.item }}.dkim.key \
+      > /var/lib/rspamd/dkim/{{ item.item }}.dkim.txt
   loop: "{{ dkim_key_check.results }}"
   when: not item.stat.exists
   args:
-    creates: "/var/lib/rspamd/dkim/{{ item.item }}.key"
+    creates: "/var/lib/rspamd/dkim/{{ item.item }}.dkim.key"
 
 - name: Set correct permissions on DKIM private keys
   file:
-    path: "/var/lib/rspamd/dkim/{{ item }}.key"
+    path: "/var/lib/rspamd/dkim/{{ item }}.dkim.key"
     owner: _rspamd
     group: _rspamd
     mode: '0400'
@@ -36,7 +36,7 @@
 
 - name: Set correct permissions on DKIM public keys
   file:
-    path: "/var/lib/rspamd/dkim/{{ item }}.txt"
+    path: "/var/lib/rspamd/dkim/{{ item }}.dkim.txt"
     owner: _rspamd
     group: _rspamd
     mode: '0644'
@@ -62,7 +62,7 @@
 
 - name: Read DKIM public keys for DNS
   slurp:
-    src: "/var/lib/rspamd/dkim/{{ item }}.txt"
+    src: "/var/lib/rspamd/dkim/{{ item }}.dkim.txt"
   register: dkim_public_keys
   loop: "{{ mail_virtual_domains }}"
 

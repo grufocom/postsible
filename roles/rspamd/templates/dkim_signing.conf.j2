@@ -14,7 +14,7 @@ sign_local = false;
 selector = "dkim";
 
 # Path to private keys
-path = "/var/lib/rspamd/dkim/$domain.key";
+path = "/var/lib/rspamd/dkim/$domain.$selector.key";
 
 # Sign ONLY for authenticated users, regardless of IP
 use_esld = false;
@@ -28,7 +28,7 @@ domain {
 {% for domain in mail_virtual_domains %}
   {{ domain }} {
     selector = "dkim";
-    path = "/var/lib/rspamd/dkim/{{ domain }}.key";
+    path = "/var/lib/rspamd/dkim/{{ domain }}.dkim.key";
   }
 {% endfor %}
 }
