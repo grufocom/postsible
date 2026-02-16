@@ -127,8 +127,11 @@
         mode: '0755'
       tags: always
 
-    - name: Restart all mail and web services
-      systemd:
+    - name: Gather service facts
+      ansible.builtin.service_facts:
+
+    - name: Restart all existing mail and web services
+      ansible.builtin.systemd:
         name: "{{ item }}"
         state: restarted
         enabled: yes
@@ -139,6 +142,7 @@
         - nginx
         - fail2ban
         - php8.4-fpm
+      when: item + '.service' in ansible_facts.services
       tags:
         - always
 
