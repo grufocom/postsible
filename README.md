@@ -45,6 +45,9 @@ Postsible aims to make self-hosting email practical again — straightforward, r
 ### 1. Interactive Setup (recommended)
 
 ```bash
+# start with a plain debian 13 server system like you get from nearly every hosting service
+apt install git
+
 # Clone repository
 git clone https://github.com/grufocom/postsible.git
 cd postsible
