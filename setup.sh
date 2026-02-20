@@ -342,6 +342,9 @@ common_locales:
   - en_US.UTF-8
 common_default_locale: "de_AT.UTF-8"
 
+# enable certbot dry-run
+certbot_enable_dry_run: false
+
 # Mail Configuration
 mail_primary_domain: "$MX_HOSTNAME"
 mail_virtual_domains:

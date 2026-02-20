@@ -125,15 +125,25 @@ create_baikal_user() {
     
 				principal="principals/$email"
 
-    # Check existing calendar instance
+				# Check existing calendar instance
     calendar_id=$(baikal_cmd "SELECT calendarid FROM calendarinstances WHERE principaluri='$principal' AND uri='default' LIMIT 1;")
 
     if [[ -z "$calendar_id" ]]; then
       echo "no existing calendar – create new"
-      # Create new calendar container
-      baikal_cmd "INSERT INTO calendars (synctoken, components) VALUES (1, 'VEVENT,VTODO');"
-      calendar_id=$(baikal_cmd "SELECT LAST_INSERT_ID();") 
-						# Create calendar instance
+
+      # Check if there are any calendars at all
+      existing_count=$(baikal_cmd "SELECT COUNT(*) FROM calendars;")
+      if [[ "$existing_count" -eq 0 ]]; then
+        # First-ever calendar → force ID = 1
+        baikal_cmd "INSERT INTO calendars (id, synctoken, components) VALUES (1, 1, 'VEVENT,VTODO');"
+        calendar_id=1
+      else
+        # Otherwise just insert normally
+        baikal_cmd "INSERT INTO calendars (synctoken, components) VALUES (1, 'VEVENT,VTODO');"
+        calendar_id=$(baikal_cmd "SELECT LAST_INSERT_ID();")
+      fi
+
+      # Create calendar instance
       baikal_cmd "INSERT INTO calendarinstances (calendarid, principaluri, uri, displayname, transparent) VALUES ($calendar_id, '$principal', 'default', 'Calendar', 0);"
     else
       echo "existing calendar (ID $calendar_id) – reuse"
