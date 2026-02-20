@@ -1,7 +1,7 @@
 ---
 # defaults/main.yml
 # Mail server configuration
-autoconfig_mail_hostname: "mail.{{ mail_primary_domain }}"
+autoconfig_mail_hostname: "{{ mail_primary_domain }}"
 autoconfig_imap_hostname: "{{ autoconfig_mail_hostname }}"
 autoconfig_smtp_hostname: "{{ autoconfig_mail_hostname }}"
 
