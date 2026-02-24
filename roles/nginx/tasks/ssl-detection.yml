@@ -2,15 +2,15 @@
 # roles/nginx/tasks/ssl-detection.yml
 # Intelligent SSL certificate detection for nginx
 
-- name: Check if Let's Encrypt certificate exists for server name
-  stat:
-    path: "/etc/letsencrypt/live/{{ nginx_server_name }}/fullchain.pem"
-  register: letsencrypt_server_cert
-
 - name: Check if Let's Encrypt certificate exists for primary domain
   stat:
     path: "/etc/letsencrypt/live/{{ mail_primary_domain }}/fullchain.pem"
   register: letsencrypt_primary_cert
+
+- name: Check if Let's Encrypt certificate exists for server name
+  stat:
+    path: "/etc/letsencrypt/live/{{ nginx_server_name }}/fullchain.pem"
+  register: letsencrypt_server_cert
 
 - name: Check if custom SSL certificate exists
   stat:

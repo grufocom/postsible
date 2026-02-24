@@ -7,7 +7,7 @@ rspamd_redis_disable_persistence: true
 rspamd_redis_password: ""  # Optional, leave empty for no password
 
 # Rspamd Logging
-rspamd_log_level: "info"  # error, warning, notice, info, debug
+rspamd_log_level: "warning"  # error, warning, notice, info, debug
 rspamd_log_spam_scores: true
 rspamd_logrotate_days: 14
 
