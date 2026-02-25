@@ -181,6 +181,143 @@
       when: admin_user_exists.stdout == "0"
       tags: always
 
+    - name: Extract username from admin email
+      set_fact:
+        mail_admin_username: "{{ mail_admin_email.split('@')[0] }}"
+      tags:
+        - welcome_email
+        - always
+
+    - name: Create welcome email template
+      copy:
+        content: |
+          From: Postsible Mailserver <postmaster@{{ mail_primary_domain }}>
+          To: {{ mail_admin_email }}
+          Subject: Welcome to your Postsible Mailserver! 🎉
+          Date: {{ ansible_date_time.iso8601 }}
+          MIME-Version: 1.0
+          Content-Type: text/plain; charset=UTF-8
+
+          ========================================
+          Welcome to your Postsible Mailserver!
+          ========================================
+
+          Dear Administrator,
+
+          your mailserver has been successfully deployed and configured.
+
+          📍 **Access Information**
+          ------------------------
+          Webmail:   https://{{ snappymail_domain }}/wm/
+          Admin URL: https://{{ snappymail_domain }}/wm/?admin
+
+          IMAP:      {{ common_hostname }}:993 (SSL/TLS)
+          SMTP:      {{ common_hostname }}:587 (STARTTLS)
+
+          📅 **Calendar Integration (CalDAV)**
+          -------------------------
+          To integrate your calendar into Thunderbird:
+
+          1. Open Thunderbird
+          2. Click on "Calendar" tab
+          3. Right-click → "New Calendar"
+          4. Select "On the Network" → "CalDAV"
+          5. Enter your email: {{ mail_admin_email }}
+          6. Enter this location:
+             https://{{ mail_primary_domain }}/dav/dav.php/calendars/{{ mail_admin_email }}/default/
+          7. Enter your email password
+
+          👥 **Contacts Integration (CardDAV)**
+          ---------------------------
+          To integrate your contacts into Thunderbird:
+
+          1. Install the "CardBook" addon (recommended) or use built-in CardDAV
+          2. Add a new address book:
+             - Type: CardDAV
+             - Name: "My Contacts"
+             - URL: https://{{ mail_primary_domain }}/dav/dav.php/addressbooks/{{ mail_admin_email }}/{{ mail_admin_username }}-contacts/
+             - Username: {{ mail_admin_email }}
+             - Password: (your email password)
+
+          📱 **Mobile Setup (iOS/Android)**
+          -------------------------
+          iOS/macOS:
+          - Settings → Mail → Accounts → Add Account → Other
+          - Add CalDAV/CardDAV account with your credentials
+
+          Android (using DAVx⁵):
+          - Install DAVx⁵ from F-Droid/Play Store
+          - Add account with base URL: https://{{ mail_primary_domain }}/dav/dav.php/
+          - Username: {{ mail_admin_email }}
+          - Password: (your email password)
+
+          🔧 **Management Commands**
+          -----------------
+          Add user:         maildb-manage add-user user@example.com
+          List users:       maildb-manage list-users
+          Change password:  maildb-manage change-password user@example.com
+
+          Check queue:      postfix-queue show
+          Monitor:          postfix-monitor
+          Firewall:         ufw-manage status
+          Rspamd:           rspamd-stats.sh
+
+          📚 **Documentation**
+          -----------------
+          All credentials are stored in:
+          - /root/admin-credentials.txt
+          - /etc/postsible/deployment_summary.txt
+
+          Important files:
+          - DKIM DNS records: /root/dkim-dns-records.txt
+          - Database backups: /var/backups/mariadb/
+          - Logs: /var/log/mail/
+
+          ========================================
+          Thank you for using Postsible!
+          Your mailserver is ready to serve.
+          ========================================
+        dest: /tmp/welcome_email.txt
+        mode: '0600'
+      tags:
+        - welcome_email
+        - always
+
+    - name: Send welcome email to admin
+      shell: |
+        sendmail {{ mail_admin_email }} < /tmp/welcome_email.txt
+      args:
+        executable: /bin/bash
+      register: welcome_email_result
+      changed_when: welcome_email_result.rc == 0
+      failed_when: false  # Don't fail the whole playbook if email fails
+      tags:
+        - welcome_email
+        - always
+
+    - name: Display email status
+      debug:
+        msg:
+          - "Welcome email sent to {{ mail_admin_email }}"
+          - "Calendar URL: https://{{ mail_primary_domain }}/dav/dav.php/calendars/{{ mail_admin_email }}/default/"
+          - "Contacts URL: https://{{ mail_primary_domain }}/dav/dav.php/addressbooks/{{ mail_admin_email }}/{{ mail_admin_username }}-contacts/"
+      when: welcome_email_result.rc == 0
+      tags:
+        - welcome_email
+        - always
+
+    - name: Display warning if email failed
+      debug:
+        msg:
+          - "⚠️  Could not send welcome email to {{ mail_admin_email }}"
+          - "The email content is saved at: /tmp/welcome_email.txt"
+          - "You can send it manually with:"
+          - "  sendmail {{ mail_admin_email }} < /tmp/welcome_email.txt"
+      when: welcome_email_result.rc != 0
+      tags:
+        - welcome_email
+        - always
+
     - name: Display admin user information
       debug:
         msg:
