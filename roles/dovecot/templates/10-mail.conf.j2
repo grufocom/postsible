@@ -13,6 +13,9 @@ mail_fsync = {{ dovecot_mail_fsync }}
 mail_nfs_storage = {{ 'yes' if dovecot_mail_nfs_storage else 'no' }}
 mail_nfs_index = {{ 'yes' if dovecot_mail_nfs_index else 'no' }}
 
+# Mailbox names with UTF8
+mail_utf8_extensions = yes
+
 # Performance
 mail_cache_min_mail_count = {{ dovecot_mail_cache_min_mail_count }}
 mailbox_list_index = {{ 'yes' if dovecot_mailbox_list_index else 'no' }}

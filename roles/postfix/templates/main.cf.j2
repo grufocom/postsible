@@ -70,6 +70,9 @@ smtpd_recipient_restrictions = {{ postfix_smtpd_recipient_restrictions | join(',
 smtpd_sender_restrictions = {{ postfix_smtpd_sender_restrictions | join(', ') }}
 smtpd_helo_restrictions = {{ postfix_smtpd_helo_restrictions | join(', ') }}
 
+# SMTPUTF8 support (for emojis and international characters)
+smtputf8_enable = yes
+
 # Milter (spam/virus filtering via Rspamd)
 milter_default_action = {{ postfix_milter_default_action }}
 milter_protocol = {{ postfix_milter_protocol }}
