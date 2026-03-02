@@ -127,25 +127,6 @@
         mode: '0755'
       tags: always
 
-    - name: Gather service facts
-      ansible.builtin.service_facts:
-
-    - name: Restart all existing mail and web services
-      ansible.builtin.systemd:
-        name: "{{ item }}"
-        state: restarted
-        enabled: yes
-      loop:
-        - mariadb
-        - postfix
-        - dovecot
-        - nginx
-        - fail2ban
-        - php8.4-fpm
-      when: item + '.service' in ansible_facts.services
-      tags:
-        - always
-
     - name: Check if admin user already exists
       shell: |
         mysql -u root -p'{{ mariadb_root_password }}' {{ mariadb_database }} -sN -e "SELECT COUNT(*) FROM virtual_users WHERE email='{{ mail_admin_email }}';"
@@ -167,11 +148,11 @@
           ================================
           Email: {{ mail_admin_email }}
           Password: {{ admin_password_output.stdout }}
-          
+
           Created: {{ ansible_date_time.iso8601 }}
-          
+
           IMPORTANT: Save this password securely and delete this file!
-          
+
           Access:
           - Webmail: https://{{ snappymail_domain }}
           - CalDAV/CardDAV: https://{{ common_hostname }}/dav/
@@ -180,6 +161,25 @@
         mode: '0600'
       when: admin_user_exists.stdout == "0"
       tags: always
+
+    - name: Gather service facts
+      ansible.builtin.service_facts:
+
+    - name: Restart all existing mail and web services (to pick up new user)
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: restarted
+        enabled: yes
+      loop:
+        - mariadb
+        - postfix
+        - dovecot
+        - nginx
+        - fail2ban
+        - php8.4-fpm
+      when: item + '.service' in ansible_facts.services
+      tags:
+        - always
 
     - name: Extract username from admin email
       set_fact:
@@ -253,9 +253,9 @@
 
           🔧 **Management Commands**
           -----------------
-          Add user:         maildb-manage add-user user@example.com
+          Add user:         maildb-manage add-user user@{{ mail_primary_domain }}
           List users:       maildb-manage list-users
-          Change password:  maildb-manage change-password user@example.com
+          Change password:  maildb-manage change-password user@{{ mail_primary_domain }}
 
           Check queue:      postfix-queue show
           Monitor:          postfix-monitor
@@ -364,7 +364,7 @@
           Primary Domain: {{ mail_primary_domain }}
           Admin Email: {{ mail_admin_email }}
           OS: {{ ansible_distribution }} {{ ansible_distribution_version }}
-          
+
           Services Installed:
           - Postfix (SMTP)
           - Dovecot (IMAP/LMTP/Sieve)
@@ -380,7 +380,7 @@
           {% if eset_icap_enabled %}
           - ESET ICAP (Antivirus)
           {% endif %}
-          
+
           Access Points:
           - Webmail: https://{{ snappymail_domain }}
           - Rspamd WebUI: https://{{ common_hostname }}/rspamd
@@ -388,18 +388,18 @@
           - InfCloud: https://{{ common_hostname }}/cal/
           - IMAP: {{ common_hostname }}:993
           - SMTP: {{ common_hostname }}:587
-          
+
           Database:
           - Name: {{ mariadb_database }}
           - User: {{ mariadb_user }}
           - Host: {{ mariadb_host }}
-          
+
           Important Files:
           - Maildir: /srv/imap/
           - Logs: /var/log/mail/
           - Config: /etc/postsible/
           - Admin Credentials: /root/admin-credentials.txt (DELETE AFTER SAVING!)
-          
+
           User Management:
           - Add user: maildb-manage add-user user@example.com
           - Add user (auto-password): maildb-manage add-user user@example.com --auto-password
