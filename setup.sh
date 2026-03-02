@@ -414,11 +414,9 @@ nginx_worker_connections: 1024
 # UFW Firewall Settings
 ufw_ssh_port: 22
 ufw_ssh_trusted_ips:
-  # Add your own IPs here:
   # - ip: "YOUR_HOME_IP"
-  #   comment: "Home Office"
   # - ip: "YOUR_OFFICE_IP/24"
-  #   comment: "Office Network"
+  # ^ Add your own IPs here:
 
 ufw_enable_smtps: true   # Port 465 (some clients need SMTP over SSL)
 ufw_enable_pop3s: false  # Port 995 (usually not needed)
