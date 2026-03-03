@@ -51,37 +51,100 @@
     logging: "{{ ufw_logging_level }}"
   tags: ufw
 
-# Filter valid IPv4 trusted IPs
-- name: Filter valid trusted SSH IPs
+- name: Set IP validation regex
+  set_fact:
+    ipv4_regex: '^([0-9]{1,3}\.){3}[0-9]{1,3}$'
+    ipv6_regex: '^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$|^([0-9a-fA-F]{1,4}:){1,7}:$|^([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}$|^([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}$|^([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}$|^([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}$|^([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}$|^[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})$|^:((:[0-9a-fA-F]{1,4}){1,7}|:)$|^fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}$|^::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])$|^([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])$'
+  tags: ufw
+
+- name: Validate and filter trusted SSH IPs
   set_fact:
     ufw_ssh_trusted_ips_valid: >-
       {{
         ufw_ssh_trusted_ips
         | default([])
-        | selectattr('ip', 'match', '^([0-9]{1,3}\\.){3}[0-9]{1,3}$')
+        | selectattr('ip', 'defined')
+        | selectattr('ip', 'match', ipv4_regex + '|' + ipv6_regex)
         | list
       }}
   tags: ufw
 
-# SSH Access - Restricted IPs
-- name: Allow SSH from trusted IPs
+- name: Warn about invalid IP entries
+  debug:
+    msg: "⚠️  WARNING: Invalid IP address '{{ item.ip }}' will be ignored!"
+  loop: "{{ ufw_ssh_trusted_ips | default([]) }}"
+  when:
+    - item.ip is defined
+    - item.ip is not match(ipv4_regex + '|' + ipv6_regex)
+  tags: ufw
+
+- name: Show valid trusted IPs
+  debug:
+    msg: "✓ Valid trusted IPs: {{ ufw_ssh_trusted_ips_valid | map(attribute='ip') | join(', ') }}"
+  when: ufw_ssh_trusted_ips_valid | length > 0
+  tags: ufw
+
+- name: Allow SSH from validated trusted IPs
   ufw:
     rule: allow
     port: "{{ ufw_ssh_port }}"
     proto: tcp
     from_ip: "{{ item.ip }}"
-    comment: "{{ item.comment }}"
+    comment: "{{ item.comment | default('Trusted SSH IP') }}"
   loop: "{{ ufw_ssh_trusted_ips_valid }}"
   when: ufw_ssh_trusted_ips_valid | length > 0
   tags: ufw
 
-# SSH von überall (falls keine gültigen Trusted IPs existieren)
-- name: Allow SSH from anywhere if no valid trusted IPs defined
+- name: Deny SSH from all other IPs (when trusted IPs are configured)
+  ufw:
+    rule: deny
+    port: "{{ ufw_ssh_port }}"
+    proto: tcp
+    comment: "Deny SSH from untrusted IPs"
+  when: ufw_ssh_trusted_ips_valid | length > 0
+  tags: ufw
+
+- name: Apply rate limiting for SSH (fallback when no valid trusted IPs)
   ufw:
     rule: limit
     port: "{{ ufw_ssh_port }}"
     proto: tcp
-    comment: "SSH with rate limiting"
+    comment: "SSH rate limiting (no trusted IPs configured)"
+  when: ufw_ssh_trusted_ips_valid | length == 0
+  tags: ufw
+
+- name: Display SSH access configuration (with trusted IPs)
+  debug:
+    msg:
+      - "==========================================="
+      - "SSH Access Configuration:"
+      - "==========================================="
+      - "Port: {{ ufw_ssh_port }}"
+      - "Valid trusted IPs: {{ ufw_ssh_trusted_ips_valid | length }}"
+      - "Trusted IPs: {{ ufw_ssh_trusted_ips_valid | map(attribute='ip') | join(', ') }}"
+      - "All other IPs: DENIED"
+      - "==========================================="
+  when: ufw_ssh_trusted_ips_valid | length > 0
+  tags: ufw
+
+- name: Display SSH access configuration (fallback mode)
+  debug:
+    msg:
+      - "==========================================="
+      - "⚠️  SSH Access Configuration (FALLBACK MODE)"
+      - "==========================================="
+      - "Port: {{ ufw_ssh_port }}"
+      - "No valid trusted IPs configured!"
+      - ""
+      - "SSH is accessible from ANYWHERE with rate limiting"
+      - ""
+      - "To restrict SSH, add valid IPs to ufw_ssh_trusted_ips:"
+      - "  ufw_ssh_trusted_ips:"
+      - "    - ip: 192.168.1.100"
+      - "      comment: 'Office'"
+      - "    - ip: 2001:db8::1"
+      - "      comment: 'IPv6 Office'"
+      - "==========================================="
   when: ufw_ssh_trusted_ips_valid | length == 0
   tags: ufw
 

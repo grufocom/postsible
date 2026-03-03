@@ -346,10 +346,14 @@ common_default_locale: "de_AT.UTF-8"
 certbot_enable_dry_run: false
 
 # Mail Configuration
+# Primary domain (used for email addresses)
 mail_primary_domain: "$MX_HOSTNAME"
+# Additional virtual domains (for hosting multiple domains)
 mail_virtual_domains:
   - $DOMAIN
+# Admin email address (receives system notifications)
 mail_admin_email: "$ADMIN_EMAIL"
+# Let's Encrypt notification email
 mail_letsencrypt_email: "$ADMIN_EMAIL"
 mail_ssl_cert_path: "/etc/letsencrypt/live/{{ mail_primary_domain }}"
 
@@ -415,8 +419,18 @@ nginx_worker_connections: 1024
 ufw_ssh_port: 22
 ufw_ssh_trusted_ips:
   # - ip: "YOUR_HOME_IP"
+		#   comment: 'Home Office IP'
   # - ip: "YOUR_OFFICE_IP/24"
-  # ^ Add your own IPs here:
+		#   comment: 'Your Office IP/24'
+		# - ip: 2001:db8::1
+  #   comment: 'IPv6 Office'
+		# ^ uncomment and add your own IPs here if you want to block ssh access to your server - which you really should! :-)
+# How it works:
+# If trusted IPs are defined: ONLY these IPs can access SSH
+# All other IPs are DENIED (maximum security)
+# If no trusted IPs are defined: SSH remains accessible with rate limiting (safe fallback)
+# Invalid IP addresses are automatically ignored with a warning
+# Both IPv4 and IPv6 are fully supported
 
 ufw_enable_smtps: true   # Port 465 (some clients need SMTP over SSL)
 ufw_enable_pop3s: false  # Port 995 (usually not needed)
@@ -430,6 +444,8 @@ fail2ban_maxretry: 5
 fail2ban_destemail: "{{ mail_admin_email }}"
 
 # ESET ICAP Settings
+# Enable/disable antivirus scanning (ESET ICAP) 
+# Set to true if you have ESET license and efs installed with enabled icap support!
 eset_icap_enabled: false
 eset_icap_host: "localhost"
 eset_icap_port: 1344

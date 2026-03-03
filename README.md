@@ -88,7 +88,7 @@ cp inventory/group_vars/mailservers/vault.yml.example \
 nano inventory/group_vars/mailservers/vault.yml
 
 # Encrypt vault
-ansible-vault encrypt inventory/group_vars/mailservers/vault.yml
+ansible-vault encrypt --ask-vault-password inventory/group_vars/mailservers/vault.yml
 ```
 
 ### 4. Configure DNS Records
@@ -122,7 +122,17 @@ dkim._domainkey.example.com. IN TXT "v=DKIM1; k=rsa; p=MIIBIj..."
 _dmarc.example.com.    IN TXT  "v=DMARC1; p=quarantine; rua=mailto:dmarc@example.com; adkim=s; aspf=s"
 ```
 
-### 5. Start Deployment
+### 5. Post-Setup Configuration
+After running the interactive setup (./setup.sh --interactive), your basic configuration is stored in:
+
+```bash
+inventory/group_vars/mailservers/vars.yml
+```
+
+This file contains all essential settings for your mail server. You can (and should) review and adjust additional parameters to fine-tune your installation.
+
+
+### 6. Start Deployment
 
 ```bash
 # Complete deployment
@@ -134,7 +144,7 @@ ansible-playbook playbooks/site.yml --tags phase2 --ask-vault-pass
 # etc.
 ```
 
-### 6. Admin User Credentials
+### 7. Admin User Credentials
 
 After deployment, the admin user is automatically created with a secure password:
 
