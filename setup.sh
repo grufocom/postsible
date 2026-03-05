@@ -419,12 +419,12 @@ nginx_worker_connections: 1024
 ufw_ssh_port: 22
 ufw_ssh_trusted_ips:
   # - ip: "YOUR_HOME_IP"
-		#   comment: 'Home Office IP'
+  #   comment: 'Home Office IP'
   # - ip: "YOUR_OFFICE_IP/24"
-		#   comment: 'Your Office IP/24'
+  #   comment: 'Your Office IP/24'
 		# - ip: 2001:db8::1
   #   comment: 'IPv6 Office'
-		# ^ uncomment and add your own IPs here if you want to block ssh access to your server - which you really should! :-)
+  # ^ uncomment and add your own IPs here if you want to block ssh access to your server - which you really should! :-)
 # How it works:
 # If trusted IPs are defined: ONLY these IPs can access SSH
 # All other IPs are DENIED (maximum security)
@@ -444,7 +444,7 @@ fail2ban_maxretry: 5
 fail2ban_destemail: "{{ mail_admin_email }}"
 
 # ESET ICAP Settings
-# Enable/disable antivirus scanning (ESET ICAP) 
+# Enable/disable antivirus scanning (ESET ICAP)
 # Set to true if you have ESET license and efs installed with enabled icap support!
 eset_icap_enabled: false
 eset_icap_host: "localhost"
