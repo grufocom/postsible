@@ -117,6 +117,26 @@
     mode: '0640'
   tags: vacation_web
 
+- name: Deploy SnappyMail vacation plugin JS
+  ansible.builtin.copy:
+    src: vacation-plugin.js
+    dest: /var/www/vacation-plugin.js
+    owner: "{{ vacation_webserver_user }}"
+    group: "{{ vacation_webserver_user }}"
+    mode: '0644'
+  notify: reload nginx
+  tags: vacation_web, vacation_plugin
+
+- name: Deploy Thunderbird extension XPI for download
+  ansible.builtin.copy:
+    src: postsible-vacation.xpi
+    dest: "{{ vacation_web_root }}/postsible-vacation.xpi"
+    owner: "{{ vacation_webserver_user }}"
+    group: "{{ vacation_webserver_user }}"
+    mode: '0644'
+  notify: reload nginx
+  tags: vacation_web, vacation_plugin
+
 # ── 5. nginx location block ───────────────────────────────────────────────────
 #    Inserted into the existing vhost template via lineinfile
 
