@@ -764,6 +764,19 @@ maildb-manage list-vacation-admins
 maildb-manage set-superadmin admin@example.com
 ```
 
+### Thunderbird Add-on
+
+Users can open the Vacation Manager directly from Thunderbird via a toolbar button. The add-on is automatically deployed by Ansible and available for download at:
+https://mail.example.com/vacation/postsible-vacation.xpi
+A download link is also shown at the bottom of the Vacation Manager web interface.
+Installation:
+
+Open the URL above in Thunderbird, or go to Extras → Add-ons → ⚙ → Install Add-on from file and select postsible-vacation.xpi
+After installation, click the ✈️ button in the Thunderbird toolbar
+Open Settings and enter your server URL: https://mail.example.com/vacation/
+Save – the button now opens the Vacation Manager directly as a Thunderbird tab
+
+
 ### Required Dovecot Sieve Extensions
 
 The following extensions must be enabled in your Dovecot Sieve configuration (`90-sieve.conf`):
