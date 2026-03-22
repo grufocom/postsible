@@ -201,7 +201,7 @@ ansible-playbook playbooks/site.yml --tags phase3 --ask-vault-pass
 ansible-playbook playbooks/site.yml --tags phase4 --ask-vault-pass
 ```
 - **nginx** - Web server with intelligent SSL detection
-- **certbot** - Let's Encrypt SSL certificates
+- **certbot** - Let's Encrypt SSL certificates (with self-signed fallback)
 - **snappymail** - Webmail interface
 - **baikal** - CalDAV/CardDAV server
 - **infcloud** - Web CalDAV/CardDAV client
@@ -248,6 +248,38 @@ Postfix and Nginx automatically detect Let's Encrypt certificates:
 1. Preferred: `/etc/letsencrypt/live/mail.example.com/`
 2. Fallback: `/etc/letsencrypt/live/example.com/`
 3. Fallback: Snakeoil (testing only)
+
+### Self-Signed Certificate Fallback
+
+When preparing a new mail server while DNS still points to the old server, Postsible automatically detects this situation and falls back to a self-signed certificate so all services are immediately operational.
+
+**How it works:**
+
+During deployment the certbot role resolves the primary domain (`certbot_domains[0]`) via DNS and compares the result against the server's public IP. If they don't match — or if `certbot_skip: true` is set — a self-signed certificate is generated instead:
+
+```
+Domain resolves to this server? ──yes──► Let's Encrypt (normal flow)
+                                  └─no──► Self-signed certificate
+                                          (services work, clients show warning)
+```
+
+The self-signed certificate is created with the correct CN and SAN entries so clients at least display the right hostname. A marker file at `/etc/postsible/certbot-pending` is written as a reminder.
+
+**Once DNS is switched**, simply re-run the certbot role — it detects the DNS change, obtains a real certificate, and replaces the self-signed one automatically:
+
+```bash
+ansible-playbook playbooks/site.yml --tags certbot --ask-vault-pass
+```
+
+**Variables** (in `inventory/group_vars/mailservers/vars.yml`):
+
+```yaml
+# Skip certbot and always use self-signed (useful when DNS is not ready)
+certbot_skip: false
+
+# Automatically check DNS before running certbot (recommended: true)
+certbot_dns_check: true
+```
 
 ### Fail2ban Jails
 - **SSH** - Protection against brute-force on port 22
@@ -763,19 +795,6 @@ maildb-manage remove-vacation-admin secretary@example.com
 maildb-manage list-vacation-admins
 maildb-manage set-superadmin admin@example.com
 ```
-
-### Thunderbird Add-on
-
-Users can open the Vacation Manager directly from Thunderbird via a toolbar button. The add-on is automatically deployed by Ansible and available for download at:
-https://mail.example.com/vacation/postsible-vacation.xpi
-A download link is also shown at the bottom of the Vacation Manager web interface.
-Installation:
-
-Open the URL above in Thunderbird, or go to Extras → Add-ons → ⚙ → Install Add-on from file and select postsible-vacation.xpi
-After installation, click the ✈️ button in the Thunderbird toolbar
-Open Settings and enter your server URL: https://mail.example.com/vacation/
-Save – the button now opens the Vacation Manager directly as a Thunderbird tab
-
 
 ### Required Dovecot Sieve Extensions
 

@@ -344,6 +344,11 @@ common_default_locale: "de_AT.UTF-8"
 
 # enable certbot dry-run
 certbot_enable_dry_run: false
+# Auto-detected, but can be forced:
+# true = skip certbot, use self-signed always
+certbot_skip: false
+# false = skip DNS check, trust certbot_skip
+certbot_dns_check: true
 
 # Mail Configuration
 # Primary domain (used for email addresses)

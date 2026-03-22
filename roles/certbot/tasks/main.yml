@@ -6,6 +6,8 @@
     name:
       - certbot
       - python3-certbot-nginx
+      - openssl
+      - dnsutils
     state: present
     update_cache: yes
   tags: certbot
@@ -26,6 +28,127 @@
     append: yes
   tags: certbot
 
+# ── DNS check ─────────────────────────────────────────────────────────────────
+
+- name: Get server's public IP address
+  uri:
+    url: https://api.ipify.org
+    return_content: yes
+    timeout: 5
+  register: public_ip_result
+  failed_when: false
+  changed_when: false
+  when: certbot_dns_check and not certbot_skip
+  tags: certbot
+
+- name: Determine server IP (public if available, otherwise default IPv4)
+  set_fact:
+    certbot_server_ip: >-
+      {{ public_ip_result.content | default(ansible_default_ipv4.address) | trim }}
+  when: certbot_dns_check and not certbot_skip
+  tags: certbot
+
+- name: Resolve primary domain via DNS
+  command: "dig +short {{ certbot_domains[0] }} A"
+  register: dns_result
+  changed_when: false
+  failed_when: false
+  when: certbot_dns_check and not certbot_skip
+  tags: certbot
+
+- name: Evaluate DNS check result
+  set_fact:
+    certbot_dns_ok: >-
+      {{ dns_result.stdout | default('') | trim == certbot_server_ip | trim }}
+  when: certbot_dns_check and not certbot_skip
+  tags: certbot
+
+# If DNS check is disabled, treat DNS as OK (rely on certbot_skip instead)
+- name: Set DNS ok when check is disabled
+  set_fact:
+    certbot_dns_ok: true
+  when: not certbot_dns_check or certbot_skip is not defined
+  tags: certbot
+
+- name: Display DNS check result
+  debug:
+    msg: >-
+      DNS check for {{ certbot_domains[0] }}:
+      resolved={{ dns_result.stdout | default('(not resolved)') | trim }},
+      server={{ certbot_server_ip | default(ansible_default_ipv4.address) }},
+      match={{ certbot_dns_ok | default(false) }}
+  when: certbot_dns_check and not certbot_skip
+  tags: certbot
+
+# ── Decide: certbot or self-signed ────────────────────────────────────────────
+
+- name: Determine if certbot should run
+  set_fact:
+    certbot_should_run: >-
+      {{ not (certbot_skip | default(false)) and (certbot_dns_ok | default(true)) }}
+  tags: certbot
+
+- name: Display certificate strategy
+  debug:
+    msg: >-
+      Certificate strategy:
+      {% if certbot_skip %}
+      SELF-SIGNED (certbot_skip=true in vars)
+      {% elif not (certbot_dns_ok | default(true)) %}
+      SELF-SIGNED (DNS for {{ certbot_domains[0] }} does not point to this server yet)
+      {% else %}
+      LET'S ENCRYPT (DNS ok, running certbot)
+      {% endif %}
+  tags: certbot
+
+# ── Self-signed fallback path ─────────────────────────────────────────────────
+
+- name: Create self-signed certificate directory
+  file:
+    path: "{{ certbot_selfsigned_dir }}"
+    state: directory
+    owner: root
+    group: ssl-cert
+    mode: '0750'
+  when: not certbot_should_run
+  tags: certbot
+
+- name: Deploy self-signed certificate generation script
+  template:
+    src: generate-selfsigned.sh.j2
+    dest: /usr/local/bin/postsible-generate-selfsigned
+    owner: root
+    group: root
+    mode: '0750'
+  when: not certbot_should_run
+  tags: certbot
+
+- name: Check if self-signed certificate already exists
+  stat:
+    path: "{{ certbot_selfsigned_dir }}/fullchain.pem"
+  register: selfsigned_exists
+  when: not certbot_should_run
+  tags: certbot
+
+- name: Generate self-signed certificate
+  command: /usr/local/bin/postsible-generate-selfsigned
+  when:
+    - not certbot_should_run
+    - not selfsigned_exists.stat.exists
+  register: selfsigned_result
+  tags: certbot
+
+- name: Set certificate paths to self-signed
+  set_fact:
+    active_cert_path: "{{ certbot_selfsigned_dir }}"
+    active_fullchain: "{{ certbot_selfsigned_dir }}/fullchain.pem"
+    active_privkey:   "{{ certbot_selfsigned_dir }}/privkey.pem"
+    active_is_selfsigned: true
+  when: not certbot_should_run
+  tags: certbot
+
+# ── Let's Encrypt path ────────────────────────────────────────────────────────
+
 - name: Fix Let's Encrypt directory permissions
   file:
     path: "{{ item }}"
@@ -35,6 +158,7 @@
   loop:
     - /etc/letsencrypt/live
     - /etc/letsencrypt/archive
+  when: certbot_should_run
   tags: certbot
 
 - name: Check if certificates already exist
@@ -42,6 +166,7 @@
     path: "{{ certbot_cert_path }}/{{ item }}/fullchain.pem"
   register: cert_exists
   loop: "{{ certbot_domains }}"
+  when: certbot_should_run
   tags: certbot
 
 - name: Display certificate status
@@ -50,6 +175,7 @@
   loop: "{{ cert_exists.results }}"
   loop_control:
     label: "{{ item.item }}"
+  when: certbot_should_run
   tags: certbot
 
 - name: Obtain SSL certificates for each domain
@@ -66,12 +192,32 @@
   loop: "{{ cert_exists.results }}"
   loop_control:
     label: "{{ item.item }}"
-  when: not item.stat.exists or certbot_force_renewal
+  when:
+    - certbot_should_run
+    - not item.stat.exists or certbot_force_renewal
   register: certbot_result
   failed_when:
     - certbot_result.rc != 0
     - "'Certificate not yet due for renewal' not in certbot_result.stdout"
   tags: certbot
+
+- name: Set certificate paths to Let's Encrypt
+  set_fact:
+    active_cert_path: "{{ certbot_cert_path }}/{{ certbot_domains[0] }}"
+    active_fullchain: "{{ certbot_cert_path }}/{{ certbot_domains[0] }}/fullchain.pem"
+    active_privkey:   "{{ certbot_cert_path }}/{{ certbot_domains[0] }}/privkey.pem"
+    active_is_selfsigned: false
+  when: certbot_should_run
+  tags: certbot
+
+- name: Remove pending marker if certbot succeeded
+  file:
+    path: "{{ certbot_pending_marker }}"
+    state: absent
+  when: certbot_should_run
+  tags: certbot
+
+# ── Renewal hooks (Let's Encrypt only) ───────────────────────────────────────
 
 - name: Create renewal hooks directory
   file:
@@ -80,6 +226,7 @@
     owner: root
     group: root
     mode: '0755'
+  when: certbot_should_run
   tags: certbot
 
 - name: Create deploy hook for permissions (runs on every renewal)
@@ -89,6 +236,7 @@
     owner: root
     group: root
     mode: '0755'
+  when: certbot_should_run
   tags: certbot
 
 - name: Create post-renewal hook script (reload services)
@@ -98,7 +246,9 @@
     owner: root
     group: root
     mode: '0755'
-  when: certbot_renewal_hooks_enabled
+  when:
+    - certbot_should_run
+    - certbot_renewal_hooks_enabled
   tags: certbot
 
 - name: Test certbot renewal (dry-run)
@@ -106,7 +256,9 @@
   register: certbot_test
   changed_when: false
   failed_when: false
-  when: certbot_enable_dry_run | default(false)
+  when:
+    - certbot_should_run
+    - certbot_enable_dry_run | default(false)
   tags: certbot
 
 - name: Display certbot test result
@@ -115,13 +267,18 @@
   when: certbot_test.stdout_lines is defined
   tags: certbot
 
-- name: Update Nginx VHosts to use SSL
+# ── Configure services with active certificate (both paths) ───────────────────
+
+- name: Update Nginx VHost to use active certificate
   template:
     src: rspamd-vhost-ssl.conf.j2
     dest: /etc/nginx/sites-available/rspamd
     owner: root
     group: root
     mode: '0644'
+  vars:
+    # Override cert paths in the vhost template with the active ones
+    certbot_cert_path_active: "{{ active_cert_path }}"
   notify: reload nginx
   tags: certbot
 
@@ -133,13 +290,13 @@
     state: present
   loop:
     - regexp: '^smtpd_tls_cert_file\s*='
-      line: "smtpd_tls_cert_file = {{ certbot_cert_path }}/{{ certbot_domains[0] }}/fullchain.pem"
+      line: "smtpd_tls_cert_file = {{ active_fullchain }}"
     - regexp: '^smtpd_tls_key_file\s*='
-      line: "smtpd_tls_key_file = {{ certbot_cert_path }}/{{ certbot_domains[0] }}/privkey.pem"
+      line: "smtpd_tls_key_file = {{ active_privkey }}"
     - regexp: '^smtp_tls_cert_file\s*='
-      line: "smtp_tls_cert_file = {{ certbot_cert_path }}/{{ certbot_domains[0] }}/fullchain.pem"
+      line: "smtp_tls_cert_file = {{ active_fullchain }}"
     - regexp: '^smtp_tls_key_file\s*='
-      line: "smtp_tls_key_file = {{ certbot_cert_path }}/{{ certbot_domains[0] }}/privkey.pem"
+      line: "smtp_tls_key_file = {{ active_privkey }}"
     - regexp: '^smtpd_tls_security_level\s*='
       line: "smtpd_tls_security_level = may"
   notify: reload postfix
@@ -153,9 +310,9 @@
     state: present
   loop:
     - regexp: '^ssl_server_cert_file\s*='
-      line: "ssl_server_cert_file = {{ certbot_cert_path }}/{{ certbot_domains[0] }}/fullchain.pem"
+      line: "ssl_server_cert_file = {{ active_fullchain }}"
     - regexp: '^ssl_server_key_file\s*='
-      line: "ssl_server_key_file = {{ certbot_cert_path }}/{{ certbot_domains[0] }}/privkey.pem"
+      line: "ssl_server_key_file = {{ active_privkey }}"
     - regexp: '^ssl\s*='
       line: "ssl = required"
   notify: reload dovecot
@@ -177,36 +334,64 @@
     name: certbot.timer
     enabled: yes
     state: started
+  when: certbot_should_run
   tags: certbot
+
+# ── Update nginx vhost template to use active_cert_path ──────────────────────
+# The nginx template uses certbot_cert_path/certbot_domains[0] by default.
+# When self-signed is active we patch the nginx config directly afterwards
+# to point at the correct cert files.
+
+- name: Patch nginx vhost SSL cert paths when using self-signed
+  lineinfile:
+    path: /etc/nginx/sites-available/rspamd
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    state: present
+  loop:
+    - regexp: '^\s*ssl_certificate\s'
+      line: "    ssl_certificate {{ active_fullchain }};"
+    - regexp: '^\s*ssl_certificate_key\s'
+      line: "    ssl_certificate_key {{ active_privkey }};"
+  when: not certbot_should_run
+  notify: reload nginx
+  tags: certbot
+
+# ── Deployment summary ────────────────────────────────────────────────────────
 
 - name: Display SSL certificate information
   debug:
-    msg:
-      - "SSL Certificates Successfully Configured!"
-      - ""
-      - "Certificates for:"
-      - "{{ certbot_domains | join(', ') }}"
-      - ""
-      - "Certificate location: {{ certbot_cert_path }}/[domain]/"
-      - "  - fullchain.pem (certificate + chain)"
-      - "  - privkey.pem (private key)"
-      - "  - cert.pem (certificate only)"
-      - "  - chain.pem (chain only)"
-      - ""
-      - "Auto-renewal: {{ 'ENABLED' if certbot_auto_renew else 'DISABLED' }}"
-      - "Renewal check: Daily via certbot.timer"
-      - "Deploy hook: Automatically fixes permissions on renewal"
-      - ""
-      - "Services updated with SSL:"
-      - "  - Nginx (HTTPS on port 443)"
-      - "  - Postfix (STARTTLS + SMTPS)"
-      - "  - Dovecot (IMAPS + SSL required)"
-      - ""
-      - "Access Rspamd WebUI: https://{{ certbot_domains[0] }}/rspamd/"
-      - ""
-      - "Next steps:"
-      - "  1. Test HTTPS access to Rspamd WebUI"
-      - "  2. Test IMAP SSL in Thunderbird (port 993)"
-      - "  3. Set DNS records (DKIM, SPF, DMARC)"
-      - "  4. Deploy SnappyMail webmail"
+    msg: >-
+      {%- if active_is_selfsigned -%}
+      [WARNING] Self-signed certificate is active!
+      Domain {{ certbot_domains[0] }} does not yet resolve to this server.
+      Services are fully operational but clients will show a certificate warning.
+      Once DNS is switched, re-run: ansible-playbook playbooks/site.yml --tags certbot
+      Certificate location: {{ certbot_selfsigned_dir }}/
+      Pending marker: {{ certbot_pending_marker }}
+      {%- else -%}
+      Let's Encrypt certificate active for: {{ certbot_domains | join(', ') }}
+      Location: {{ active_cert_path }}/
+      Auto-renewal: {{ 'ENABLED' if certbot_auto_renew else 'DISABLED' }}
+      {%- endif -%}
+  tags: certbot
+
+- name: Add certificate status to deployment summary
+  ansible.builtin.blockinfile:
+    path: /etc/postsible/deployment_summary.txt
+    marker: "# {mark} ANSIBLE MANAGED - certificate status"
+    create: yes
+    block: |
+      Certificate Status:
+      {% if active_is_selfsigned %}
+      ⚠️  SELF-SIGNED certificate active (DNS not yet switched)
+          Location: {{ certbot_selfsigned_dir }}/
+          Action required: Switch DNS, then run:
+          ansible-playbook playbooks/site.yml --tags certbot
+      {% else %}
+      ✓  Let's Encrypt certificate active
+          Domains: {{ certbot_domains | join(', ') }}
+          Location: {{ active_cert_path }}/
+          Auto-renewal: enabled via certbot.timer
+      {% endif %}
   tags: certbot
