@@ -369,6 +369,11 @@
               alias {{ snappymail_install_path }}/;
               index index.php;
 
+              # Inject vacation plugin JS before </body>
+              sub_filter '</body>' '<script src="/wm/vacation-plugin.js"></script></body>';
+              sub_filter_once on;
+              sub_filter_types text/html;
+
               # Try files
               try_files $uri $uri/ @snappymail;
 
@@ -382,6 +387,13 @@
                   # Timeouts for large attachments
                   fastcgi_read_timeout 300;
                   fastcgi_send_timeout 300;
+              }
+
+              # Serve the vacation plugin JS directly (no PHP needed)
+              location = /wm/vacation-plugin.js {
+                  alias {{ vacation_web_root }}/../vacation-plugin.js;
+                  add_header Cache-Control "no-cache, must-revalidate";
+                  add_header Content-Type "application/javascript";
               }
 
               # Deny access to data directory
