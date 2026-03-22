@@ -1,0 +1,706 @@
+<?php
+// {{ ansible_managed }}
+/**
+ * Postsible Vacation Manager
+ * Material Design inspired, Nextcloud blue palette
+ * Authenticates users via IMAP against Dovecot
+ */
+
+session_start();
+
+// ─── Configuration ────────────────────────────────────────────────────────────
+define('IMAP_HOST',      '{{ vacation_imap_host }}');
+define('IMAP_PORT',      {{ vacation_imap_port }});
+define('MAILDB_MANAGE',  '{{ vacation_maildb_manage }}');
+define('DB_HOST',        '{{ vacation_db_host }}');
+define('DB_NAME',        '{{ vacation_db_name }}');
+define('DB_USER',        '{{ vacation_db_user }}');
+define('DB_PASS',        '{{ vacation_db_pass }}');
+define('SESSION_TIMEOUT', 3600);
+
+// ─── Database connection ───────────────────────────────────────────────────────
+function db(): PDO {
+    static $pdo = null;
+    if ($pdo === null) {
+        $pdo = new PDO(
+            'mysql:host=' . DB_HOST . ';dbname=' . DB_NAME . ';charset=utf8mb4',
+            DB_USER, DB_PASS,
+            [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]
+        );
+    }
+    return $pdo;
+}
+
+// ─── IMAP authentication ───────────────────────────────────────────────────────
+function imap_authenticate(string $email, string $password): bool {
+    $host = IMAP_HOST;
+    $port = IMAP_PORT;
+
+    $ctx = stream_context_create(['ssl' => [
+        'verify_peer'      => false,
+        'verify_peer_name' => false,
+    ]]);
+    $socket = @stream_socket_client(
+        "ssl://{$host}:{$port}", $errno, $errstr, 10,
+        STREAM_CLIENT_CONNECT, $ctx
+    );
+    if (!$socket) return false;
+
+    fgets($socket, 1024); // greeting
+
+    $tag  = 'A001';
+    $user = str_replace(['"', '\\'], ['\"', '\\\\'], $email);
+    $pass = str_replace(['"', '\\'], ['\"', '\\\\'], $password);
+    fwrite($socket, "{$tag} LOGIN \"{$user}\" \"{$pass}\"\r\n");
+
+    $response = '';
+    while (!feof($socket)) {
+        $line = fgets($socket, 1024);
+        $response .= $line;
+        if (strpos($line, $tag) === 0) break;
+    }
+    fclose($socket);
+
+    return strpos($response, "{$tag} OK") !== false;
+}
+
+// ─── Session helpers ───────────────────────────────────────────────────────────
+function session_valid(): bool {
+    if (empty($_SESSION['email']) || empty($_SESSION['ts'])) return false;
+    if (time() - $_SESSION['ts'] > SESSION_TIMEOUT) {
+        session_destroy();
+        return false;
+    }
+    $_SESSION['ts'] = time();
+    return true;
+}
+
+function get_user_role(string $email): string {
+    try {
+        $stmt = db()->prepare('SELECT role FROM vacation_admins WHERE email = ?');
+        $stmt->execute([$email]);
+        $row = $stmt->fetch();
+        return $row ? $row['role'] : 'user';
+    } catch (Exception $e) {
+        return 'user';
+    }
+}
+
+function get_all_users(): array {
+    try {
+        $stmt = db()->query('SELECT email FROM virtual_users WHERE enabled=1 ORDER BY email');
+        return $stmt->fetchAll(PDO::FETCH_COLUMN);
+    } catch (Exception $e) {
+        return [];
+    }
+}
+
+function get_all_admins(): array {
+    try {
+        $stmt = db()->query(
+            'SELECT email, role, granted_by, created_at
+             FROM vacation_admins ORDER BY role DESC, email'
+        );
+        return $stmt->fetchAll();
+    } catch (Exception $e) {
+        return [];
+    }
+}
+
+function get_vacation_status(string $email): ?array {
+    try {
+        $stmt = db()->prepare(
+            'SELECT active, date_from, date_to, subject, message, updated_at
+             FROM vacation_status WHERE email = ?'
+        );
+        $stmt->execute([$email]);
+        return $stmt->fetch() ?: null;
+    } catch (Exception $e) {
+        return null;
+    }
+}
+
+// ─── Run maildb-manage via sudo ────────────────────────────────────────────────
+function run_maildb(array $args): array {
+    foreach ($args as $arg) {
+        if (preg_match('/[;&|`$<>\n\r]/', $arg)) {
+            return ['ok' => false, 'output' => 'Invalid characters in argument.'];
+        }
+    }
+    $cmd   = 'sudo ' . escapeshellcmd(MAILDB_MANAGE);
+    $parts = array_map('escapeshellarg', $args);
+    $full  = $cmd . ' ' . implode(' ', $parts) . ' 2>&1';
+    exec($full, $output, $rc);
+    return ['ok' => ($rc === 0), 'output' => implode("\n", $output)];
+}
+
+// ─── Helpers ───────────────────────────────────────────────────────────────────
+function h(string $s): string {
+    return htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
+}
+function validate_date(string $d): bool {
+    $dt = DateTime::createFromFormat('Y-m-d', $d);
+    return $dt && $dt->format('Y-m-d') === $d;
+}
+function validate_email(string $e): bool {
+    return (bool) filter_var($e, FILTER_VALIDATE_EMAIL);
+}
+
+// ─── Request routing ───────────────────────────────────────────────────────────
+$action  = $_POST['action']  ?? $_GET['action']  ?? '';
+$message = '';
+$error   = '';
+
+if ($action === 'login') {
+    $email    = trim($_POST['email']    ?? '');
+    $password = trim($_POST['password'] ?? '');
+    if (!validate_email($email)) {
+        $error = 'Please enter a valid email address.';
+    } elseif (empty($password)) {
+        $error = 'Please enter your password.';
+    } elseif (imap_authenticate($email, $password)) {
+        session_regenerate_id(true);
+        $_SESSION['email'] = $email;
+        $_SESSION['role']  = get_user_role($email);
+        $_SESSION['ts']    = time();
+        header('Location: ?');
+        exit;
+    } else {
+        $error = 'Invalid email address or password.';
+    }
+}
+
+if ($action === 'logout') {
+    session_destroy();
+    header('Location: ?');
+    exit;
+}
+
+if (session_valid()) {
+    $me   = $_SESSION['email'];
+    $role = $_SESSION['role'];
+
+    if ($action === 'set_vacation') {
+        $target  = ($role !== 'user') ? trim($_POST['target_email'] ?? $me) : $me;
+        $dfrom   = trim($_POST['date_from'] ?? '');
+        $dto     = trim($_POST['date_to']   ?? '');
+        $subject = trim($_POST['subject']   ?? '');
+        $msg     = trim($_POST['message']   ?? '');
+
+        if (!validate_date($dfrom) || !validate_date($dto)) {
+            $error = 'Please enter valid dates (YYYY-MM-DD).';
+        } elseif ($dfrom > $dto) {
+            $error = 'Start date must be before end date.';
+        } elseif (empty($subject) || empty($msg)) {
+            $error = 'Subject and message are required.';
+        } elseif (!validate_email($target)) {
+            $error = 'Invalid target email.';
+        } else {
+            $result = run_maildb([
+                'set-vacation', $target,
+                '--from', $dfrom, '--to', $dto,
+                '--subject', $subject, '--message', $msg,
+            ]);
+            if ($result['ok']) {
+                $message = "Vacation reply set for {$target}.";
+            } else {
+                $error = 'Error: ' . h($result['output']);
+            }
+        }
+    }
+
+    if ($action === 'disable_vacation') {
+        $target = ($role !== 'user') ? trim($_POST['target_email'] ?? $me) : $me;
+        if (!validate_email($target)) {
+            $error = 'Invalid target email.';
+        } else {
+            $result = run_maildb(['disable-vacation', $target]);
+            if ($result['ok']) {
+                $message = "Vacation reply disabled for {$target}.";
+            } else {
+                $error = 'Error: ' . h($result['output']);
+            }
+        }
+    }
+
+    if ($action === 'add_admin' && $role === 'superadmin') {
+        $target = trim($_POST['admin_email'] ?? '');
+        if (!validate_email($target)) {
+            $error = 'Invalid email address.';
+        } else {
+            $result = run_maildb(['add-vacation-admin', $target, '--granted-by', $me]);
+            $result['ok'] ? $message = "Admin role granted to {$target}."
+                          : $error   = 'Error: ' . h($result['output']);
+        }
+    }
+
+    if ($action === 'remove_admin' && $role === 'superadmin') {
+        $target = trim($_POST['admin_email'] ?? '');
+        if (!validate_email($target)) {
+            $error = 'Invalid email address.';
+        } else {
+            $result = run_maildb(['remove-vacation-admin', $target]);
+            $result['ok'] ? $message = "Admin role revoked from {$target}."
+                          : $error   = 'Error: ' . h($result['output']);
+        }
+    }
+
+    if ($action === 'set_superadmin' && $role === 'superadmin') {
+        $target = trim($_POST['admin_email'] ?? '');
+        if (!validate_email($target)) {
+            $error = 'Invalid email address.';
+        } else {
+            $result = run_maildb(['set-superadmin', $target]);
+            $result['ok'] ? $message = "{$target} is now superadmin."
+                          : $error   = 'Error: ' . h($result['output']);
+        }
+    }
+}
+
+$view_email    = (session_valid() && $_SESSION['role'] !== 'user')
+    ? (trim($_GET['view'] ?? '') ?: $_SESSION['email'])
+    : (session_valid() ? $_SESSION['email'] : '');
+$view_vacation = $view_email ? get_vacation_status($view_email) : null;
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Postsible – Vacation Manager</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --nc-blue:#0082c9;--nc-blue-dark:#006aa3;--nc-blue-bg:#e8f4fb;
+  --surface:#fff;--surface2:#f5f7fa;--border:#dde3ea;
+  --text:#1a1f2e;--text-muted:#6b7280;
+  --green:#2d7d46;--green-bg:#e8f5ec;
+  --red:#c0392b;--red-bg:#fdf0ee;
+  --yellow:#b45309;--yellow-bg:#fffbeb;
+  --radius:8px;--shadow:0 2px 8px rgba(0,0,0,.10);--shadow-lg:0 4px 20px rgba(0,0,0,.13);
+}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  background:var(--surface2);color:var(--text);min-height:100vh;font-size:15px}
+
+.topbar{background:var(--nc-blue);color:#fff;height:56px;display:flex;
+  align-items:center;padding:0 24px;gap:12px;
+  box-shadow:0 2px 6px rgba(0,0,0,.18);position:sticky;top:0;z-index:100}
+.topbar-logo{width:32px;height:32px;background:rgba(255,255,255,.22);border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  font-weight:700;font-size:16px}
+.topbar-title{font-size:17px;font-weight:600;flex:1}
+.topbar-user{font-size:13px;opacity:.85}
+.topbar-logout{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);
+  color:#fff;padding:5px 14px;border-radius:var(--radius);cursor:pointer;
+  font-size:13px;text-decoration:none;transition:background .15s}
+.topbar-logout:hover{background:rgba(255,255,255,.28)}
+
+.page{max-width:860px;margin:32px auto;padding:0 16px 48px}
+
+.card{background:var(--surface);border-radius:var(--radius);
+  box-shadow:var(--shadow);margin-bottom:24px;overflow:hidden}
+.card-header{background:var(--nc-blue);color:#fff;padding:14px 20px;
+  font-size:15px;font-weight:600;display:flex;align-items:center;gap:8px}
+.card-header .icon{font-size:18px}
+.card-body{padding:20px}
+
+.login-wrap{min-height:100vh;display:flex;align-items:center;
+  justify-content:center;padding:16px}
+.login-card{background:var(--surface);border-radius:var(--radius);
+  box-shadow:var(--shadow-lg);width:100%;max-width:400px;overflow:hidden}
+.login-header{background:var(--nc-blue);color:#fff;padding:28px 24px 22px;text-align:center}
+.login-header h1{font-size:22px;font-weight:700;margin-bottom:4px}
+.login-header p{font-size:13px;opacity:.8}
+.login-body{padding:24px}
+
+.form-group{margin-bottom:16px}
+.form-group label{display:block;font-size:13px;font-weight:600;
+  color:var(--text-muted);margin-bottom:6px;
+  text-transform:uppercase;letter-spacing:.4px}
+.form-group input,.form-group select,.form-group textarea{
+  width:100%;border:1.5px solid var(--border);border-radius:var(--radius);
+  padding:9px 12px;font-size:14px;color:var(--text);background:var(--surface);
+  transition:border-color .15s;font-family:inherit}
+.form-group input:focus,.form-group select:focus,.form-group textarea:focus{
+  outline:none;border-color:var(--nc-blue);
+  box-shadow:0 0 0 3px rgba(0,130,201,.12)}
+.form-group textarea{min-height:100px;resize:vertical}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:520px){.form-row{grid-template-columns:1fr}}
+
+.btn{display:inline-flex;align-items:center;gap:6px;
+  padding:9px 20px;border-radius:var(--radius);border:none;cursor:pointer;
+  font-size:14px;font-weight:600;font-family:inherit;
+  transition:background .15s,box-shadow .15s;text-decoration:none}
+.btn-primary{background:var(--nc-blue);color:#fff}
+.btn-primary:hover{background:var(--nc-blue-dark);box-shadow:var(--shadow)}
+.btn-danger{background:var(--red);color:#fff}
+.btn-danger:hover{background:#a93226;box-shadow:var(--shadow)}
+.btn-ghost{background:transparent;border:1.5px solid var(--border);color:var(--text)}
+.btn-ghost:hover{background:var(--surface2)}
+.btn-sm{padding:5px 12px;font-size:13px}
+.btn-block{width:100%;justify-content:center}
+
+.alert{border-radius:var(--radius);padding:12px 16px;margin-bottom:20px;
+  font-size:14px;display:flex;align-items:flex-start;gap:10px}
+.alert-success{background:var(--green-bg);color:var(--green);border-left:4px solid var(--green)}
+.alert-error{background:var(--red-bg);color:var(--red);border-left:4px solid var(--red)}
+.alert-info{background:var(--nc-blue-bg);color:var(--nc-blue);border-left:4px solid var(--nc-blue)}
+.alert-warning{background:var(--yellow-bg);color:var(--yellow);border-left:4px solid var(--yellow)}
+
+.badge{display:inline-block;padding:3px 10px;border-radius:99px;
+  font-size:12px;font-weight:700;letter-spacing:.3px}
+.badge-active{background:var(--green-bg);color:var(--green)}
+.badge-inactive{background:var(--surface2);color:var(--text-muted)}
+.badge-admin{background:var(--nc-blue-bg);color:var(--nc-blue)}
+.badge-super{background:#fef3c7;color:#92400e}
+
+.vac-status{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;font-size:14px}
+.vac-status .label{font-weight:600;color:var(--text-muted);white-space:nowrap}
+.vac-status .value{color:var(--text);word-break:break-word}
+
+.user-selector{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-bottom:16px}
+.user-selector select{flex:1;min-width:200px}
+
+.admin-table{width:100%;border-collapse:collapse;font-size:14px}
+.admin-table th{text-align:left;padding:8px 12px;border-bottom:2px solid var(--border);
+  font-size:12px;text-transform:uppercase;letter-spacing:.4px;color:var(--text-muted)}
+.admin-table td{padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
+.admin-table tr:last-child td{border-bottom:none}
+.admin-table tr:hover td{background:var(--surface2)}
+
+.tabs{display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px}
+.tab-btn{padding:10px 20px;border:none;background:none;cursor:pointer;
+  font-size:14px;font-weight:600;color:var(--text-muted);
+  border-bottom:2px solid transparent;margin-bottom:-2px;
+  font-family:inherit;transition:color .15s}
+.tab-btn.active{color:var(--nc-blue);border-bottom-color:var(--nc-blue)}
+.tab-btn:hover:not(.active){color:var(--text)}
+.tab-panel{display:none}
+.tab-panel.active{display:block}
+</style>
+</head>
+<body>
+
+<?php if (!session_valid()): ?>
+<div class="login-wrap">
+  <div class="login-card">
+    <div class="login-header">
+      <h1>✈️ Vacation Manager</h1>
+      <p>{{ common_hostname }} – Out-of-office replies</p>
+    </div>
+    <div class="login-body">
+      <?php if ($error): ?><div class="alert alert-error">⚠️ <?= h($error) ?></div><?php endif; ?>
+      <form method="post">
+        <input type="hidden" name="action" value="login">
+        <div class="form-group">
+          <label>Email address</label>
+          <input type="email" name="email" required autofocus
+                 value="<?= h($_POST['email'] ?? '') ?>"
+                 placeholder="you@{{ mail_primary_domain }}">
+        </div>
+        <div class="form-group">
+          <label>Password</label>
+          <input type="password" name="password" required placeholder="Your mail password">
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">Sign in</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<?php else:
+  $me   = $_SESSION['email'];
+  $role = $_SESSION['role'];
+?>
+<div class="topbar">
+  <div class="topbar-logo">V</div>
+  <span class="topbar-title">Vacation Manager</span>
+  <?php if ($role !== 'user'): ?>
+    <span class="badge badge-<?= $role === 'superadmin' ? 'super' : 'admin' ?>">
+      <?= $role === 'superadmin' ? '★ Superadmin' : 'Admin' ?>
+    </span>
+  <?php endif; ?>
+  <span class="topbar-user"><?= h($me) ?></span>
+  <a href="?action=logout" class="topbar-logout">Sign out</a>
+</div>
+
+<div class="page">
+  <?php if ($message && !$error): ?>
+    <div class="alert alert-success">✓ <?= h($message) ?></div>
+  <?php endif; ?>
+  <?php if ($error): ?>
+    <div class="alert alert-error">⚠️ <?= h($error) ?></div>
+  <?php endif; ?>
+
+  <?php
+  $show_tabs  = ($role !== 'user');
+  $active_tab = $_GET['tab'] ?? 'vacation';
+  if (!in_array($active_tab, ['vacation','users','admins'])) $active_tab = 'vacation';
+  ?>
+
+  <?php if ($show_tabs): ?>
+  <div class="tabs">
+    <button class="tab-btn <?= $active_tab === 'vacation' ? 'active' : '' ?>"
+            onclick="switchTab('vacation')">✈️ Vacation</button>
+    <button class="tab-btn <?= $active_tab === 'users' ? 'active' : '' ?>"
+            onclick="switchTab('users')">👥 All Users</button>
+    <?php if ($role === 'superadmin'): ?>
+    <button class="tab-btn <?= $active_tab === 'admins' ? 'active' : '' ?>"
+            onclick="switchTab('admins')">🔑 Admins</button>
+    <?php endif; ?>
+  </div>
+  <?php endif; ?>
+
+  <!-- Tab: Vacation -->
+  <div class="tab-panel <?= (!$show_tabs || $active_tab === 'vacation') ? 'active' : '' ?>"
+       id="tab-vacation">
+
+    <?php if ($role !== 'user'): ?>
+    <div class="card">
+      <div class="card-header"><span class="icon">🔍</span> Select User</div>
+      <div class="card-body">
+        <form method="get" class="user-selector">
+          <input type="hidden" name="tab" value="vacation">
+          <div class="form-group" style="margin:0;flex:1">
+            <label>Manage vacation for</label>
+            <select name="view">
+              <?php foreach (get_all_users() as $u): ?>
+                <option value="<?= h($u) ?>" <?= $u === $view_email ? 'selected' : '' ?>>
+                  <?= h($u) ?>
+                </option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+          <button type="submit" class="btn btn-ghost">Load</button>
+        </form>
+      </div>
+    </div>
+    <?php endif; ?>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="icon">📋</span> Current Status
+        <?php if ($role !== 'user'): ?>– <?= h($view_email) ?><?php endif; ?>
+      </div>
+      <div class="card-body">
+        <?php if ($view_vacation): ?>
+          <div class="vac-status">
+            <span class="label">Status</span>
+            <span class="value">
+              <?php if ($view_vacation['active']): ?>
+                <span class="badge badge-active">● Active</span>
+              <?php else: ?>
+                <span class="badge badge-inactive">○ Inactive</span>
+              <?php endif; ?>
+            </span>
+            <span class="label">Period</span>
+            <span class="value"><?= h($view_vacation['date_from']) ?> → <?= h($view_vacation['date_to']) ?></span>
+            <span class="label">Subject</span>
+            <span class="value"><?= h($view_vacation['subject']) ?></span>
+            <span class="label">Message</span>
+            <span class="value" style="white-space:pre-wrap"><?= h($view_vacation['message']) ?></span>
+            <span class="label">Updated</span>
+            <span class="value"><?= h($view_vacation['updated_at']) ?></span>
+          </div>
+          <?php if ($view_vacation['active']): ?>
+          <form method="post" style="margin-top:16px"
+                onsubmit="return confirm('Disable vacation reply for <?= h($view_email) ?>?')">
+            <input type="hidden" name="action"       value="disable_vacation">
+            <input type="hidden" name="target_email" value="<?= h($view_email) ?>">
+            <button type="submit" class="btn btn-danger btn-sm">✕ Disable vacation reply</button>
+          </form>
+          <?php endif; ?>
+        <?php else: ?>
+          <div class="alert alert-info">No vacation reply configured for <?= h($view_email) ?>.</div>
+        <?php endif; ?>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="icon">✏️</span>
+        <?= ($view_vacation && $view_vacation['active']) ? 'Update' : 'Set' ?> Vacation Reply
+        <?php if ($role !== 'user'): ?>– <?= h($view_email) ?><?php endif; ?>
+      </div>
+      <div class="card-body">
+        <form method="post">
+          <input type="hidden" name="action"       value="set_vacation">
+          <input type="hidden" name="target_email" value="<?= h($view_email) ?>">
+          <div class="form-row">
+            <div class="form-group">
+              <label>From (start date)</label>
+              <input type="date" name="date_from" required
+                     value="<?= h($view_vacation['date_from'] ?? date('Y-m-d')) ?>">
+            </div>
+            <div class="form-group">
+              <label>To (end date)</label>
+              <input type="date" name="date_to" required
+                     value="<?= h($view_vacation['date_to'] ?? '') ?>">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Subject</label>
+            <input type="text" name="subject" required maxlength="255"
+                   placeholder="e.g. Out of office: Max Mustermann"
+                   value="<?= h($view_vacation['subject'] ?? '') ?>">
+          </div>
+          <div class="form-group">
+            <label>Message</label>
+            <textarea name="message" required
+                      placeholder="I am out of office from … to … If urgent, please contact …"
+            ><?= h($view_vacation['message'] ?? '') ?></textarea>
+          </div>
+          <div class="alert alert-info" style="margin-bottom:16px;font-size:13px">
+            ℹ️ Each sender receives at most <strong>one auto-reply per week</strong>.
+          </div>
+          <button type="submit" class="btn btn-primary">✈️ Save vacation reply</button>
+        </form>
+      </div>
+    </div>
+  </div><!-- /tab-vacation -->
+
+  <?php if ($show_tabs): ?>
+  <!-- Tab: All Users -->
+  <div class="tab-panel <?= $active_tab === 'users' ? 'active' : '' ?>" id="tab-users">
+    <div class="card">
+      <div class="card-header"><span class="icon">👥</span> All Users – Vacation Overview</div>
+      <div class="card-body" style="padding:0">
+        <table class="admin-table">
+          <thead><tr><th>User</th><th>Status</th><th>Period</th><th>Actions</th></tr></thead>
+          <tbody>
+          <?php foreach (get_all_users() as $u):
+            $vs = get_vacation_status($u); ?>
+            <tr>
+              <td><?= h($u) ?></td>
+              <td>
+                <?php if ($vs && $vs['active']): ?>
+                  <span class="badge badge-active">● Active</span>
+                <?php elseif ($vs): ?>
+                  <span class="badge badge-inactive">○ Inactive</span>
+                <?php else: ?>
+                  <span class="badge badge-inactive">— None</span>
+                <?php endif; ?>
+              </td>
+              <td><?= $vs ? h($vs['date_from']).' → '.h($vs['date_to']) : '—' ?></td>
+              <td>
+                <a href="?tab=vacation&view=<?= urlencode($u) ?>"
+                   class="btn btn-ghost btn-sm">Edit</a>
+                <?php if ($vs && $vs['active']): ?>
+                <form method="post" style="display:inline"
+                      onsubmit="return confirm('Disable vacation for <?= h($u) ?>?')">
+                  <input type="hidden" name="action"       value="disable_vacation">
+                  <input type="hidden" name="target_email" value="<?= h($u) ?>">
+                  <button type="submit" class="btn btn-danger btn-sm">Off</button>
+                </form>
+                <?php endif; ?>
+              </td>
+            </tr>
+          <?php endforeach; ?>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div><!-- /tab-users -->
+
+  <?php if ($role === 'superadmin'): ?>
+  <!-- Tab: Admin Management -->
+  <div class="tab-panel <?= $active_tab === 'admins' ? 'active' : '' ?>" id="tab-admins">
+    <div class="card">
+      <div class="card-header"><span class="icon">🔑</span> Current Admins</div>
+      <div class="card-body" style="padding:0">
+        <table class="admin-table">
+          <thead><tr><th>Email</th><th>Role</th><th>Granted by</th><th>Since</th><th>Action</th></tr></thead>
+          <tbody>
+          <?php foreach (get_all_admins() as $adm): ?>
+            <tr>
+              <td><?= h($adm['email']) ?></td>
+              <td><span class="badge badge-<?= $adm['role'] === 'superadmin' ? 'super' : 'admin' ?>">
+                <?= h($adm['role']) ?></span></td>
+              <td><?= h($adm['granted_by'] ?: '—') ?></td>
+              <td style="font-size:12px;color:var(--text-muted)"><?= h(substr($adm['created_at'],0,10)) ?></td>
+              <td>
+                <?php if ($adm['role'] !== 'superadmin'): ?>
+                <form method="post" style="display:inline"
+                      onsubmit="return confirm('Revoke admin from <?= h($adm['email']) ?>?')">
+                  <input type="hidden" name="action"      value="remove_admin">
+                  <input type="hidden" name="admin_email" value="<?= h($adm['email']) ?>">
+                  <button type="submit" class="btn btn-danger btn-sm">Revoke</button>
+                </form>
+                <?php else: ?>
+                  <span style="color:var(--text-muted);font-size:12px">protected</span>
+                <?php endif; ?>
+              </td>
+            </tr>
+          <?php endforeach; ?>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><span class="icon">➕</span> Grant Admin Role</div>
+      <div class="card-body">
+        <form method="post" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+          <input type="hidden" name="action" value="add_admin">
+          <div class="form-group" style="margin:0;flex:1;min-width:220px">
+            <label>User email</label>
+            <select name="admin_email">
+              <?php foreach (get_all_users() as $u): ?>
+                <option value="<?= h($u) ?>"><?= h($u) ?></option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+          <button type="submit" class="btn btn-primary">Grant admin</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><span class="icon">★</span> Set Superadmin</div>
+      <div class="card-body">
+        <div class="alert alert-warning" style="margin-bottom:16px;font-size:13px">
+          ⚠️ Superadmin grants full access to all users and admin management. Use with care.
+        </div>
+        <form method="post" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end"
+              onsubmit="return confirm('Set this user as superadmin?')">
+          <input type="hidden" name="action" value="set_superadmin">
+          <div class="form-group" style="margin:0;flex:1;min-width:220px">
+            <label>User email</label>
+            <select name="admin_email">
+              <?php foreach (get_all_users() as $u): ?>
+                <option value="<?= h($u) ?>"><?= h($u) ?></option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+          <button type="submit" class="btn btn-primary">Set superadmin</button>
+        </form>
+      </div>
+    </div>
+  </div><!-- /tab-admins -->
+  <?php endif; // superadmin ?>
+  <?php endif; // show_tabs ?>
+
+</div><!-- /page -->
+<script>
+function switchTab(name) {
+  document.querySelectorAll('.tab-btn').forEach((b,i) => {
+    const names = ['vacation','users','admins'];
+    b.classList.toggle('active', names[i] === name);
+  });
+  document.querySelectorAll('.tab-panel').forEach(p =>
+    p.classList.toggle('active', p.id === 'tab-' + name)
+  );
+  const url = new URL(window.location);
+  url.searchParams.set('tab', name);
+  history.pushState({}, '', url);
+}
+(function(){
+  const tab = new URL(window.location).searchParams.get('tab');
+  if (tab && document.getElementById('tab-' + tab)) switchTab(tab);
+})();
+</script>
+<?php endif; // session_valid ?>
+</body>
+</html>

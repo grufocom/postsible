@@ -1,0 +1,30 @@
+; {{ ansible_managed }}
+; PHP-FPM Pool for Postsible Vacation Manager
+; Separate pool so we can allow exec() for sudo calls
+; while keeping the main www pool locked down
+
+[vacation]
+
+user  = {{ vacation_webserver_user }}
+group = {{ vacation_webserver_user }}
+
+; Dedicated socket so nginx can target this pool specifically
+listen = /run/php/php8.4-fpm-vacation.sock
+listen.owner = {{ vacation_webserver_user }}
+listen.group = www-data
+listen.mode  = 0660
+
+; Process management
+pm                   = dynamic
+pm.max_children      = 5
+pm.start_servers     = 1
+pm.min_spare_servers = 1
+pm.max_spare_servers = 2
+
+; Allow exec() for sudo maildb-manage calls, block everything else dangerous
+php_admin_value[disable_functions] = passthru,shell_exec,system,proc_open,popen,curl_exec,curl_multi_exec,parse_ini_file,show_source
+
+; Logging
+php_admin_value[error_log]    = /var/log/php8.4-fpm-vacation.log
+php_flag[log_errors]          = on
+php_admin_value[display_errors] = off

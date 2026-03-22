@@ -1,0 +1,177 @@
+---
+# roles/vacation/tasks/main.yml
+
+# ── 1. Database tables ────────────────────────────────────────────────────────
+
+- name: Create vacation_admins table
+  community.mysql.mysql_query:
+    login_user: root
+    login_password: "{{ mariadb_root_password }}"
+    login_db: "{{ vacation_db_name }}"
+    query: |
+      CREATE TABLE IF NOT EXISTS vacation_admins (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        email VARCHAR(255) NOT NULL UNIQUE,
+        role ENUM('superadmin', 'admin') DEFAULT 'admin',
+        granted_by VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  tags: vacation_db
+
+- name: Create vacation_status table
+  community.mysql.mysql_query:
+    login_user: root
+    login_password: "{{ mariadb_root_password }}"
+    login_db: "{{ vacation_db_name }}"
+    query: |
+      CREATE TABLE IF NOT EXISTS vacation_status (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        email VARCHAR(255) NOT NULL UNIQUE,
+        active TINYINT(1) DEFAULT 1,
+        date_from DATE NOT NULL,
+        date_to DATE NOT NULL,
+        subject VARCHAR(255) NOT NULL,
+        message TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  tags: vacation_db
+
+- name: Grant SELECT on vacation_admins to mailuser
+  community.mysql.mysql_query:
+    login_user: root
+    login_password: "{{ mariadb_root_password }}"
+    login_db: "{{ vacation_db_name }}"
+    query: "GRANT SELECT ON {{ vacation_db_name }}.vacation_admins TO '{{ vacation_db_user }}'@'{{ mariadb_host }}';"
+  tags: vacation_db
+
+- name: Grant SELECT on vacation_status to mailuser
+  community.mysql.mysql_query:
+    login_user: root
+    login_password: "{{ mariadb_root_password }}"
+    login_db: "{{ vacation_db_name }}"
+    query: "GRANT SELECT ON {{ vacation_db_name }}.vacation_status TO '{{ vacation_db_user }}'@'{{ mariadb_host }}';"
+  tags: vacation_db
+
+- name: Flush privileges
+  community.mysql.mysql_query:
+    login_user: root
+    login_password: "{{ mariadb_root_password }}"
+    login_db: "{{ vacation_db_name }}"
+    query: "FLUSH PRIVILEGES;"
+  tags: vacation_db
+
+# ── 2. maildb-manage template (already handled by mariadb role, ──────────────
+#       but we tag it here so vacation tag also redeploys it) ─────────────────
+
+- name: Deploy maildb-manage with vacation commands
+  ansible.builtin.template:
+    src: "{{ role_path }}/../mariadb/templates/maildb-manage.sh.j2"
+    dest: "{{ vacation_maildb_manage }}"
+    owner: root
+    group: root
+    mode: '0750'
+  tags: vacation_maildb
+
+# ── 3. sudoers rule ───────────────────────────────────────────────────────────
+
+- name: Deploy sudoers rule for vacation web interface
+  ansible.builtin.template:
+    src: postsible-vacation.sudoers.j2
+    dest: /etc/sudoers.d/postsible-vacation
+    owner: root
+    group: root
+    mode: '0440'
+    validate: 'visudo -cf %s'
+  tags: vacation_sudo
+
+# ── 4. PHP-FPM pool ───────────────────────────────────────────────────────────
+
+- name: Deploy dedicated PHP-FPM pool for vacation
+  ansible.builtin.template:
+    src: php-fpm-vacation.conf.j2
+    dest: /etc/php/8.4/fpm/pool.d/vacation.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart php-fpm
+  tags: vacation_php
+
+# ── 5. Web root & PHP app ─────────────────────────────────────────────────────
+
+- name: Create vacation web root directory
+  ansible.builtin.file:
+    path: "{{ vacation_web_root }}"
+    state: directory
+    owner: "{{ vacation_webserver_user }}"
+    group: "{{ vacation_webserver_user }}"
+    mode: '0755'
+  tags: vacation_web
+
+- name: Deploy vacation PHP application
+  ansible.builtin.template:
+    src: index.php.j2
+    dest: "{{ vacation_web_root }}/index.php"
+    owner: "{{ vacation_webserver_user }}"
+    group: "{{ vacation_webserver_user }}"
+    mode: '0640'
+  tags: vacation_web
+
+# ── 5. nginx location block ───────────────────────────────────────────────────
+#    Inserted into the existing vhost template via lineinfile
+
+- name: Insert vacation location block into nginx vhost
+  ansible.builtin.blockinfile:
+    path: /etc/nginx/sites-available/rspamd
+    marker: "# {mark} ANSIBLE MANAGED - vacation location"
+    insertafter: "# INSERT SNAPPY HERE"
+    block: |
+      # Vacation Manager
+      location {{ vacation_web_path }}/ {
+          alias {{ vacation_web_root }}/;
+          index index.php;
+
+          location ~ \.php$ {
+              include        fastcgi_params;
+              fastcgi_pass   unix:{{ vacation_php_fpm_sock }};
+              fastcgi_index  index.php;
+              fastcgi_param  SCRIPT_FILENAME $request_filename;
+          }
+
+          location ~ /\. {
+              deny all;
+          }
+      }
+  notify: reload nginx
+  tags: vacation_nginx
+
+# ── 6. Set admin user as vacation superadmin ──────────────────────────────────
+
+- name: Check if superadmin already set
+  community.mysql.mysql_query:
+    login_user: root
+    login_password: "{{ mariadb_root_password }}"
+    login_db: "{{ vacation_db_name }}"
+    query: "SELECT COUNT(*) AS cnt FROM vacation_admins WHERE email='{{ mail_admin_email }}' AND role='superadmin';"
+  register: superadmin_check
+  tags: vacation_superadmin
+
+- name: Set mail admin as vacation superadmin
+  ansible.builtin.command:
+    cmd: "{{ vacation_maildb_manage }} set-superadmin {{ mail_admin_email }}"
+  when: superadmin_check.query_result[0][0]['cnt'] | int == 0
+  tags: vacation_superadmin
+
+# ── 7. Update deployment summary ──────────────────────────────────────────────
+
+- name: Add vacation info to deployment summary
+  ansible.builtin.blockinfile:
+    path: /etc/postsible/deployment_summary.txt
+    marker: "# {mark} ANSIBLE MANAGED - vacation"
+    block: |
+
+      Vacation Manager:
+      - URL: https://{{ common_hostname }}{{ vacation_web_path }}/
+      - Superadmin: {{ mail_admin_email }}
+      - CLI: maildb-manage set-vacation user@example.com --from YYYY-MM-DD --to YYYY-MM-DD --subject "..." --message "..."
+  tags: vacation_summary

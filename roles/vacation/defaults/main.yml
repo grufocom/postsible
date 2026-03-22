@@ -1,0 +1,26 @@
+---
+# roles/vacation/defaults/main.yml
+
+# Web interface
+vacation_web_root: "/var/www/vacation"
+vacation_web_path: "/vacation"
+
+# PHP-FPM socket - dedicated pool for vacation (allows exec() for sudo calls)
+vacation_php_fpm_sock: "/run/php/php8.4-fpm-vacation.sock"
+
+# IMAP auth settings (localhost TLS, no cert verification needed)
+vacation_imap_host: "127.0.0.1"
+vacation_imap_port: 993
+
+# sudoers: which user runs php-fpm
+vacation_webserver_user: "www-data"
+
+# maildb-manage binary path
+vacation_maildb_manage: "/usr/local/bin/maildb-manage"
+
+# Database user for vacation web interface (read + vacation tables)
+# Uses the existing mariadb_user / mariadb_password from group_vars
+vacation_db_user: "{{ mariadb_user }}"
+vacation_db_pass: "{{ mariadb_password }}"
+vacation_db_name: "{{ mariadb_database }}"
+vacation_db_host: "{{ mariadb_host }}"

@@ -119,6 +119,12 @@
         - security
         - phase5
 
+    # Phase 6: User Features
+    - role: vacation
+      tags:
+        - vacation
+        - phase6
+
   post_tasks:
     - name: Ensure postsible directory exists
       file:
@@ -157,6 +163,7 @@
           - Webmail: https://{{ snappymail_domain }}
           - CalDAV/CardDAV: https://{{ common_hostname }}/dav/
           - InfCloud: https://{{ common_hostname }}/cal/
+          - Vacation Manager: https://{{ common_hostname }}/vacation/
         dest: /root/admin-credentials.txt
         mode: '0600'
       when: admin_user_exists.stdout == "0"
@@ -177,7 +184,7 @@
         - nginx
         - fail2ban
         - php8.4-fpm
-      when: item + '.service' in ansible_facts.services
+      when: ansible_facts.services is defined and (item + '.service') in ansible_facts.services
       tags:
         - always
 
@@ -208,8 +215,9 @@
 
           📍 **Access Information**
           ------------------------
-          Webmail:   https://{{ snappymail_domain }}/wm/
-          Admin URL: https://{{ snappymail_domain }}/wm/?admin
+          Webmail:          https://{{ snappymail_domain }}/wm/
+          Vacation Manager: https://{{ common_hostname }}/vacation/
+          Admin URL:        https://{{ snappymail_domain }}/wm/?admin
 
           IMAP:      {{ common_hostname }}:993 (SSL/TLS)
           SMTP:      {{ common_hostname }}:587 (STARTTLS)
@@ -256,6 +264,8 @@
           Add user:         maildb-manage add-user user@{{ mail_primary_domain }}
           List users:       maildb-manage list-users
           Change password:  maildb-manage change-password user@{{ mail_primary_domain }}
+          Set vacation:     maildb-manage set-vacation user@{{ mail_primary_domain }} --from YYYY-MM-DD --to YYYY-MM-DD --subject "..." --message "..."
+          Disable vacation: maildb-manage disable-vacation user@{{ mail_primary_domain }}
 
           Check queue:      postfix-queue show
           Monitor:          postfix-monitor
@@ -340,6 +350,7 @@
           - "Postsible Mailserver Deployment Complete!"
           - "==================================================="
           - "Webmail: https://{{ snappymail_domain }}"
+          - "Vacation Manager: https://{{ common_hostname }}/vacation/"
           - "Rspamd WebUI: https://{{ common_hostname }}/rspamd"
           - "CalDAV/CardDAV: https://{{ common_hostname }}/dav/"
           - "InfCloud: https://{{ common_hostname }}/cal/"
@@ -377,12 +388,14 @@
           - Certbot (Let's Encrypt)
           - UFW (Firewall)
           - Fail2ban (Intrusion Prevention)
+          - Vacation Manager (Out-of-office replies)
           {% if eset_icap_enabled %}
           - ESET ICAP (Antivirus)
           {% endif %}
 
           Access Points:
           - Webmail: https://{{ snappymail_domain }}
+          - Vacation Manager: https://{{ common_hostname }}/vacation/
           - Rspamd WebUI: https://{{ common_hostname }}/rspamd
           - CalDAV/CardDAV: https://{{ common_hostname }}/dav/
           - InfCloud: https://{{ common_hostname }}/cal/
@@ -401,11 +414,13 @@
           - Admin Credentials: /root/admin-credentials.txt (DELETE AFTER SAVING!)
 
           User Management:
-          - Add user: maildb-manage add-user user@example.com
-          - Add user (auto-password): maildb-manage add-user user@example.com --auto-password
-          - List users: maildb-manage list-users
-          - Change password: maildb-manage change-password user@example.com
-          - Help: maildb-manage help
+          - Add user:         maildb-manage add-user user@example.com
+          - Add user (auto):  maildb-manage add-user user@example.com --auto-password
+          - List users:       maildb-manage list-users
+          - Change password:  maildb-manage change-password user@example.com
+          - Set vacation:     maildb-manage set-vacation user@example.com --from YYYY-MM-DD --to YYYY-MM-DD --subject "..." --message "..."
+          - Disable vacation: maildb-manage disable-vacation user@example.com
+          - Help:             maildb-manage help
         dest: /etc/postsible/deployment_summary.txt
         mode: '0644'
       tags: always

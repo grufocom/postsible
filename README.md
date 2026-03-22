@@ -30,6 +30,7 @@ Postsible aims to make self-hosting email practical again — straightforward, r
 - **🌐 SnappyMail** - Modern webmail interface
 - **📅 Baikal** - CalDAV/CardDAV server for calendars & contacts
 - **🌐 InfCloud** - Web-based CalDAV/CardDAV client (no native app needed)
+- **✈️ Vacation Manager** - Out-of-office auto-replies with web interface & CLI
 - **🔒 Let's Encrypt** - Automatic SSL certificates
 - **🔥 UFW** - Firewall configuration
 - **🚫 Fail2ban** - Brute-force protection (6 jails incl. SnappyMail)
@@ -211,6 +212,12 @@ ansible-playbook playbooks/site.yml --tags phase5 --ask-vault-pass
 ```
 - **fail2ban** - Brute-force protection (6 jails)
 
+### Phase 6: User Features
+```bash
+ansible-playbook playbooks/site.yml --tags phase6 --ask-vault-pass
+```
+- **vacation** - Out-of-office auto-reply manager
+
 ---
 
 ## 🎯 Run Individual Roles
@@ -227,6 +234,9 @@ ansible-playbook playbooks/site.yml --tags rspamd-configure --ask-vault-pass
 
 # Update only Baikal
 ansible-playbook playbooks/site.yml --tags baikal --ask-vault-pass
+
+# Update only Vacation Manager
+ansible-playbook playbooks/site.yml --tags vacation --ask-vault-pass
 ```
 
 ---
@@ -277,6 +287,11 @@ During deployment, Postsible automatically creates an admin user with:
 
 **InfCloud (Calendar/Contacts):**
 - URL: `https://mail.example.com/cal/`
+- Username: Full email address
+- Password: Same as webmail
+
+**Vacation Manager:**
+- URL: `https://mail.example.com/vacation/`
 - Username: Full email address
 - Password: Same as webmail
 
@@ -396,13 +411,46 @@ maildb-manage list-aliases example.com
 maildb-manage remove-alias sales@example.com
 ```
 
+#### Vacation / Out-of-Office Management
+
+```bash
+# Set vacation reply for a user
+maildb-manage set-vacation user@example.com \
+    --from 2026-04-01 \
+    --to 2026-04-14 \
+    --subject "Out of office: John Doe" \
+    --message "I am on vacation until April 14th. For urgent matters please contact info@example.com."
+
+# Show current vacation settings
+maildb-manage get-vacation user@example.com
+
+# Disable vacation reply
+maildb-manage disable-vacation user@example.com
+```
+
+#### Vacation Admin Management
+
+```bash
+# Grant vacation-admin role (can manage vacation for all users)
+maildb-manage add-vacation-admin user@example.com --granted-by admin@example.com
+
+# Revoke vacation-admin role
+maildb-manage remove-vacation-admin user@example.com
+
+# List all vacation admins
+maildb-manage list-vacation-admins
+
+# Set a user as vacation superadmin (can also manage admin roles)
+maildb-manage set-superadmin admin@example.com
+```
+
 #### Statistics & Checks
 
 ```bash
-# Show database statistics
+# Show database statistics (incl. active vacation replies)
 maildb-manage stats
 
-# Check database integrity (Mail + Baikal sync)
+# Check database integrity (Mail + Baikal sync + Sieve scripts)
 maildb-manage check
 
 # Help
@@ -453,6 +501,7 @@ echo "Email: john.doe@example.com"
 echo "Password: $PASSWORD"
 echo "Webmail: https://mail.example.com/wm/"
 echo "Calendar: https://mail.example.com/cal/"
+echo "Vacation: https://mail.example.com/vacation/"
 
 # 3. User can change password after first login via SnappyMail settings
 ```
@@ -571,6 +620,11 @@ After successful deployment:
 - **URL:** `https://mail.example.com/wm/`
 - **Login:** Complete email address + password
 
+### Vacation Manager
+- **URL:** `https://mail.example.com/vacation/`
+- **Login:** Complete email address + password (same as webmail)
+- **Features:** Set/disable out-of-office replies, admin view of all users, role management
+
 ### InfCloud (Web Calendar/Contacts)
 - **URL:** https://mail.example.com/cal/
 - **Login:** Complete email address + password
@@ -610,11 +664,11 @@ https://mail.example.com/cal/
 
 Login: user@example.com + password
 
-✅ Calendars & Events  
-✅ Contacts management  
-✅ Tasks/Todos  
-✅ Mobile-friendly  
-✅ Multi-user ready  
+✅ Calendars & Events
+✅ Contacts management
+✅ Tasks/Todos
+✅ Mobile-friendly
+✅ Multi-user ready
 ✅ Automatic user provisioning via maildb-manage
 
 🔧 **Baikal - Server Backend (Mobile/Desktop Sync)**
@@ -652,13 +706,90 @@ When users are created via `maildb-manage add-user`:
 
 ### 📦 Import Existing Data
 
-**Import Calendars (.ics)**  
+**Import Calendars (.ics)**
 Recommended: Thunderbird + Lightning → Import → Syncs to Baikal
 
-**Import Contacts (.vcf)**  
+**Import Contacts (.vcf)**
 Recommended: Thunderbird + CardBook → Import → Syncs to Baikal
 
 No manual database imports needed - data syncs automatically to server.
+
+---
+
+## ✈️ Vacation Manager (Out-of-Office Replies)
+
+Postsible includes a fully integrated vacation/out-of-office reply system based on **Dovecot Sieve**. Replies are handled entirely server-side — no mail client needs to be running.
+
+### How It Works
+
+- Vacation replies are implemented as Sieve scripts (`.dovecot.sieve`) in each user's home directory
+- Each sender receives **at most one auto-reply per week**, regardless of how many mails they send
+- The active period (from/to dates) is enforced by the Sieve script itself
+- All settings are stored in MariaDB (`vacation_status` table) and on disk simultaneously
+
+### Web Interface
+
+**URL:** `https://mail.example.com/vacation/`
+
+Users log in with their regular mail credentials. The interface has three access levels:
+
+| Role | Can do |
+|------|--------|
+| **User** | Set/update/disable own vacation reply |
+| **Admin** | Manage vacation for all users |
+| **Superadmin** | Admin management + grant/revoke admin roles |
+
+The first superadmin is set automatically during deployment (`mail_admin_email`).
+
+### CLI Usage
+
+```bash
+# Set vacation reply
+maildb-manage set-vacation user@example.com \
+    --from 2026-04-01 \
+    --to 2026-04-14 \
+    --subject "Out of office: John Doe" \
+    --message "I am on vacation until April 14th. For urgent matters please contact info@example.com."
+
+# Check current status
+maildb-manage get-vacation user@example.com
+
+# Disable vacation reply
+maildb-manage disable-vacation user@example.com
+
+# Admin role management
+maildb-manage add-vacation-admin secretary@example.com --granted-by admin@example.com
+maildb-manage remove-vacation-admin secretary@example.com
+maildb-manage list-vacation-admins
+maildb-manage set-superadmin admin@example.com
+```
+
+### Required Dovecot Sieve Extensions
+
+The following extensions must be enabled in your Dovecot Sieve configuration (`90-sieve.conf`):
+
+```
+sieve_extensions = fileinto mailbox vacation vacation-seconds relational date envelope comparator-i ascii-numeric imap4flags
+```
+
+**Important:** Both `date` (for the from/to date range check) and `envelope` (for filtering no-reply senders) are required. Without them, the Sieve script will fail to compile and no auto-reply will be sent. Check the Sieve log if replies are not working:
+
+```bash
+cat /srv/imap/DOMAIN/USERNAME/.dovecot.sieve.log
+```
+
+### Architecture
+
+```
+User/Admin → Web Interface (PHP)
+                  ↓ sudo
+            maildb-manage set-vacation
+                  ↓
+    writes → .dovecot.sieve  (Sieve script, picked up by Dovecot on next mail delivery)
+    writes → vacation_status  (MariaDB, for web interface display)
+```
+
+The PHP web interface runs in a **dedicated PHP-FPM pool** (`vacation`) with `exec()` enabled (required for `sudo maildb-manage` calls), while the main `www` pool remains fully locked down.
 
 ---
 
@@ -675,9 +806,11 @@ tail -f /var/log/rspamd/rspamd.log
 # Nginx logs
 tail -f /var/log/nginx/access.log
 
-# Baikal logs (via Nginx)
-tail -f /var/log/nginx/rspamd-access.log
-tail -f /var/log/nginx/rspamd-error.log
+# Vacation Manager PHP errors
+tail -f /var/log/php8.4-fpm-vacation.log
+
+# Sieve script compilation errors (per user)
+cat /srv/imap/DOMAIN/USERNAME/.dovecot.sieve.log
 ```
 
 ### Service Status
@@ -739,8 +872,8 @@ mysql -u root -p mailserver -e "
 
 Postsible supports subaddressing using the + symbol. This allows users to add arbitrary suffixes to their email addresses without creating new mailboxes.
 
-**Example:**  
-Primary address: `hans.meiser@domain.com`  
+**Example:**
+Primary address: `hans.meiser@domain.com`
 Subaddress: `hans.meiser+newsletter@domain.com`
 
 All emails will automatically be delivered to the hans.meiser mailbox.
@@ -752,10 +885,10 @@ All emails will automatically be delivered to the hans.meiser mailbox.
 
 **Technical Details:**
 
-Postfix: `main.cf` contains `recipient_delimiter = +`  
+Postfix: `main.cf` contains `recipient_delimiter = +`
 Dovecot: `10-mail.conf` contains `mailbox_delimiter = +`
 
-**SQL Maps:** virtual-mailbox-maps, virtual-alias-maps, email2email handle the stripping of the + suffix  
+**SQL Maps:** virtual-mailbox-maps, virtual-alias-maps, email2email handle the stripping of the + suffix
 Dovecot SQL Queries: `%{u}@%{d}` ensures correct user resolution
 
 **Admin Examples:**
@@ -800,7 +933,7 @@ Thunderbird / Lightning expects the XML at:
 https://autoconfig.example.com/mail/config-v1.1.xml
 ```
 
-Certbot automatically requests certificates for the autoconfig subdomain.  
+Certbot automatically requests certificates for the autoconfig subdomain.
 Nginx handles both HTTP → HTTPS redirection and serving of autoconfig files.
 
 **Example structure for multiple domains:**
@@ -884,6 +1017,23 @@ maildb-manage change-password admin@example.com --auto-password
 maildb-manage change-password admin@example.com --password 'NewSecurePass123!'
 ```
 
+### Vacation Reply Not Sent
+
+```bash
+# 1. Check if Sieve script exists and was compiled
+ls -la /srv/imap/DOMAIN/USERNAME/.dovecot.sieve
+ls -la /srv/imap/DOMAIN/USERNAME/.dovecot.svbin
+
+# 2. Check compilation log for errors
+cat /srv/imap/DOMAIN/USERNAME/.dovecot.sieve.log
+
+# 3. Manually recompile the script
+sievec /srv/imap/DOMAIN/USERNAME/.dovecot.sieve
+
+# 4. Check vacation status in database
+maildb-manage get-vacation user@example.com
+```
+
 ### Baikal Not Working
 ```bash
 # Check PHP-FPM status
@@ -944,6 +1094,14 @@ postsible/
 │   ├── snappymail/                         # Webmail
 │   ├── baikal/                             # CalDAV/CardDAV server
 │   ├── infcloud/                           # Web CalDAV/CardDAV client
+│   ├── vacation/                           # Out-of-office reply manager
+│   │   ├── defaults/main.yml               # Configuration defaults
+│   │   ├── handlers/main.yml               # Service reload handlers
+│   │   ├── tasks/main.yml                  # Deployment tasks
+│   │   └── templates/
+│   │       ├── index.php.j2                # Web interface
+│   │       ├── php-fpm-vacation.conf.j2    # Dedicated PHP-FPM pool
+│   │       └── postsible-vacation.sudoers.j2 # sudo rules for web interface
 │   ├── fail2ban/                           # Brute-force protection
 │   └── eset_icap/                          # Antivirus (optional)
 ├── playbooks/
@@ -965,10 +1123,10 @@ ansible-playbook playbooks/maintenance.yml --tags update --ask-vault-pass
 
 ### Backup Important Data
 ```bash
-# MariaDB (incl. Baikal data)
+# MariaDB (incl. Baikal data and vacation settings)
 mysqldump -u root -p mailserver > mailserver-backup.sql
 
-# Mailboxes
+# Mailboxes (incl. Sieve scripts)
 tar czf mailboxes-backup.tar.gz /srv/imap/
 
 # Baikal data (if separate files exist)
@@ -983,17 +1141,21 @@ tar czf config-backup.tar.gz /etc/postfix /etc/dovecot /etc/rspamd /etc/nginx
 ## 🤝 Known Issues & Solutions
 
 ### rspamd Neural Network Crashes
-**Problem:** Neural network module causes segmentation faults  
-**Solution:** Neural network is disabled by default (`rspamd_enable_neural: false`)  
+**Problem:** Neural network module causes segmentation faults
+**Solution:** Neural network is disabled by default (`rspamd_enable_neural: false`)
 **Bayes filter alone is sufficient for 95% of spam detection**
 
 ### sign_headers Causes DKIM Crash
-**Problem:** Custom `sign_headers` list leads to rspamd crash  
+**Problem:** Custom `sign_headers` list leads to rspamd crash
 **Solution:** Removed from template, rspamd uses sensible defaults
 
 ### Baikal Calendars Not Deleted
-**Problem:** Manual user deletion leaves Baikal data behind  
+**Problem:** Manual user deletion leaves Baikal data behind
 **Solution:** Always use `maildb-manage remove-user` - the script automatically removes all Baikal data (calendars, calendarinstances, addressbooks, cards, principals)
+
+### Vacation Reply Not Working After Setup
+**Problem:** Sieve script exists but no reply is sent
+**Solution:** Check that both `date` and `envelope` extensions are listed in `sieve_extensions` in `/etc/dovecot/conf.d/90-sieve.conf`. Both are required — `date` for the from/to date range, `envelope` for filtering no-reply senders. Neither is enabled by default in all Dovecot distributions. See [Vacation Reply Not Sent](#vacation-reply-not-sent) for the full checklist.
 
 ---
 
@@ -1002,6 +1164,7 @@ tar czf config-backup.tar.gz /etc/postfix /etc/dovecot /etc/rspamd /etc/nginx
 - **Rspamd:** https://rspamd.com/doc/
 - **Postfix:** http://www.postfix.org/documentation.html
 - **Dovecot:** https://doc.dovecot.org/
+- **Dovecot Sieve:** https://doc.dovecot.org/configuration_manual/sieve/
 - **SnappyMail:** https://snappymail.eu/
 - **Baikal:** https://sabre.io/baikal/
 - **fail2ban:** https://github.com/fail2ban/fail2ban/wiki
@@ -1018,7 +1181,7 @@ MIT License - see [LICENSE](LICENSE) file
 
 Developed as a comprehensive mail server solution focusing on:
 - **Security** (DKIM, SPF, DMARC, fail2ban, SSL)
-- **User-friendliness** (Interactive setup, automatic config, CalDAV/CardDAV)
+- **User-friendliness** (Interactive setup, automatic config, CalDAV/CardDAV, vacation manager)
 - **Maintainability** (Ansible, modular structure, good documentation)
 - **Production-readiness** (Tested, stable, best practices)
 
@@ -1027,7 +1190,7 @@ Developed as a comprehensive mail server solution focusing on:
 ## 💡 Support
 
 For issues:
-1. Check logs (`/var/log/mail/`, `/var/log/rspamd/`, `/var/log/nginx/`)
+1. Check logs (`/var/log/mail/`, `/var/log/rspamd/`, `/var/log/nginx/`, `/var/log/php8.4-fpm-vacation.log`)
 2. Check service status (`systemctl status postfix dovecot rspamd php8.4-fpm`)
 3. Create GitHub issues: https://github.com/grufocom/postsible/issues
 4. Consult community forum
