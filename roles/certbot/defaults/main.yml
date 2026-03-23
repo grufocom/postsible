@@ -41,3 +41,6 @@ certbot_cert_path: "/etc/letsencrypt/live"
 
 # Force renewal (useful for testing)
 certbot_force_renewal: false
+
+# marker if dns is not correctly set to mx record
+certbot_pending_marker: /var/lib/postsible/certbot.pending

@@ -81,6 +81,7 @@
   tags: certbot
 
 # ── Decide: certbot or self-signed ────────────────────────────────────────────
+# Diese Definition MUSS VOR der Verwendung von certbot_should_run kommen!
 
 - name: Determine if certbot should run
   set_fact:
@@ -88,7 +89,37 @@
       {{ not (certbot_skip | default(false)) and (certbot_dns_ok | default(true)) }}
   tags: certbot
 
-- name: Display certificate strategy
+# ── Pending marker management ─────────────────────────────────────────────────
+# Dieser Block kommt JETZT, nachdem certbot_should_run definiert wurde
+
+- name: Ensure pending marker directory exists
+  file:
+    path: "{{ certbot_pending_marker | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when: certbot_pending_marker is defined
+  tags: certbot
+
+- name: Check if pending marker exists
+  stat:
+    path: "{{ certbot_pending_marker }}"
+  register: pending_marker_stat
+  when: certbot_pending_marker is defined
+  tags: certbot
+
+- name: Set pending marker when DNS is not ready
+  file:
+    path: "{{ certbot_pending_marker }}"
+    state: touch
+  when:
+    - certbot_pending_marker is defined
+    - not certbot_should_run
+    - not certbot_skip | default(false)
+  tags: certbot
+
+- name: Display certificate strategy with pending status
   debug:
     msg: >-
       Certificate strategy:
@@ -96,6 +127,9 @@
       SELF-SIGNED (certbot_skip=true in vars)
       {% elif not (certbot_dns_ok | default(true)) %}
       SELF-SIGNED (DNS for {{ certbot_domains[0] }} does not point to this server yet)
+      {% if certbot_pending_marker is defined and pending_marker_stat.stat.exists %}
+      ⚠️  PENDING marker exists! Certificate will be obtained once DNS is corrected.
+      {% endif %}
       {% else %}
       LET'S ENCRYPT (DNS ok, running certbot)
       {% endif %}
@@ -201,19 +235,23 @@
     - "'Certificate not yet due for renewal' not in certbot_result.stdout"
   tags: certbot
 
+- name: Remove pending marker if certbot succeeded
+  file:
+    path: "{{ certbot_pending_marker }}"
+    state: absent
+  when:
+    - certbot_pending_marker is defined
+    - certbot_should_run
+    - certbot_result is defined
+    - certbot_result.changed or (certbot_result is not failed)
+  tags: certbot
+
 - name: Set certificate paths to Let's Encrypt
   set_fact:
     active_cert_path: "{{ certbot_cert_path }}/{{ certbot_domains[0] }}"
     active_fullchain: "{{ certbot_cert_path }}/{{ certbot_domains[0] }}/fullchain.pem"
     active_privkey:   "{{ certbot_cert_path }}/{{ certbot_domains[0] }}/privkey.pem"
     active_is_selfsigned: false
-  when: certbot_should_run
-  tags: certbot
-
-- name: Remove pending marker if certbot succeeded
-  file:
-    path: "{{ certbot_pending_marker }}"
-    state: absent
   when: certbot_should_run
   tags: certbot
 
@@ -395,3 +433,4 @@
           Auto-renewal: enabled via certbot.timer
       {% endif %}
   tags: certbot
+
