@@ -74,6 +74,8 @@
     msg: "⚠️  WARNING: Invalid IP address '{{ item.ip }}' will be ignored!"
   loop: "{{ ufw_ssh_trusted_ips | default([]) }}"
   when:
+    - ufw_ssh_trusted_ips is defined
+    - ufw_ssh_trusted_ips | length > 0
     - item.ip is defined
     - item.ip is not match(ipv4_regex + '|' + ipv6_regex)
   tags: ufw
