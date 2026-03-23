@@ -427,7 +427,7 @@ ufw_ssh_trusted_ips:
   #   comment: 'Home Office IP'
   # - ip: "YOUR_OFFICE_IP/24"
   #   comment: 'Your Office IP/24'
-		# - ip: 2001:db8::1
+  # - ip: 2001:db8::1
   #   comment: 'IPv6 Office'
   # ^ uncomment and add your own IPs here if you want to block ssh access to your server - which you really should! :-)
 # How it works:
