@@ -1,8 +1,13 @@
 ---
-# Certbot main tasks
+# roles/certbot/tasks/main.yml
+# Issues one certificate per mx_hostname.
+# Falls back to self-signed when DNS is not yet pointing to this server.
+# On the next run, if DNS is correct, Let's Encrypt replaces self-signed.
 
-- name: Install Certbot and Nginx plugin
-  apt:
+# ── 1. Install packages ───────────────────────────────────────────────────────
+
+- name: Install certbot and tools
+  ansible.builtin.apt:
     name:
       - certbot
       - python3-certbot-nginx
@@ -13,7 +18,7 @@
   tags: certbot
 
 - name: Ensure webroot directory exists
-  file:
+  ansible.builtin.file:
     path: "{{ certbot_webroot }}"
     state: directory
     owner: www-data
@@ -21,343 +26,107 @@
     mode: '0755'
   tags: certbot
 
-- name: Add dovecot to ssl-cert group (for Let's Encrypt access)
-  user:
+- name: Ensure pending/cert status directory exists
+  ansible.builtin.file:
+    path: "{{ certbot_pending_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  tags: certbot
+
+- name: Add dovecot to ssl-cert group
+  ansible.builtin.user:
     name: dovecot
     groups: ssl-cert
     append: yes
   tags: certbot
 
-# ── DNS check ─────────────────────────────────────────────────────────────────
+# ── 2. Deploy self-signed generator script ────────────────────────────────────
 
-- name: Get server's public IP address
-  uri:
+- name: Deploy self-signed certificate generator
+  ansible.builtin.template:
+    src: generate-selfsigned.sh.j2
+    dest: "{{ certbot_selfsigned_script }}"
+    owner: root
+    group: root
+    mode: '0750'
+  tags: certbot
+
+# ── 3. Get server's public IP ─────────────────────────────────────────────────
+
+- name: Get server public IP
+  ansible.builtin.uri:
     url: https://api.ipify.org
     return_content: yes
     timeout: 5
   register: public_ip_result
   failed_when: false
   changed_when: false
-  when: certbot_dns_check and not certbot_skip
   tags: certbot
 
-- name: Determine server IP (public if available, otherwise default IPv4)
-  set_fact:
-    certbot_server_ip: >-
-      {{ public_ip_result.content | default(ansible_default_ipv4.address) | trim }}
-  when: certbot_dns_check and not certbot_skip
+- name: Set server IP fact
+  ansible.builtin.set_fact:
+    certbot_server_ip: "{{ public_ip_result.content | default(ansible_default_ipv4.address) | trim }}"
   tags: certbot
 
-- name: Resolve primary domain via DNS
-  command: "dig +short {{ certbot_domains[0] }} A"
-  register: dns_result
-  changed_when: false
-  failed_when: false
-  when: certbot_dns_check and not certbot_skip
-  tags: certbot
+# ── 4. Process each mx_hostname ───────────────────────────────────────────────
 
-- name: Evaluate DNS check result
-  set_fact:
-    certbot_dns_ok: >-
-      {{ dns_result.stdout | default('') | trim == certbot_server_ip | trim }}
-  when: certbot_dns_check and not certbot_skip
-  tags: certbot
-
-# If DNS check is disabled, treat DNS as OK (rely on certbot_skip instead)
-- name: Set DNS ok when check is disabled
-  set_fact:
-    certbot_dns_ok: true
-  when: not certbot_dns_check or certbot_skip is not defined
-  tags: certbot
-
-- name: Display DNS check result
-  debug:
-    msg: >-
-      DNS check for {{ certbot_domains[0] }}:
-      resolved={{ dns_result.stdout | default('(not resolved)') | trim }},
-      server={{ certbot_server_ip | default(ansible_default_ipv4.address) }},
-      match={{ certbot_dns_ok | default(false) }}
-  when: certbot_dns_check and not certbot_skip
-  tags: certbot
-
-# ── Decide: certbot or self-signed ────────────────────────────────────────────
-# Diese Definition MUSS VOR der Verwendung von certbot_should_run kommen!
-
-- name: Determine if certbot should run
-  set_fact:
-    certbot_should_run: >-
-      {{ not (certbot_skip | default(false)) and (certbot_dns_ok | default(true)) }}
-  tags: certbot
-
-# ── Pending marker management ─────────────────────────────────────────────────
-# Dieser Block kommt JETZT, nachdem certbot_should_run definiert wurde
-
-- name: Ensure pending marker directory exists
-  file:
-    path: "{{ certbot_pending_marker | dirname }}"
-    state: directory
-    owner: root
-    group: root
-    mode: '0755'
-  when: certbot_pending_marker is defined
-  tags: certbot
-
-- name: Check if pending marker exists
-  stat:
-    path: "{{ certbot_pending_marker }}"
-  register: pending_marker_stat
-  when: certbot_pending_marker is defined
-  tags: certbot
-
-- name: Set pending marker when DNS is not ready
-  file:
-    path: "{{ certbot_pending_marker }}"
-    state: touch
-  when:
-    - certbot_pending_marker is defined
-    - not certbot_should_run
-    - not certbot_skip | default(false)
-  tags: certbot
-
-- name: Display certificate strategy with pending status
-  debug:
-    msg: >-
-      Certificate strategy:
-      {% if certbot_skip %}
-      SELF-SIGNED (certbot_skip=true in vars)
-      {% elif not (certbot_dns_ok | default(true)) %}
-      SELF-SIGNED (DNS for {{ certbot_domains[0] }} does not point to this server yet)
-      {% if certbot_pending_marker is defined and pending_marker_stat.stat.exists %}
-      ⚠️  PENDING marker exists! Certificate will be obtained once DNS is corrected.
-      {% endif %}
-      {% else %}
-      LET'S ENCRYPT (DNS ok, running certbot)
-      {% endif %}
-  tags: certbot
-
-# ── Self-signed fallback path ─────────────────────────────────────────────────
-
-- name: Create self-signed certificate directory
-  file:
-    path: "{{ certbot_selfsigned_dir }}"
-    state: directory
-    owner: root
-    group: ssl-cert
-    mode: '0750'
-  when: not certbot_should_run
-  tags: certbot
-
-- name: Deploy self-signed certificate generation script
-  template:
-    src: generate-selfsigned.sh.j2
-    dest: /usr/local/bin/postsible-generate-selfsigned
-    owner: root
-    group: root
-    mode: '0750'
-  when: not certbot_should_run
-  tags: certbot
-
-- name: Check if self-signed certificate already exists
-  stat:
-    path: "{{ certbot_selfsigned_dir }}/fullchain.pem"
-  register: selfsigned_exists
-  when: not certbot_should_run
-  tags: certbot
-
-- name: Generate self-signed certificate
-  command: /usr/local/bin/postsible-generate-selfsigned
-  when:
-    - not certbot_should_run
-    - not selfsigned_exists.stat.exists
-  register: selfsigned_result
-  tags: certbot
-
-- name: Set certificate paths to self-signed
-  set_fact:
-    active_cert_path: "{{ certbot_selfsigned_dir }}"
-    active_fullchain: "{{ certbot_selfsigned_dir }}/fullchain.pem"
-    active_privkey:   "{{ certbot_selfsigned_dir }}/privkey.pem"
-    active_is_selfsigned: true
-  when: not certbot_should_run
-  tags: certbot
-
-# ── Let's Encrypt path ────────────────────────────────────────────────────────
-
-- name: Fix Let's Encrypt directory permissions
-  file:
-    path: "{{ item }}"
-    state: directory
-    mode: '0750'
-    group: ssl-cert
-  loop:
-    - /etc/letsencrypt/live
-    - /etc/letsencrypt/archive
-  when: certbot_should_run
-  tags: certbot
-
-- name: Check if certificates already exist
-  stat:
-    path: "{{ certbot_cert_path }}/{{ item }}/fullchain.pem"
-  register: cert_exists
-  loop: "{{ certbot_domains }}"
-  when: certbot_should_run
-  tags: certbot
-
-- name: Display certificate status
-  debug:
-    msg: "Certificate for {{ item.item }}: {{ 'EXISTS' if item.stat.exists else 'NOT FOUND' }}"
-  loop: "{{ cert_exists.results }}"
+- name: Process SSL certificate for each mx_hostname
+  ansible.builtin.include_tasks: cert_for_host.yml
+  loop: "{{ mail_virtual_domains }}"
   loop_control:
-    label: "{{ item.item }}"
-  when: certbot_should_run
+    loop_var: vdomain
+    label: "{{ vdomain.mx_hostname }}"
   tags: certbot
 
-- name: Obtain SSL certificates for each domain
-  command: >
-    certbot certonly
-    --nginx
-    --non-interactive
-    --agree-tos
-    --email {{ certbot_email }}
-    --domain {{ item.item }}
-    --rsa-key-size {{ certbot_rsa_key_size }}
-    {{ '--staging' if certbot_staging else '' }}
-    {{ '--force-renewal' if certbot_force_renewal else '' }}
-  loop: "{{ cert_exists.results }}"
-  loop_control:
-    label: "{{ item.item }}"
-  when:
-    - certbot_should_run
-    - not item.stat.exists or certbot_force_renewal
-  register: certbot_result
-  failed_when:
-    - certbot_result.rc != 0
-    - "'Certificate not yet due for renewal' not in certbot_result.stdout"
-  tags: certbot
+# ── 5. Configure services with certificates ───────────────────────────────────
+# Use the primary domain's certificate for Postfix/Dovecot
 
-- name: Remove pending marker if certbot succeeded
-  file:
-    path: "{{ certbot_pending_marker }}"
-    state: absent
-  when:
-    - certbot_pending_marker is defined
-    - certbot_should_run
-    - certbot_result is defined
-    - certbot_result.changed or (certbot_result is not failed)
-  tags: certbot
-
-- name: Set certificate paths to Let's Encrypt
-  set_fact:
-    active_cert_path: "{{ certbot_cert_path }}/{{ certbot_domains[0] }}"
-    active_fullchain: "{{ certbot_cert_path }}/{{ certbot_domains[0] }}/fullchain.pem"
-    active_privkey:   "{{ certbot_cert_path }}/{{ certbot_domains[0] }}/privkey.pem"
-    active_is_selfsigned: false
-  when: certbot_should_run
-  tags: certbot
-
-# ── Renewal hooks (Let's Encrypt only) ───────────────────────────────────────
-
-- name: Create renewal hooks directory
-  file:
-    path: /etc/letsencrypt/renewal-hooks/deploy
-    state: directory
-    owner: root
-    group: root
-    mode: '0755'
-  when: certbot_should_run
-  tags: certbot
-
-- name: Create deploy hook for permissions (runs on every renewal)
-  template:
-    src: deploy-hook.sh.j2
-    dest: /etc/letsencrypt/renewal-hooks/deploy/fix-permissions.sh
-    owner: root
-    group: root
-    mode: '0755'
-  when: certbot_should_run
-  tags: certbot
-
-- name: Create post-renewal hook script (reload services)
-  template:
-    src: renewal-hook.sh.j2
-    dest: /etc/letsencrypt/renewal-hooks/post/reload-services.sh
-    owner: root
-    group: root
-    mode: '0755'
-  when:
-    - certbot_should_run
-    - certbot_renewal_hooks_enabled
-  tags: certbot
-
-- name: Test certbot renewal (dry-run)
-  command: certbot renew --dry-run
-  register: certbot_test
-  changed_when: false
-  failed_when: false
-  when:
-    - certbot_should_run
-    - certbot_enable_dry_run | default(false)
-  tags: certbot
-
-- name: Display certbot test result
-  debug:
-    msg: "{{ certbot_test.stdout_lines }}"
-  when: certbot_test.stdout_lines is defined
-  tags: certbot
-
-# ── Configure services with active certificate (both paths) ───────────────────
-
-- name: Update Nginx VHost to use active certificate
-  template:
-    src: rspamd-vhost-ssl.conf.j2
-    dest: /etc/nginx/sites-available/rspamd
-    owner: root
-    group: root
-    mode: '0644'
-  vars:
-    # Override cert paths in the vhost template with the active ones
-    certbot_cert_path_active: "{{ active_cert_path }}"
-  notify: reload nginx
+- name: Set primary certificate facts
+  ansible.builtin.set_fact:
+    primary_cert_fullchain: "{{ certbot_cert_path }}/{{ mail_virtual_domains[0].mx_hostname }}/fullchain.pem"
+    primary_cert_privkey:   "{{ certbot_cert_path }}/{{ mail_virtual_domains[0].mx_hostname }}/privkey.pem"
   tags: certbot
 
 - name: Update Postfix TLS configuration
-  lineinfile:
+  ansible.builtin.lineinfile:
     path: /etc/postfix/main.cf
     regexp: "{{ item.regexp }}"
     line: "{{ item.line }}"
     state: present
   loop:
     - regexp: '^smtpd_tls_cert_file\s*='
-      line: "smtpd_tls_cert_file = {{ active_fullchain }}"
+      line: "smtpd_tls_cert_file = {{ primary_cert_fullchain }}"
     - regexp: '^smtpd_tls_key_file\s*='
-      line: "smtpd_tls_key_file = {{ active_privkey }}"
+      line: "smtpd_tls_key_file = {{ primary_cert_privkey }}"
     - regexp: '^smtp_tls_cert_file\s*='
-      line: "smtp_tls_cert_file = {{ active_fullchain }}"
+      line: "smtp_tls_cert_file = {{ primary_cert_fullchain }}"
     - regexp: '^smtp_tls_key_file\s*='
-      line: "smtp_tls_key_file = {{ active_privkey }}"
+      line: "smtp_tls_key_file = {{ primary_cert_privkey }}"
     - regexp: '^smtpd_tls_security_level\s*='
       line: "smtpd_tls_security_level = may"
   notify: reload postfix
   tags: certbot
 
-- name: Update Dovecot SSL configuration (Dovecot 2.4+)
-  lineinfile:
+- name: Update Dovecot SSL configuration
+  ansible.builtin.lineinfile:
     path: /etc/dovecot/conf.d/10-ssl.conf
     regexp: "{{ item.regexp }}"
     line: "{{ item.line }}"
     state: present
   loop:
     - regexp: '^ssl_server_cert_file\s*='
-      line: "ssl_server_cert_file = {{ active_fullchain }}"
+      line: "ssl_server_cert_file = {{ primary_cert_fullchain }}"
     - regexp: '^ssl_server_key_file\s*='
-      line: "ssl_server_key_file = {{ active_privkey }}"
+      line: "ssl_server_key_file = {{ primary_cert_privkey }}"
     - regexp: '^ssl\s*='
       line: "ssl = required"
   notify: reload dovecot
   tags: certbot
 
-- name: Remove deprecated Dovecot SSL directives (cleanup)
-  lineinfile:
+- name: Remove deprecated Dovecot SSL directives
+  ansible.builtin.lineinfile:
     path: /etc/dovecot/conf.d/10-ssl.conf
     regexp: "{{ item }}"
     state: absent
@@ -367,51 +136,73 @@
   notify: reload dovecot
   tags: certbot
 
-- name: Ensure certbot timer is enabled
-  systemd:
+# ── 6. Renewal hooks ──────────────────────────────────────────────────────────
+
+- name: Create renewal hooks directory
+  ansible.builtin.file:
+    path: /etc/letsencrypt/renewal-hooks/deploy
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  tags: certbot
+
+- name: Create renewal hooks directory (post)
+  ansible.builtin.file:
+    path: /etc/letsencrypt/renewal-hooks/post
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  tags: certbot
+
+- name: Deploy certbot deploy hook
+  ansible.builtin.template:
+    src: deploy-hook.sh.j2
+    dest: /etc/letsencrypt/renewal-hooks/deploy/fix-permissions.sh
+    owner: root
+    group: root
+    mode: '0755'
+  tags: certbot
+
+- name: Deploy certbot post-renewal hook
+  ansible.builtin.template:
+    src: renewal-hook.sh.j2
+    dest: /etc/letsencrypt/renewal-hooks/post/reload-services.sh
+    owner: root
+    group: root
+    mode: '0755'
+  when: certbot_renewal_hooks_enabled
+  tags: certbot
+
+- name: Enable certbot timer
+  ansible.builtin.systemd:
     name: certbot.timer
     enabled: yes
     state: started
-  when: certbot_should_run
   tags: certbot
 
-# ── Update nginx vhost template to use active_cert_path ──────────────────────
-# The nginx template uses certbot_cert_path/certbot_domains[0] by default.
-# When self-signed is active we patch the nginx config directly afterwards
-# to point at the correct cert files.
+# ── 7. Deployment summary ─────────────────────────────────────────────────────
 
-- name: Patch nginx vhost SSL cert paths when using self-signed
-  lineinfile:
-    path: /etc/nginx/sites-available/rspamd
-    regexp: "{{ item.regexp }}"
-    line: "{{ item.line }}"
-    state: present
-  loop:
-    - regexp: '^\s*ssl_certificate\s'
-      line: "    ssl_certificate {{ active_fullchain }};"
-    - regexp: '^\s*ssl_certificate_key\s'
-      line: "    ssl_certificate_key {{ active_privkey }};"
-  when: not certbot_should_run
-  notify: reload nginx
+- name: Build certificate status summary
+  ansible.builtin.shell: |
+    echo "SSL Certificate Status:"
+    for f in {{ certbot_pending_dir }}/*.ok; do
+      [ -f "$f" ] && echo "  ✓ $(basename $f .ok)  [Let's Encrypt]"
+    done
+    for f in {{ certbot_pending_dir }}/*.pending; do
+      [ -f "$f" ] && echo "  ⚠ $(basename $f .pending)  [self-signed – DNS pending]"
+    done
+    echo ""
+    echo "Re-run after DNS is set:"
+    echo "  ansible-playbook playbooks/site.yml --tags certbot"
+  register: cert_summary
+  changed_when: false
   tags: certbot
 
-# ── Deployment summary ────────────────────────────────────────────────────────
-
-- name: Display SSL certificate information
-  debug:
-    msg: >-
-      {%- if active_is_selfsigned -%}
-      [WARNING] Self-signed certificate is active!
-      Domain {{ certbot_domains[0] }} does not yet resolve to this server.
-      Services are fully operational but clients will show a certificate warning.
-      Once DNS is switched, re-run: ansible-playbook playbooks/site.yml --tags certbot
-      Certificate location: {{ certbot_selfsigned_dir }}/
-      Pending marker: {{ certbot_pending_marker }}
-      {%- else -%}
-      Let's Encrypt certificate active for: {{ certbot_domains | join(', ') }}
-      Location: {{ active_cert_path }}/
-      Auto-renewal: {{ 'ENABLED' if certbot_auto_renew else 'DISABLED' }}
-      {%- endif -%}
+- name: Display certificate status
+  ansible.builtin.debug:
+    msg: "{{ cert_summary.stdout_lines }}"
   tags: certbot
 
 - name: Add certificate status to deployment summary
@@ -419,18 +210,5 @@
     path: /etc/postsible/deployment_summary.txt
     marker: "# {mark} ANSIBLE MANAGED - certificate status"
     create: yes
-    block: |
-      Certificate Status:
-      {% if active_is_selfsigned %}
-      ⚠️  SELF-SIGNED certificate active (DNS not yet switched)
-          Location: {{ certbot_selfsigned_dir }}/
-          Action required: Switch DNS, then run:
-          ansible-playbook playbooks/site.yml --tags certbot
-      {% else %}
-      ✓  Let's Encrypt certificate active
-          Domains: {{ certbot_domains | join(', ') }}
-          Location: {{ active_cert_path }}/
-          Auto-renewal: enabled via certbot.timer
-      {% endif %}
+    block: "{{ cert_summary.stdout }}"
   tags: certbot
-

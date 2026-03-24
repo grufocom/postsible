@@ -1,537 +1,461 @@
 #!/bin/bash
 # Postsible Mailserver - Setup Script
-# Installs Ansible and prepares the environment
+# Installs Ansible and prepares the environment for multi-domain deployments
 
 set -e
 
-# Detect if terminal supports colors
+# ── Terminal color detection ───────────────────────────────────────────────────
 if [[ -t 1 ]]; then
-    RED='\033[0;31m'
-    GREEN='\033[0;32m'
-    YELLOW='\033[1;33m'
-    BLUE='\033[1;34m'
-    BOLD='\033[1m'
-    NC='\033[0m'
+    RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
+    BLUE='\033[1;34m'; BOLD='\033[1m'; NC='\033[0m'
 else
-    RED=''
-    GREEN=''
-    YELLOW=''
-    BLUE=''
-    BOLD=''
-    NC=''
+    RED=''; GREEN=''; YELLOW=''; BLUE=''; BOLD=''; NC=''
 fi
 
-print_header() {
-    printf "\n${BLUE}==========================================${NC}\n"
-    printf "${BOLD}%s${NC}\n" "$1"
-    printf "${BLUE}==========================================${NC}\n\n"
-}
-
-print_success() {
-    printf "${GREEN}✓${NC} %s\n" "$1"
-}
-
-print_warning() {
-    printf "${YELLOW}! %s${NC}\n" "$1"
-}
-
-print_error() {
-    printf "${RED}✗ %s${NC}\n" "$1"
-}
+print_header()  { printf "\n${BLUE}==========================================${NC}\n${BOLD}%s${NC}\n${BLUE}==========================================${NC}\n\n" "$1"; }
+print_success() { printf "${GREEN}✓${NC} %s\n" "$1"; }
+print_warning() { printf "${YELLOW}⚠ %s${NC}\n" "$1"; }
+print_error()   { printf "${RED}✗ %s${NC}\n" "$1"; }
+print_info()    { printf "${BLUE}ℹ${NC} %s\n" "$1"; }
 
 echo "=========================================="
-echo "Postsible Mailserver - Setup"
+echo "  Postsible Mailserver - Setup"
 echo "=========================================="
 echo ""
 
-# Parse arguments
+# ── Argument parsing ───────────────────────────────────────────────────────────
 REMOTE_MODE=false
 REMOTE_HOST=""
 REMOTE_USER="root"
 INTERACTIVE=false
-DOMAIN=""
-MX_HOSTNAME=""
-ADMIN_EMAIL=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --remote)
-            REMOTE_MODE=true
-            REMOTE_HOST="$2"
-            shift 2
-            ;;
-        --user)
-            REMOTE_USER="$2"
-            shift 2
-            ;;
-        --domain)
-            DOMAIN="$2"
-            shift 2
-            ;;
-        --hostname)
-            MX_HOSTNAME="$2"
-            shift 2
-            ;;
-        --admin-email)
-            ADMIN_EMAIL="$2"
-            shift 2
-            ;;
-        --interactive)
-            INTERACTIVE=true
-            shift
-            ;;
+        --remote)      REMOTE_MODE=true; REMOTE_HOST="$2"; shift 2 ;;
+        --user)        REMOTE_USER="$2"; shift 2 ;;
+        --interactive) INTERACTIVE=true; shift ;;
         --help)
             echo "Usage: $0 [OPTIONS]"
             echo ""
             echo "Options:"
-            echo "  --remote <host>        Setup for remote deployment (IP or hostname)"
-            echo "  --user <user>          Remote SSH user (default: root)"
-            echo "  --domain <domain>      Primary mail domain (e.g., example.com)"
-            echo "  --hostname <hostname>  Mail server hostname (e.g., mail.example.com)"
-            echo "  --admin-email <email>  Admin email address"
-            echo "  --interactive          Interactive mode (prompts for all values)"
-            echo "  --help                 Show this help message"
+            echo "  --remote <host>    Deploy to remote server (IP or hostname)"
+            echo "  --user <user>      SSH user for remote (default: root)"
+            echo "  --interactive      Interactive mode (recommended)"
+            echo "  --help             Show this help"
             echo ""
             echo "Examples:"
-            echo "  # Interactive setup (recommended for first time)"
             echo "  $0 --interactive"
-            echo ""
-            echo "  # Quick setup with all parameters"
-            echo "  $0 --remote 192.168.1.100 --domain example.com \\"
-            echo "     --hostname mail.example.com --admin-email admin@example.com"
-            echo ""
-            echo "  # Local setup"
-            echo "  $0 --domain example.com --hostname mail.example.com"
-            exit 0
-            ;;
-        *)
-            echo -e "${RED}Error: Unknown option $1${NC}"
-            echo "Use --help for usage information"
-            exit 1
-            ;;
+            echo "  $0 --remote 192.168.1.100 --interactive"
+            exit 0 ;;
+        *) print_error "Unknown option: $1"; echo "Use --help for usage."; exit 1 ;;
     esac
 done
 
-# Interactive mode - ask for missing values
-if [ "$INTERACTIVE" = true ] || [ -z "$DOMAIN" ]; then
-    echo -e "${YELLOW}=== Mail Server Configuration ===${NC}"
-    echo ""
-
-    if [ -z "$REMOTE_HOST" ]; then
-        read -p "Deploy to remote server? (y/n) [n]: " deploy_remote
-        if [[ "$deploy_remote" =~ ^[Yy]$ ]]; then
-            REMOTE_MODE=true
-            read -p "Enter server IP or hostname: " REMOTE_HOST
-            read -p "SSH user [$REMOTE_USER]: " input_user
-            REMOTE_USER=${input_user:-$REMOTE_USER}
-        fi
-    fi
-
-    if [ -z "$DOMAIN" ]; then
-        read -p "Primary mail domain (e.g., example.com): " DOMAIN
-    fi
-
-    if [ -z "$MX_HOSTNAME" ]; then
-        read -p "Mail server hostname (e.g., mail.$DOMAIN) [mail.$DOMAIN]: " MX_HOSTNAME
-        MX_HOSTNAME=${MX_HOSTNAME:-mail.$DOMAIN}
-    fi
-
-    if [ -z "$ADMIN_EMAIL" ]; then
-        read -p "Admin email address [admin@$DOMAIN]: " ADMIN_EMAIL
-        ADMIN_EMAIL=${ADMIN_EMAIL:-admin@$DOMAIN}
-    fi
-
-    echo ""
-    echo -e "${GREEN}Configuration Summary:${NC}"
-    [ "$REMOTE_MODE" = true ] && echo "Deployment: Remote ($REMOTE_USER@$REMOTE_HOST)" || echo "Deployment: Local"
-    echo "Domain: $DOMAIN"
-    echo "Hostname: $MX_HOSTNAME"
-    echo "Admin Email: $ADMIN_EMAIL"
-    echo ""
-    read -p "Continue with this configuration? (y/n) [y]: " confirm
-    if [[ "$confirm" =~ ^[Nn]$ ]]; then
-        echo "Setup cancelled."
-        exit 0
-    fi
-fi
-
-# Validate required values
-if [ -z "$DOMAIN" ]; then
-    echo -e "${RED}Error: Domain is required${NC}"
-    echo "Use --domain <domain> or --interactive"
-    exit 1
-fi
-
-if [ -z "$MX_HOSTNAME" ]; then
-    MX_HOSTNAME="mail.$DOMAIN"
-fi
-
-if [ -z "$ADMIN_EMAIL" ]; then
-    ADMIN_EMAIL="admin@$DOMAIN"
-fi
-
-echo ""
-
-# Check if running as root (only for local mode)
-if [ "$REMOTE_MODE" = false ] && [ "$EUID" -ne 0 ]; then
-    echo -e "${RED}Error: This script must be run as root for local setup${NC}"
-    exit 1
-fi
-
-# Detect OS
+# ── OS detection ───────────────────────────────────────────────────────────────
 if [ -f /etc/os-release ]; then
-    . /etc/os-release
-    OS=$ID
-    VERSION=$VERSION_ID
+    . /etc/os-release; OS=$ID; VERSION=$VERSION_ID
 else
-    echo -e "${RED}Error: Cannot detect OS${NC}"
-    exit 1
+    print_error "Cannot detect OS"; exit 1
+fi
+print_success "Detected OS: $OS $VERSION"
+
+# ── Root check (local mode only) ──────────────────────────────────────────────
+if [ "$REMOTE_MODE" = false ] && [ "$EUID" -ne 0 ]; then
+    print_error "Local setup must be run as root."; exit 1
 fi
 
-echo -e "${GREEN}Detected OS: $OS $VERSION${NC}"
+# ══════════════════════════════════════════════════════════════════════════════
+# Domain collection
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Arrays for domain data
+DOMAIN_LIST=()
+MX_HOSTNAME_LIST=()
+ADMIN_EMAIL_LIST=()
+
+collect_domain() {
+    local idx=$1
+    local label=$2
+    local domain mx_hostname admin_email
+
+    echo ""
+    printf "${BOLD}%s${NC}\n" "$label"
+    printf '%0.s─' {1..40}; echo ""
+
+    # Domain
+    while true; do
+        read -p "Domain name (e.g. example.com): " domain
+        domain="${domain,,}"  # lowercase
+        if [[ "$domain" =~ ^[a-z0-9]([a-z0-9\-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9\-]*[a-z0-9])?)+$ ]]; then
+            break
+        fi
+        print_warning "Invalid domain name. Try again."
+    done
+
+    # MX hostname
+    local default_mx="mail.${domain}"
+    read -p "MX hostname [${default_mx}]: " mx_hostname
+    mx_hostname="${mx_hostname:-$default_mx}"
+    mx_hostname="${mx_hostname,,}"
+
+    # Admin email
+    local default_admin="admin@${domain}"
+    read -p "Admin email [${default_admin}]: " admin_email
+    admin_email="${admin_email:-$default_admin}"
+
+    DOMAIN_LIST+=("$domain")
+    MX_HOSTNAME_LIST+=("$mx_hostname")
+    ADMIN_EMAIL_LIST+=("$admin_email")
+
+    print_success "Domain added: $domain  (MX: $mx_hostname, Admin: $admin_email)"
+}
+
+# ── Remote host ───────────────────────────────────────────────────────────────
+if [ "$INTERACTIVE" = true ] && [ -z "$REMOTE_HOST" ]; then
+    echo ""
+    read -p "Deploy to remote server? (y/n) [n]: " deploy_remote
+    if [[ "$deploy_remote" =~ ^[Yy]$ ]]; then
+        REMOTE_MODE=true
+        read -p "Enter server IP or hostname: " REMOTE_HOST
+        read -p "SSH user [${REMOTE_USER}]: " input_user
+        REMOTE_USER="${input_user:-$REMOTE_USER}"
+    fi
+fi
+
+# ── Collect primary domain ────────────────────────────────────────────────────
+print_header "Domain Configuration"
+
+echo "Every domain needs:"
+echo "  • A DNS A record:  <mx_hostname>  →  <server IP>"
+echo "  • A DNS MX record: <domain>       →  <mx_hostname>"
+echo "  • Optional:        autoconfig.<domain>    →  <server IP>"
+echo "  • Optional:        autodiscover.<domain>  →  <server IP>"
+echo ""
+print_info "DNS records can be added later. Self-signed certs will be used until then."
 echo ""
 
-if [ "$REMOTE_MODE" = true ]; then
-    echo -e "${YELLOW}Remote deployment mode${NC}"
-    echo "Target host: $REMOTE_HOST"
-    echo "SSH user: $REMOTE_USER"
-    echo ""
-fi
+collect_domain 0 "Primary Domain"
+PRIMARY_DOMAIN="${DOMAIN_LIST[0]}"
 
-# Install Ansible
+# ── Additional domains ────────────────────────────────────────────────────────
+echo ""
+while true; do
+    read -p "Add another domain? (y/n) [n]: " add_more
+    if [[ ! "$add_more" =~ ^[Yy]$ ]]; then
+        break
+    fi
+    collect_domain ${#DOMAIN_LIST[@]} "Additional Domain $((${#DOMAIN_LIST[@]}))"
+done
+
+# ── Summary ───────────────────────────────────────────────────────────────────
+echo ""
+print_header "Configuration Summary"
+
+[ "$REMOTE_MODE" = true ] && print_info "Deployment: Remote ($REMOTE_USER@$REMOTE_HOST)" \
+                           || print_info "Deployment: Local"
+echo ""
+echo "Domains configured: ${#DOMAIN_LIST[@]}"
+for i in "${!DOMAIN_LIST[@]}"; do
+    local_label=""
+    [ $i -eq 0 ] && local_label=" (primary)"
+    printf "  %d. %-25s  MX: %-30s  Admin: %s%s\n" \
+        $((i+1)) "${DOMAIN_LIST[$i]}" "${MX_HOSTNAME_LIST[$i]}" "${ADMIN_EMAIL_LIST[$i]}" "$local_label"
+done
+
+echo ""
+read -p "Continue with this configuration? (y/n) [y]: " confirm
+[[ "$confirm" =~ ^[Nn]$ ]] && echo "Setup cancelled." && exit 0
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Ansible installation
+# ══════════════════════════════════════════════════════════════════════════════
+print_header "Installing Ansible"
+
 if ! command -v ansible &> /dev/null; then
     echo "Installing Ansible..."
     if [ "$OS" = "debian" ] || [ "$OS" = "ubuntu" ]; then
-        apt update
+        apt update -qq
         apt install -y ansible git python3-pip sshpass
     else
-        echo -e "${RED}Error: Unsupported OS. This script supports Debian/Ubuntu only.${NC}"
-        exit 1
+        print_error "Unsupported OS. Debian/Ubuntu required."; exit 1
     fi
-    echo -e "${GREEN}Ansible installed successfully!${NC}"
+    print_success "Ansible installed: $(ansible --version | head -n1)"
 else
-    echo -e "${GREEN}Ansible is already installed ($(ansible --version | head -n1))${NC}"
+    print_success "Ansible already installed: $(ansible --version | head -n1)"
 fi
 
 echo ""
-
-# Install required Ansible collections
 echo "Installing Ansible collections..."
-ansible-galaxy collection install community.general 2>/dev/null || true
-ansible-galaxy collection install ansible.posix 2>/dev/null || true
+ansible-galaxy collection install community.general  2>/dev/null || true
+ansible-galaxy collection install community.mysql    2>/dev/null || true
+ansible-galaxy collection install ansible.posix      2>/dev/null || true
+print_success "Collections installed"
 
-echo ""
+# ══════════════════════════════════════════════════════════════════════════════
+# SSH setup
+# ══════════════════════════════════════════════════════════════════════════════
+print_header "SSH Configuration"
 
-# SSH Key Management
 if [ "$REMOTE_MODE" = true ]; then
-    echo "Setting up SSH access to remote host..."
-
-    # Generate SSH key if not exists
+    # Generate key if needed
     if [ ! -f ~/.ssh/id_ed25519 ]; then
-        echo "Generating SSH key..."
         ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N "" -C "ansible@postsible"
-        echo -e "${GREEN}SSH key generated${NC}"
+        print_success "SSH key generated"
     fi
 
-    # Test SSH connection
-    echo "Testing SSH connection to $REMOTE_USER@$REMOTE_HOST..."
-    if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes $REMOTE_USER@$REMOTE_HOST "echo 'SSH OK'" &> /dev/null; then
-        echo -e "${GREEN}SSH connection successful (key-based auth)!${NC}"
+    # Test connection
+    echo "Testing SSH to $REMOTE_USER@$REMOTE_HOST ..."
+    if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes \
+           "$REMOTE_USER@$REMOTE_HOST" "echo OK" &>/dev/null; then
+        print_success "SSH key-based auth works"
     else
-        echo -e "${YELLOW}SSH key-based authentication not configured${NC}"
-        echo "Attempting to copy SSH key to remote host..."
-        echo "You will be prompted for the password of $REMOTE_USER@$REMOTE_HOST"
-
-        if command -v ssh-copy-id &> /dev/null; then
-            ssh-copy-id -i ~/.ssh/id_ed25519.pub $REMOTE_USER@$REMOTE_HOST
+        print_warning "Key-based auth not set up. Copying SSH key..."
+        if command -v ssh-copy-id &>/dev/null; then
+            ssh-copy-id -i ~/.ssh/id_ed25519.pub "$REMOTE_USER@$REMOTE_HOST"
         else
-            echo -e "${YELLOW}ssh-copy-id not found. Manual setup required.${NC}"
-            echo "Copy this key to $REMOTE_HOST:~/.ssh/authorized_keys:"
+            print_warning "ssh-copy-id not found. Add this key manually:"
             cat ~/.ssh/id_ed25519.pub
-            echo ""
-            read -p "Press Enter after copying the key..."
+            read -p "Press Enter after adding the key..."
         fi
-
-        # Test again
-        if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes $REMOTE_USER@$REMOTE_HOST "echo 'SSH OK'" &> /dev/null; then
-            echo -e "${GREEN}SSH key successfully configured!${NC}"
+        if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes \
+               "$REMOTE_USER@$REMOTE_HOST" "echo OK" &>/dev/null; then
+            print_success "SSH key configured successfully"
         else
-            echo -e "${RED}Warning: SSH connection still requires password${NC}"
-            echo "You may need to configure SSH keys manually or use --ask-pass with ansible-playbook"
+            print_warning "SSH still requires password. Use --ask-pass with ansible-playbook."
         fi
     fi
 else
-    # Local mode SSH setup
-    echo "Checking SSH access..."
-    if [ ! -f ~/.ssh/id_rsa ] && [ ! -f ~/.ssh/id_ed25519 ]; then
-        echo "No SSH key found. Generating one..."
+    # Local: ensure key + authorized_keys
+    if [ ! -f ~/.ssh/id_ed25519 ]; then
         ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N "" -C "ansible@postsible"
         cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys
         chmod 600 ~/.ssh/authorized_keys
-        echo -e "${GREEN}SSH key generated and added to authorized_keys${NC}"
+        print_success "SSH key generated and added to authorized_keys"
     fi
 
-    echo "Testing SSH connection to localhost..."
-    if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 root@localhost "echo 'SSH OK'" &> /dev/null; then
-        echo -e "${GREEN}SSH connection successful!${NC}"
+    if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 root@localhost \
+           "echo OK" &>/dev/null; then
+        print_success "SSH localhost works"
     else
-        echo -e "${YELLOW}Warning: SSH connection to localhost failed${NC}"
-        echo "You may need to enable SSH or configure SSH keys manually"
+        print_warning "SSH to localhost failed. Check sshd and authorized_keys."
     fi
 fi
 
-echo ""
+# ══════════════════════════════════════════════════════════════════════════════
+# Write inventory/hosts.yml
+# ══════════════════════════════════════════════════════════════════════════════
+print_header "Writing Inventory"
 
-# Create/Update inventory file
+mkdir -p inventory/group_vars/mailservers
+
+PRIMARY_MX="${MX_HOSTNAME_LIST[0]}"
+
 if [ "$REMOTE_MODE" = true ]; then
-    echo "Creating inventory file for remote deployment..."
     cat > inventory/hosts.yml << EOF
 ---
-# Postsible Inventory - Remote Deployment
-# Generated by setup.sh on $(date)
+# Postsible Inventory – generated by setup.sh on $(date)
 
 mailservers:
   hosts:
-    $MX_HOSTNAME:
-      ansible_host: $REMOTE_HOST
-      ansible_user: $REMOTE_USER
+    ${PRIMARY_MX}:
+      ansible_host: ${REMOTE_HOST}
+      ansible_user: ${REMOTE_USER}
       ansible_python_interpreter: /usr/bin/python3
-
-      # Server identification
-      common_hostname: $MX_HOSTNAME
-
-      # Uncomment if SSH password is needed:
+      common_hostname: ${PRIMARY_MX}
       # ansible_ssh_pass: "{{ vault_ansible_ssh_pass }}"
-      # Uncomment if sudo password is needed:
       # ansible_become_pass: "{{ vault_ansible_become_pass }}"
 EOF
-    echo -e "${GREEN}Inventory file created: inventory/hosts.yml${NC}"
 else
-    echo "Creating inventory file for local deployment..."
     REMOTE_HOST="localhost"
     cat > inventory/hosts.yml << EOF
 ---
-# Postsible Inventory - Local Deployment
-# Generated by setup.sh on $(date)
+# Postsible Inventory – generated by setup.sh on $(date)
 
 mailservers:
   hosts:
-    $MX_HOSTNAME:
+    ${PRIMARY_MX}:
       ansible_connection: local
       ansible_python_interpreter: /usr/bin/python3
-
-      # Server identification
-      common_hostname: $MX_HOSTNAME
+      common_hostname: ${PRIMARY_MX}
 EOF
-    echo -e "${GREEN}Inventory file created: inventory/hosts.yml${NC}"
 fi
+print_success "inventory/hosts.yml written"
 
-# Create vars.yml if it doesn't exist
-if [ ! -f "inventory/group_vars/mailservers/vars.yml" ]; then
-    echo "Creating vars.yml with your configuration..."
-    cat > inventory/group_vars/mailservers/vars.yml << EOF
+# ══════════════════════════════════════════════════════════════════════════════
+# Write inventory/group_vars/mailservers/vars.yml
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Build YAML list for mail_virtual_domains
+DOMAINS_YAML=""
+for i in "${!DOMAIN_LIST[@]}"; do
+    DOMAINS_YAML="${DOMAINS_YAML}  - domain: ${DOMAIN_LIST[$i]}
+    mx_hostname: ${MX_HOSTNAME_LIST[$i]}
+    admin_email: ${ADMIN_EMAIL_LIST[$i]}
+"
+done
+
+cat > inventory/group_vars/mailservers/vars.yml << EOF
 ---
 # Postsible Mailserver Configuration (Public)
-# Sensitive data is in vault.yml (encrypted)
+# Sensitive data → vault.yml  (ansible-vault encrypt vault.yml)
 # Generated by setup.sh on $(date)
 
-# Common Settings
+# ── Common ────────────────────────────────────────────────────────────────────
 common_timezone: "Europe/Vienna"
 common_locales:
   - de_AT.UTF-8
   - en_US.UTF-8
 common_default_locale: "de_AT.UTF-8"
 
-# enable certbot dry-run
-certbot_enable_dry_run: false
-# Auto-detected, but can be forced:
-# true = skip certbot, use self-signed always
+# ── Primary domain ────────────────────────────────────────────────────────────
+mail_primary_domain: "${PRIMARY_DOMAIN}"
+
+# ── Virtual domains ───────────────────────────────────────────────────────────
+# mx_hostname : A record pointing to this server
+# admin_email : notifications for this domain
+#
+mail_virtual_domains:
+${DOMAINS_YAML}
+# ── Let's Encrypt ─────────────────────────────────────────────────────────────
+mail_letsencrypt_email: "${ADMIN_EMAIL_LIST[0]}"
 certbot_skip: false
-# false = skip DNS check, trust certbot_skip
 certbot_dns_check: true
 
-# Mail Configuration
-# Primary domain (used for email addresses)
-mail_primary_domain: "$MX_HOSTNAME"
-# Additional virtual domains (for hosting multiple domains)
-mail_virtual_domains:
-  - $DOMAIN
-# Admin email address (receives system notifications)
-mail_admin_email: "$ADMIN_EMAIL"
-# Let's Encrypt notification email
-mail_letsencrypt_email: "$ADMIN_EMAIL"
-mail_ssl_cert_path: "/etc/letsencrypt/live/{{ mail_primary_domain }}"
+# ── SSL paths ─────────────────────────────────────────────────────────────────
+mail_ssl_cert_path: "/etc/letsencrypt/live"
 
+# ── Ports ─────────────────────────────────────────────────────────────────────
 mail_imap_port: 993
 mail_smtp_port: 465
 
-# MariaDB Settings (Non-Sensitive)
+# ── MariaDB ───────────────────────────────────────────────────────────────────
 mariadb_database: "mailserver"
 mariadb_user: "mailuser"
 mariadb_host: "127.0.0.1"
-
-# MariaDB Passwords (from Vault)
 mariadb_root_password: "{{ vault_mariadb_root_password }}"
 mariadb_password: "{{ vault_mariadb_password }}"
 
-# Postfix Settings
-postfix_myhostname: "{{ common_hostname }}"
-postfix_mydomain: "{{ mail_primary_domain }}"
-postfix_myorigin: "\$mydomain"
+# ── Postfix ───────────────────────────────────────────────────────────────────
+postfix_myhostname: "{{ mail_virtual_domains[0].mx_hostname }}"
+postfix_mydomain:   "{{ mail_primary_domain }}"
+postfix_myorigin:   "\$mydomain"
 postfix_inet_interfaces: "all"
-postfix_inet_protocols: "all"
-
-# Subaddressing (plus addressing)
+postfix_inet_protocols:  "all"
 postfix_recipient_delimiter: "+"
 
-# Dovecot Settings
+# ── Dovecot ───────────────────────────────────────────────────────────────────
 dovecot_mail_location: "maildir:/srv/imap/%d/%n/"
 dovecot_protocols: "imap lmtp sieve"
 
-# Rspamd Settings
+# ── Rspamd ────────────────────────────────────────────────────────────────────
 rspamd_webui_enabled: true
 rspamd_webui_password: "{{ vault_rspamd_webui_password }}"
 
-# SnappyMail Settings
-snappymail_domain: "{{ mail_primary_domain }}"
+# ── SnappyMail ────────────────────────────────────────────────────────────────
+snappymail_domain: "{{ mail_virtual_domains[0].mx_hostname }}"
 snappymail_admin_user: "admin"
 snappymail_admin_password: "{{ vault_snappymail_admin_password }}"
 
-# Infcloud Settings
+# ── InfCloud ──────────────────────────────────────────────────────────────────
 infcloud_use_subdomain: false
 infcloud_base_path: "/cal"
-#infcloud_subdomain: "cal"  # Results in cal.{{ mail_primary_domain }}
-
-# Localization
-infcloud_language: "de_DE"  # Available: en_US, de_DE, fr_FR, etc.
+infcloud_language: "de_DE"
 infcloud_timezone: "Europe/Vienna"
-infcloud_first_day_of_week: 1  # Monday
-
-# Features
+infcloud_first_day_of_week: 1
 infcloud_enable_calendar: true
 infcloud_enable_contacts: true
-infcloud_enable_projects: false  # Tasks/TODOs (needs CalDAV VTODO support)
-
-# Branding
+infcloud_enable_projects: false
 infcloud_title: "My Company Calendar"
 infcloud_logo_text: "{{ mail_primary_domain }}"
 
-# Nginx Settings
+# ── Nginx ─────────────────────────────────────────────────────────────────────
 nginx_worker_processes: "auto"
 nginx_worker_connections: 1024
 
-# UFW Firewall Settings
+# ── UFW ───────────────────────────────────────────────────────────────────────
 ufw_ssh_port: 22
-ufw_ssh_trusted_ips:
-  # - ip: "YOUR_HOME_IP"
-  #   comment: 'Home Office IP'
-  # - ip: "YOUR_OFFICE_IP/24"
-  #   comment: 'Your Office IP/24'
-  # - ip: 2001:db8::1
-  #   comment: 'IPv6 Office'
-  # ^ uncomment and add your own IPs here if you want to block ssh access to your server - which you really should! :-)
-# How it works:
-# If trusted IPs are defined: ONLY these IPs can access SSH
-# All other IPs are DENIED (maximum security)
-# If no trusted IPs are defined: SSH remains accessible with rate limiting (safe fallback)
-# Invalid IP addresses are automatically ignored with a warning
-# Both IPv4 and IPv6 are fully supported
-
-ufw_enable_smtps: true   # Port 465 (some clients need SMTP over SSL)
-ufw_enable_pop3s: false  # Port 995 (usually not needed)
-ufw_rate_limit_smtp: false  # Set to true for SMTP rate limiting
+ufw_ssh_trusted_ips: []
+ufw_enable_smtps: true
+ufw_enable_pop3s: false
+ufw_rate_limit_smtp: false
 ufw_logging_level: "low"
 
-# Fail2ban Settings
+# ── Fail2ban ──────────────────────────────────────────────────────────────────
 fail2ban_bantime: 3600
 fail2ban_findtime: 600
 fail2ban_maxretry: 5
-fail2ban_destemail: "{{ mail_admin_email }}"
+fail2ban_destemail: "{{ mail_virtual_domains[0].admin_email }}"
 
-# ESET ICAP Settings
-# Enable/disable antivirus scanning (ESET ICAP)
-# Set to true if you have ESET license and efs installed with enabled icap support!
+# ── ESET ICAP (optional) ──────────────────────────────────────────────────────
 eset_icap_enabled: false
 eset_icap_host: "localhost"
 eset_icap_port: 1344
 EOF
-    echo -e "${GREEN}Configuration file created: inventory/group_vars/mailservers/vars.yml${NC}"
-fi
 
-# Create example vault file if it doesn't exist
+print_success "inventory/group_vars/mailservers/vars.yml written"
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Write vault.yml.example
+# ══════════════════════════════════════════════════════════════════════════════
+
 if [ ! -f "inventory/group_vars/mailservers/vault.yml" ]; then
-    echo "Creating example vault file template..."
     cat > inventory/group_vars/mailservers/vault.yml.example << EOF
 ---
-# Postsible Vault - Sensitive Data
-# Copy this to vault.yml and encrypt with: ansible-vault encrypt vault.yml
-# Or create directly with: ansible-vault create vault.yml
+# Postsible Vault – copy to vault.yml, fill in passwords, then:
+#   ansible-vault encrypt inventory/group_vars/mailservers/vault.yml
 
-# Generate strong passwords with: openssl rand -base64 32
-
-# MariaDB Passwords
 vault_mariadb_root_password: "CHANGE_ME_$(openssl rand -base64 16 | tr -d '/+=' | cut -c1-20)"
-vault_mariadb_password: "CHANGE_ME_$(openssl rand -base64 16 | tr -d '/+=' | cut -c1-20)"
-
-# Rspamd WebUI Password
+vault_mariadb_password:      "CHANGE_ME_$(openssl rand -base64 16 | tr -d '/+=' | cut -c1-20)"
 vault_rspamd_webui_password: "CHANGE_ME_$(openssl rand -base64 16 | tr -d '/+=' | cut -c1-20)"
-
-# SnappyMail Admin Password
 vault_snappymail_admin_password: "CHANGE_ME_$(openssl rand -base64 16 | tr -d '/+=' | cut -c1-20)"
-
-# Baikal Admin Password
 vault_baikal_admin_password: "CHANGE_ME_$(openssl rand -base64 16 | tr -d '/+=' | cut -c1-20)"
-
-# Optional: SSH/Sudo passwords for remote deployment
 # vault_ansible_ssh_pass: "YOUR_SSH_PASSWORD"
 # vault_ansible_become_pass: "YOUR_SUDO_PASSWORD"
 EOF
-    echo -e "${GREEN}Vault template created: inventory/group_vars/mailservers/vault.yml.example${NC}"
-    echo -e "${YELLOW}Note: Copy and encrypt this file before deployment!${NC}"
+    print_success "vault.yml.example written"
 fi
 
+# ══════════════════════════════════════════════════════════════════════════════
+# Summary & next steps
+# ══════════════════════════════════════════════════════════════════════════════
 print_header "Setup Complete!"
 
-print_success "Configuration created for: $DOMAIN"
-print_success "Hostname: $MX_HOSTNAME"
-print_success "Admin Email: $ADMIN_EMAIL"
-
-if [ "$REMOTE_MODE" = true ]; then
-    print_success "Target: $REMOTE_USER@$REMOTE_HOST"
-else
-    print_success "Target: Local deployment"
-fi
+print_success "Configuration written for ${#DOMAIN_LIST[@]} domain(s)"
+echo ""
+echo "Domains:"
+for i in "${!DOMAIN_LIST[@]}"; do
+    printf "  • %-25s  MX: %s\n" "${DOMAIN_LIST[$i]}" "${MX_HOSTNAME_LIST[$i]}"
+done
 
 echo ""
-printf "${YELLOW}${BOLD}Next Steps:${NC}\n\n"
+printf "${BOLD}${YELLOW}Required DNS records:${NC}\n\n"
+for i in "${!DOMAIN_LIST[@]}"; do
+    printf "  # %s\n" "${DOMAIN_LIST[$i]}"
+    printf "  %-35s IN  A    <server-ip>\n"   "${MX_HOSTNAME_LIST[$i]}"
+    printf "  %-35s IN  MX   10 %s\n"         "${DOMAIN_LIST[$i]}."   "${MX_HOSTNAME_LIST[$i]}"
+    printf "  %-35s IN  A    <server-ip>   # optional: autoconfig\n"  "autoconfig.${DOMAIN_LIST[$i]}"
+    printf "  %-35s IN  A    <server-ip>   # optional: autodiscover\n" "autodiscover.${DOMAIN_LIST[$i]}"
+    printf "  %-35s IN  TXT  \"v=spf1 mx -all\"\n" "${DOMAIN_LIST[$i]}."
+    echo ""
+done
 
-printf "${BOLD}1. Create encrypted vault file:${NC}\n"
-printf "   cp inventory/group_vars/mailservers/vault.yml.example inventory/group_vars/mailservers/vault.yml\n"
-printf "   # Edit the file and change all CHANGE_ME passwords\n"
-printf "   ansible-vault encrypt --ask-vault-pass inventory/group_vars/mailservers/vault.yml\n\n"
+printf "${BOLD}Next steps:${NC}\n\n"
+printf "1. Set passwords in vault:\n"
+printf "   cp inventory/group_vars/mailservers/vault.yml.example \\\n"
+printf "      inventory/group_vars/mailservers/vault.yml\n"
+printf "   \$EDITOR inventory/group_vars/mailservers/vault.yml\n"
+printf "   ansible-vault encrypt inventory/group_vars/mailservers/vault.yml\n\n"
 
-printf "${BOLD}2. Configure DNS records for %s:${NC}\n" "$DOMAIN"
-printf "   MX Record:  %s → %s (Priority: 10)\n" "$DOMAIN" "$MX_HOSTNAME"
-printf "   A Record:   %s → %s\n" "$MX_HOSTNAME" "${REMOTE_HOST:-localhost}"
-printf "   PTR Record: %s → %s (Reverse DNS)\n" "${REMOTE_HOST:-localhost}" "$MX_HOSTNAME"
-printf "   SPF:        %s TXT \"v=spf1 mx -all\"\n" "$DOMAIN"
-printf "   SPF:        %s TXT \"v=spf1 a -all\"\n\n" "$MX_HOSTNAME"
-
-printf "${BOLD}3. Test connection:${NC}\n"
+printf "2. Test connection:\n"
 printf "   ansible mailservers -m ping --ask-vault-pass\n\n"
 
-printf "${BOLD}4. Run deployment:${NC}\n"
+printf "3. Deploy:\n"
 printf "   ansible-playbook playbooks/site.yml --ask-vault-pass\n\n"
 
-printf "${BOLD}5. After deployment, add DKIM and DMARC records:${NC}\n"
-printf "   DKIM:  Check /root/dkim-dns-records.txt on the server\n"
-printf "   DMARC: _dmarc.%s TXT \"v=DMARC1; p=quarantine; rua=mailto:%s\"\n\n" "$DOMAIN" "$ADMIN_EMAIL"
+printf "4. After deploy – add DKIM records:\n"
+printf "   cat /root/dkim-dns-records.txt  (on the server)\n\n"
 
-printf "${YELLOW}${BOLD}Important files created:${NC}\n"
-printf "  • inventory/hosts.yml\n"
-printf "  • inventory/group_vars/mailservers/vars.yml\n"
-printf "  • inventory/group_vars/mailservers/vault.yml.example\n\n"
+printf "5. Re-run certbot after DNS is set:\n"
+printf "   ansible-playbook playbooks/site.yml --tags certbot --ask-vault-pass\n\n"
 
-printf "For more information, see README.md\n"
 printf "${BLUE}==========================================${NC}\n"
-

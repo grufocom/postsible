@@ -1,45 +1,22 @@
-# tasks/certbot.yml (korrigierte Version)
 ---
-- name: Get mail server IP address
-  ansible.builtin.set_fact:
-    mail_server_ip: "{{ ansible_default_ipv4.address }}"
+# roles/autoconfig/tasks/certbot.yml
+# Issues certs for autoconfig.<domain> and autodiscover.<domain>
+# Same self-signed fallback logic as the main certbot role.
 
-- name: Check DNS records for autoconfig domains
-  ansible.builtin.command: "dig +short autoconfig.{{ item }} A"
-  register: autoconfig_dns_check
-  changed_when: false
+- name: Get server public IP
+  ansible.builtin.uri:
+    url: https://api.ipify.org
+    return_content: yes
+    timeout: 5
+  register: _ac_public_ip
   failed_when: false
-  loop: "{{ mail_virtual_domains }}"
-  check_mode: false
+  changed_when: false
 
-- name: Display DNS check raw results
-  ansible.builtin.debug:
-    msg: "Domain: {{ item.item }} -> autoconfig.{{ item.item }} resolves to: {{ item.stdout | default('NOT FOUND') }}"
-  loop: "{{ autoconfig_dns_check.results }}"
-  loop_control:
-    label: "{{ item.item }}"
-
-- name: Determine which domains have valid DNS for autoconfig
+- name: Set server IP fact
   ansible.builtin.set_fact:
-    autoconfig_valid_domains: >-
-      {{
-        autoconfig_dns_check.results
-        | selectattr('stdout', '==', mail_server_ip)
-        | map(attribute='item')
-        | list
-      }}
-    autoconfig_invalid_domains: >-
-      {{
-        autoconfig_dns_check.results
-        | rejectattr('stdout', '==', mail_server_ip)
-        | map(attribute='item')
-        | list
-      }}
-  when: not autoconfig_skip_dns_check | default(false)
+    _ac_server_ip: "{{ _ac_public_ip.content | default(ansible_default_ipv4.address) | trim }}"
 
-# ── Generate self-signed certificates for ALL domains (fallback) ─────────────
-
-- name: Deploy self-signed certificate generation script
+- name: Deploy self-signed generator (idempotent)
   ansible.builtin.template:
     src: generate-autoconfig-selfsigned.sh.j2
     dest: /usr/local/bin/postsible-generate-autoconfig-selfsigned
@@ -47,210 +24,9 @@
     group: root
     mode: '0750'
 
-- name: Generate self-signed certificates for ALL domains (as fallback)
-  ansible.builtin.command: >
-    /usr/local/bin/postsible-generate-autoconfig-selfsigned {{ item }}
+- name: Process autoconfig certificate per domain
+  ansible.builtin.include_tasks: certbot_per_domain.yml
   loop: "{{ mail_virtual_domains }}"
-  register: selfsigned_result
-  changed_when: selfsigned_result.rc == 0
-  tags: autoconfig_selfsigned
-
-# ── Decide: certbot or use self-signed ───────────────────────────────────────
-
-- name: Determine if certbot should run for autoconfig domains
-  ansible.builtin.set_fact:
-    autoconfig_certbot_should_run: >-
-      {{
-        (autoconfig_valid_domains | length > 0) and
-        not (autoconfig_skip_certbot | default(false))
-      }}
-  tags: autoconfig_certbot
-
-- name: Display certificate strategy for autoconfig
-  ansible.builtin.debug:
-    msg: |
-      ===========================================
-      Autoconfig Certificate Strategy
-      ===========================================
-      Domains with valid DNS: {{ autoconfig_valid_domains | length }}
-      Domains without valid DNS: {{ autoconfig_invalid_domains | length }}
-      
-      Self-signed certificates exist for ALL domains (as fallback)
-      
-      {% if autoconfig_certbot_should_run %}
-      ✓ LET'S ENCRYPT - Will obtain real certificates for:
-        {% for domain in autoconfig_valid_domains %}
-        - autoconfig.{{ domain }}
-        {% endfor %}
-      {% else %}
-      ⚠️  Using SELF-SIGNED certificates for all domains
-      {% if autoconfig_invalid_domains | length > 0 %}
-      Reason: No domains have valid DNS or certbot is skipped
-      {% endif %}
-      {% endif %}
-      ===========================================
-
-# ── Let's Encrypt path (overwrites self-signed for valid domains) ────────────
-
-- name: Ensure webroot directory exists
-  ansible.builtin.file:
-    path: /var/www/certbot
-    state: directory
-    owner: www-data
-    group: www-data
-    mode: '0755'
-  when: autoconfig_certbot_should_run
-
-- name: Check if Let's Encrypt certificates already exist
-  ansible.builtin.stat:
-    path: "/etc/letsencrypt/live/autoconfig.{{ item }}/fullchain.pem"
-  register: cert_exists
-  loop: "{{ autoconfig_valid_domains }}"
-  when: autoconfig_certbot_should_run
-
-- name: Display certificate status
-  ansible.builtin.debug:
-    msg: "Let's Encrypt certificate for autoconfig.{{ item.item }}: {{ 'EXISTS' if item.stat.exists else 'NOT FOUND (will use self-signed)' }}"
-  loop: "{{ cert_exists.results }}"
   loop_control:
-    label: "{{ item.item }}"
-  when: autoconfig_certbot_should_run
-
-- name: Obtain Let's Encrypt certificates for autoconfig domains (overwrites self-signed)
-  ansible.builtin.command: >
-    certbot certonly
-    --webroot
-    --webroot-path /var/www/certbot
-    --email {{ mail_admin_email }}
-    --agree-tos
-    --no-eff-email
-    --non-interactive
-    -d autoconfig.{{ item.item }}
-  loop: "{{ cert_exists.results }}"
-  loop_control:
-    label: "{{ item.item }}"
-  when:
-    - autoconfig_certbot_should_run
-    - not item.stat.exists or autoconfig_force_renewal | default(false)
-  register: certbot_result
-  failed_when: false
-  tags: certbot
-
-# ── Korrigierte Version: Check if Let's Encrypt succeeded for any domain ─────
-
-- name: Check if Let's Encrypt succeeded for any domain
-  ansible.builtin.set_fact:
-    autoconfig_le_success: >-
-      {{
-        certbot_result is defined and
-        certbot_result.results is defined and
-        certbot_result.results | selectattr('rc', 'defined') | selectattr('rc', 'equalto', 0) | list | length > 0
-      }}
-  when: 
-    - autoconfig_certbot_should_run
-    - certbot_result is defined
-
-# ── Nginx configuration (same for both paths!) ───────────────────────────────
-
-- name: Create nginx configuration for autoconfig domains
-  ansible.builtin.template:
-    src: nginx_https.conf.j2
-    dest: "/etc/nginx/sites-available/autoconfig-{{ item }}.conf"
-    owner: root
-    group: root
-    mode: '0644'
-  loop: "{{ mail_virtual_domains }}"
-  notify: reload nginx
-
-- name: Enable nginx sites
-  ansible.builtin.file:
-    src: "/etc/nginx/sites-available/autoconfig-{{ item }}.conf"
-    dest: "/etc/nginx/sites-enabled/autoconfig-{{ item }}.conf"
-    state: link
-  loop: "{{ mail_virtual_domains }}"
-  notify: reload nginx
-
-# ── Test nginx configuration (ignore missing certificate errors) ─────────────
-
-- name: Test nginx configuration
-  ansible.builtin.command: nginx -t
-  register: nginx_test
-  changed_when: false
-  ignore_errors: true
-
-- name: Display nginx test results
-  ansible.builtin.debug:
-    msg: |
-      {% if nginx_test.rc == 0 %}
-      ✓ nginx configuration test passed
-      {% else %}
-      ⚠️  nginx configuration test has warnings/errors:
-      {{ nginx_test.stderr | default('') }}
-      
-      Note: Missing certificate errors are expected for domains without valid DNS.
-      Self-signed certificates should have been generated.
-      {% endif %}
-
-- name: Reload nginx if configuration is valid
-  ansible.builtin.systemd:
-    name: nginx
-    state: reloaded
-  when: nginx_test.rc == 0
-
-# ── Deployment summary ────────────────────────────────────────────────────────
-
-- name: Verify certificates exist for all domains
-  ansible.builtin.stat:
-    path: "/etc/letsencrypt/live/autoconfig.{{ item }}/fullchain.pem"
-  register: final_cert_check
-  loop: "{{ mail_virtual_domains }}"
-
-- name: Display final certificate status
-  ansible.builtin.debug:
-    msg: |
-      ===========================================
-      Autoconfig SSL Certificate Final Status
-      ===========================================
-      {% for result in final_cert_check.results %}
-      autoconfig.{{ result.item }}: 
-        {% if result.stat.exists %}
-        ✓ Certificate exists
-        {% else %}
-        ✗ CERTIFICATE MISSING!
-        {% endif %}
-      {% endfor %}
-      
-      {% if autoconfig_certbot_should_run and autoconfig_le_success | default(false) %}
-      ✓ Let's Encrypt certificates obtained for valid domains
-      {% elif autoconfig_certbot_should_run %}
-      ⚠️  Let's Encrypt failed, using self-signed certificates
-      {% else %}
-      ⚠️  Using self-signed certificates for all domains
-      {% endif %}
-      
-      Certificates are stored in: /etc/letsencrypt/live/autoconfig.*/
-      ===========================================
-
-- name: Add autoconfig certificate status to deployment summary
-  ansible.builtin.blockinfile:
-    path: /etc/postsible/deployment_summary.txt
-    marker: "# {mark} ANSIBLE MANAGED - autoconfig certificate status"
-    create: yes
-    block: |
-      Autoconfig Certificate Status:
-      {% if autoconfig_certbot_should_run and autoconfig_le_success | default(false) %}
-      ✓  Let's Encrypt certificates active
-          Domains: 
-          {% for domain in autoconfig_valid_domains %}
-            - autoconfig.{{ domain }}
-          {% endfor %}
-          Auto-renewal: enabled via certbot.timer
-      {% else %}
-      ⚠️  SELF-SIGNED certificates active
-          Location: /etc/letsencrypt/live/autoconfig.*/
-          {% if autoconfig_invalid_domains | length > 0 %}
-          Missing DNS for: {{ autoconfig_invalid_domains | join(', ') }}
-          Action required: Add DNS records, then re-run:
-          ansible-playbook playbooks/site.yml --tags autoconfig
-          {% endif %}
-      {% endif %}
+    loop_var: _ac_domain
+    label: "{{ _ac_domain.domain }}"

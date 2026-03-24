@@ -1,0 +1,154 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# signature-manage – called via sudo from the PHP web interface
+# Usage:
+#   signature-manage save-user   <email>  <html_file> <txt_file> [<img_file>]
+#   signature-manage delete-user <email>
+#   signature-manage save-domain <domain> <html_file> <txt_file> [<img_file>]
+#   signature-manage delete-domain <domain>
+#   signature-manage add-admin   <email> --granted-by <granter>
+#   signature-manage remove-admin <email>
+#   signature-manage set-superadmin <email>
+
+set -euo pipefail
+
+BASE_DIR="{{ signature_base_dir }}"
+DB_HOST="{{ signature_db_host }}"
+DB_NAME="{{ signature_db_name }}"
+DB_USER="{{ signature_db_user }}"
+DB_PASS="{{ signature_db_pass }}"
+
+# ── helpers ───────────────────────────────────────────────────────────────────
+
+die() { echo "ERROR: $*" >&2; exit 1; }
+
+validate_email() {
+    [[ "$1" =~ ^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$ ]] \
+        || die "Invalid email: $1"
+}
+
+validate_domain() {
+    [[ "$1" =~ ^[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$ ]] \
+        || die "Invalid domain: $1"
+}
+
+safe_name() {
+    # Returns a filesystem-safe version of email/domain
+    echo "$1" | tr -cd 'a-zA-Z0-9@._-'
+}
+
+mysql_exec() {
+    mysql -h"$DB_HOST" -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" -e "$1" 2>/dev/null
+}
+
+install_sig() {
+    # install_sig <target_dir> <html_tmp> <txt_tmp> [<img_tmp>]
+    local dir="$1" html="$2" txt="$3" img="${4:-}"
+
+    mkdir -p "$dir"
+
+    # Validate source files exist and are regular files
+    [[ -f "$html" ]] || die "HTML temp file not found: $html"
+    [[ -f "$txt"  ]] || die "TXT temp file not found: $txt"
+
+    # Size sanity checks (max 256 KB for html/txt, 512 KB for image)
+    local html_size txt_size
+    html_size=$(stat -c%s "$html")
+    txt_size=$(stat -c%s "$txt")
+    (( html_size <= 262144 )) || die "HTML file too large"
+    (( txt_size  <= 262144 )) || die "TXT file too large"
+
+    install -m 0640 -o root -g _rspamd "$html" "$dir/signature.html"
+    install -m 0640 -o root -g _rspamd "$txt"  "$dir/signature.txt"
+
+    if [[ -n "$img" && -f "$img" ]]; then
+        local img_size
+        img_size=$(stat -c%s "$img")
+        (( img_size <= {{ signature_max_image_bytes }} )) || die "Image file too large"
+        install -m 0640 -o root -g _rspamd "$img" "$dir/logo.png"
+    fi
+
+    chown -R root:_rspamd "$dir"
+    chmod 0750 "$dir"
+    echo "OK: signature saved to $dir"
+}
+
+# ── commands ──────────────────────────────────────────────────────────────────
+
+CMD="${1:-}"
+shift || true
+
+case "$CMD" in
+
+  save-user)
+    EMAIL=$(safe_name "${1:-}"); shift
+    validate_email "$EMAIL"
+    HTML="${1:-}"; shift
+    TXT="${1:-}";  shift
+    IMG="${1:-}";  # optional
+    install_sig "$BASE_DIR/users/$EMAIL" "$HTML" "$TXT" "$IMG"
+    ;;
+
+  delete-user)
+    EMAIL=$(safe_name "${1:-}")
+    validate_email "$EMAIL"
+    DIR="$BASE_DIR/users/$EMAIL"
+    [[ -d "$DIR" ]] || die "No signature found for $EMAIL"
+    rm -rf "$DIR"
+    echo "OK: signature deleted for $EMAIL"
+    ;;
+
+  save-domain)
+    DOMAIN=$(safe_name "${1:-}"); shift
+    validate_domain "$DOMAIN"
+    HTML="${1:-}"; shift
+    TXT="${1:-}";  shift
+    IMG="${1:-}"
+    install_sig "$BASE_DIR/domains/$DOMAIN" "$HTML" "$TXT" "$IMG"
+    ;;
+
+  delete-domain)
+    DOMAIN=$(safe_name "${1:-}")
+    validate_domain "$DOMAIN"
+    DIR="$BASE_DIR/domains/$DOMAIN"
+    [[ -d "$DIR" ]] || die "No domain signature found for $DOMAIN"
+    rm -rf "$DIR"
+    echo "OK: domain signature deleted for $DOMAIN"
+    ;;
+
+  add-admin)
+    EMAIL=$(safe_name "${1:-}"); shift
+    validate_email "$EMAIL"
+    GRANTED_BY=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --granted-by) GRANTED_BY="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+    mysql_exec "INSERT INTO signature_admins (email, role, granted_by)
+                VALUES ('$EMAIL', 'admin', '$GRANTED_BY')
+                ON DUPLICATE KEY UPDATE role='admin', granted_by='$GRANTED_BY';"
+    echo "OK: admin role granted to $EMAIL"
+    ;;
+
+  remove-admin)
+    EMAIL=$(safe_name "${1:-}")
+    validate_email "$EMAIL"
+    mysql_exec "DELETE FROM signature_admins WHERE email='$EMAIL' AND role='admin';"
+    echo "OK: admin role removed from $EMAIL"
+    ;;
+
+  set-superadmin)
+    EMAIL=$(safe_name "${1:-}")
+    validate_email "$EMAIL"
+    mysql_exec "INSERT INTO signature_admins (email, role, granted_by)
+                VALUES ('$EMAIL', 'superadmin', 'cli')
+                ON DUPLICATE KEY UPDATE role='superadmin';"
+    echo "OK: $EMAIL is now superadmin"
+    ;;
+
+  *)
+    die "Unknown command: $CMD"
+    ;;
+esac

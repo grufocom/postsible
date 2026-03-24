@@ -1,34 +1,62 @@
 ---
-# tasks/nginx_http.yml
-- name: Create nginx HTTP configuration for certbot (per domain)
+# roles/autoconfig/tasks/nginx_http.yml
+# Creates HTTP-only vhosts for ACME challenge BEFORE certbot runs.
+# These must exist so certbot's webroot challenge can be served.
+
+- name: Create HTTP nginx config for autoconfig per domain
   ansible.builtin.template:
     src: nginx_http.conf.j2
-    dest: "/etc/nginx/sites-available/autoconfig-{{ item }}-http"
+    dest: "/etc/nginx/sites-available/autoconfig-{{ item.domain }}-http.conf"
     owner: root
     group: root
     mode: '0644'
   loop: "{{ mail_virtual_domains }}"
+  loop_control:
+    label: "{{ item.domain }}"
   notify: reload nginx
 
-- name: Enable nginx HTTP configuration for certbot
+- name: Enable HTTP nginx config for autoconfig
   ansible.builtin.file:
-    src: "/etc/nginx/sites-available/autoconfig-{{ item }}-http"
-    dest: "/etc/nginx/sites-enabled/autoconfig-{{ item }}-http"
+    src: "/etc/nginx/sites-available/autoconfig-{{ item.domain }}-http.conf"
+    dest: "/etc/nginx/sites-enabled/autoconfig-{{ item.domain }}-http.conf"
     state: link
   loop: "{{ mail_virtual_domains }}"
+  loop_control:
+    label: "{{ item.domain }}"
   notify: reload nginx
 
-- name: Test nginx configuration
+- name: Create HTTP nginx config for autodiscover per domain
+  ansible.builtin.template:
+    src: nginx_autodiscover_http.conf.j2
+    dest: "/etc/nginx/sites-available/autodiscover-{{ item.domain }}-http.conf"
+    owner: root
+    group: root
+    mode: '0644'
+  loop: "{{ mail_virtual_domains }}"
+  loop_control:
+    label: "{{ item.domain }}"
+  notify: reload nginx
+  when: autoconfig_enable_autodiscover | default(true)
+
+- name: Enable HTTP nginx config for autodiscover
+  ansible.builtin.file:
+    src: "/etc/nginx/sites-available/autodiscover-{{ item.domain }}-http.conf"
+    dest: "/etc/nginx/sites-enabled/autodiscover-{{ item.domain }}-http.conf"
+    state: link
+  loop: "{{ mail_virtual_domains }}"
+  loop_control:
+    label: "{{ item.domain }}"
+  notify: reload nginx
+  when: autoconfig_enable_autodiscover | default(true)
+
+- name: Test nginx config before flush
   ansible.builtin.command: nginx -t
-  register: nginx_test
   changed_when: false
-  failed_when: nginx_test.rc != 0
+  failed_when: false
+  register: _nginx_pre_test
 
-- name: Ensure nginx is running
-  ansible.builtin.service:
+- name: Reload nginx (HTTP vhosts active for ACME challenge)
+  ansible.builtin.systemd:
     name: nginx
-    state: started
-    enabled: true
-
-- name: Flush handlers to reload nginx before certbot
-  ansible.builtin.meta: flush_handlers
+    state: reloaded
+  when: _nginx_pre_test.rc == 0

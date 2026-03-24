@@ -1,8 +1,7 @@
 #!/bin/bash
 # {{ ansible_managed }}
-# Generate self-signed certificate for autoconfig/autodiscover subdomains.
-# Usage: postsible-generate-autoconfig-selfsigned <full-hostname>
-# e.g.:  postsible-generate-autoconfig-selfsigned autoconfig.example.com
+# Generate a self-signed certificate in the Let's Encrypt path layout.
+# Usage: postsible-generate-selfsigned <hostname>
 
 set -euo pipefail
 
@@ -15,7 +14,7 @@ CHAIN="${CERT_DIR}/chain.pem"
 mkdir -p "${CERT_DIR}"
 
 if [ -f "${FULLCHAIN}" ] && [ -f "${PRIVKEY}" ]; then
-    echo "✓ Certificate for ${HOSTNAME} already exists – skipping."
+    echo "✓ Certificate for ${HOSTNAME} already exists – skipping generation."
     exit 0
 fi
 
@@ -24,14 +23,15 @@ echo "Generating self-signed certificate for ${HOSTNAME} ..."
 openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
     -keyout "${PRIVKEY}" \
     -out    "${FULLCHAIN}" \
-    -subj   "/CN=${HOSTNAME}/O=Postsible Autoconfig/C=AT" \
+    -subj   "/CN=${HOSTNAME}/O=Postsible Self-Signed/C=AT" \
     -addext "subjectAltName=DNS:${HOSTNAME}"
 
+# chain.pem = same as fullchain for self-signed (no intermediate)
 ln -sf "${FULLCHAIN}" "${CHAIN}"
 
-chown root:ssl-cert "${PRIVKEY}" "${FULLCHAIN}" 2>/dev/null || true
-chmod 640 "${PRIVKEY}"
-chmod 644 "${FULLCHAIN}" "${CHAIN}"
+chown root:ssl-cert "${PRIVKEY}" "${FULLCHAIN}"
+chmod 640 "${PRIVKEY}" "${FULLCHAIN}"
+chmod 644 "${CHAIN}"
 
 echo "✓ Self-signed certificate created: ${CERT_DIR}/"
 openssl x509 -in "${FULLCHAIN}" -noout -subject -dates

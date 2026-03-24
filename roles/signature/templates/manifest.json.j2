@@ -1,0 +1,26 @@
+{
+  "manifest_version": 2,
+  "name": "Postsible Tools",
+  "version": "2.0.0",
+  "description": "Postsible Vacation Manager & Signature Manager for Thunderbird",
+  "applications": {
+    "gecko": {
+      "id": "postsible-tools@{{ common_hostname }}",
+      "strict_min_version": "78.0"
+    }
+  },
+  "icons": {
+    "48":  "icons/postsible-48.png",
+    "96":  "icons/postsible-96.png"
+  },
+  "browser_action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "Postsible Tools",
+    "default_icon": {
+      "48": "icons/postsible-48.png"
+    }
+  },
+  "permissions": [
+    "storage"
+  ]
+}

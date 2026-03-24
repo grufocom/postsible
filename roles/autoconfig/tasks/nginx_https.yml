@@ -1,36 +1,32 @@
 ---
-# tasks/nginx_https.yml
-- name: Create nginx HTTPS configuration for autoconfig (per domain)
+# roles/autoconfig/tasks/nginx_https.yml
+# Creates HTTPS vhosts for autoconfig per domain.
+# Cert path is identical for LE and self-signed.
+
+- name: Create HTTPS nginx config for autoconfig per domain
   ansible.builtin.template:
     src: nginx_https.conf.j2
-    dest: "/etc/nginx/sites-available/autoconfig-{{ item }}-https"
+    dest: "/etc/nginx/sites-available/autoconfig-{{ item.domain }}-https.conf"
     owner: root
     group: root
     mode: '0644'
   loop: "{{ mail_virtual_domains }}"
+  loop_control:
+    label: "{{ item.domain }}"
   notify: reload nginx
 
-- name: Enable nginx HTTPS configuration
+- name: Enable HTTPS nginx config for autoconfig
   ansible.builtin.file:
-    src: "/etc/nginx/sites-available/autoconfig-{{ item }}-https"
-    dest: "/etc/nginx/sites-enabled/autoconfig-{{ item }}-https"
+    src: "/etc/nginx/sites-available/autoconfig-{{ item.domain }}-https.conf"
+    dest: "/etc/nginx/sites-enabled/autoconfig-{{ item.domain }}-https.conf"
     state: link
   loop: "{{ mail_virtual_domains }}"
+  loop_control:
+    label: "{{ item.domain }}"
   notify: reload nginx
-
-- name: Remove HTTP-only configuration (keep both actually for certbot renewals)
-  ansible.builtin.file:
-    path: "/etc/nginx/sites-enabled/autoconfig-{{ item }}-http"
-    state: absent
-  loop: "{{ mail_virtual_domains }}"
-  notify: reload nginx
-  when: autoconfig_remove_http_config | default(false)
 
 - name: Test nginx configuration
   ansible.builtin.command: nginx -t
-  register: nginx_test
   changed_when: false
-  failed_when: nginx_test.rc != 0
-
-- name: Reload nginx to apply HTTPS configuration
-  ansible.builtin.meta: flush_handlers
+  register: _nginx_test
+  failed_when: _nginx_test.rc != 0

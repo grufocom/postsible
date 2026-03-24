@@ -1,0 +1,29 @@
+; {{ ansible_managed }}
+; PHP-FPM Pool for Postsible Signature Manager
+
+[signature]
+
+user  = {{ signature_webserver_user }}
+group = {{ signature_webserver_user }}
+
+listen = {{ signature_php_fpm_sock }}
+listen.owner = {{ signature_webserver_user }}
+listen.group = www-data
+listen.mode  = 0660
+
+pm                   = dynamic
+pm.max_children      = 5
+pm.start_servers     = 1
+pm.min_spare_servers = 1
+pm.max_spare_servers = 2
+
+; Allow exec() for sudo signature-manage calls and GD image processing
+php_admin_value[disable_functions] = passthru,shell_exec,system,proc_open,popen,curl_exec,curl_multi_exec,parse_ini_file,show_source
+
+php_admin_value[error_log]      = /var/log/php8.4-fpm-signature.log
+php_flag[log_errors]            = on
+php_admin_value[display_errors] = off
+
+; Allow file uploads (for logo images)
+php_admin_value[upload_max_filesize] = 2M
+php_admin_value[post_max_size]       = 4M

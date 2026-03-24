@@ -1,5 +1,6 @@
 ---
 # roles/vacation/tasks/main.yml
+# Key change: vacation location block inserted into EVERY domain vhost.
 
 # ── 1. Database tables ────────────────────────────────────────────────────────
 
@@ -37,20 +38,15 @@
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
   tags: vacation_db
 
-- name: Grant SELECT on vacation_admins to mailuser
+- name: Grant SELECT on vacation tables to mailuser
   community.mysql.mysql_query:
     login_user: root
     login_password: "{{ mariadb_root_password }}"
     login_db: "{{ vacation_db_name }}"
-    query: "GRANT SELECT ON {{ vacation_db_name }}.vacation_admins TO '{{ vacation_db_user }}'@'{{ mariadb_host }}';"
-  tags: vacation_db
-
-- name: Grant SELECT on vacation_status to mailuser
-  community.mysql.mysql_query:
-    login_user: root
-    login_password: "{{ mariadb_root_password }}"
-    login_db: "{{ vacation_db_name }}"
-    query: "GRANT SELECT ON {{ vacation_db_name }}.vacation_status TO '{{ vacation_db_user }}'@'{{ mariadb_host }}';"
+    query: "GRANT SELECT ON {{ vacation_db_name }}.{{ item }} TO '{{ vacation_db_user }}'@'{{ mariadb_host }}';"
+  loop:
+    - vacation_admins
+    - vacation_status
   tags: vacation_db
 
 - name: Flush privileges
@@ -61,8 +57,7 @@
     query: "FLUSH PRIVILEGES;"
   tags: vacation_db
 
-# ── 2. maildb-manage template (already handled by mariadb role, ──────────────
-#       but we tag it here so vacation tag also redeploys it) ─────────────────
+# ── 2. maildb-manage ──────────────────────────────────────────────────────────
 
 - name: Deploy maildb-manage with vacation commands
   ansible.builtin.template:
@@ -73,7 +68,7 @@
     mode: '0750'
   tags: vacation_maildb
 
-# ── 3. sudoers rule ───────────────────────────────────────────────────────────
+# ── 3. sudoers ────────────────────────────────────────────────────────────────
 
 - name: Deploy sudoers rule for vacation web interface
   ansible.builtin.template:
@@ -87,7 +82,7 @@
 
 # ── 4. PHP-FPM pool ───────────────────────────────────────────────────────────
 
-- name: Deploy dedicated PHP-FPM pool for vacation
+- name: Deploy PHP-FPM pool for vacation
   ansible.builtin.template:
     src: php-fpm-vacation.conf.j2
     dest: /etc/php/8.4/fpm/pool.d/vacation.conf
@@ -117,7 +112,7 @@
     mode: '0640'
   tags: vacation_web
 
-- name: Deploy SnappyMail vacation plugin JS
+- name: Deploy vacation-plugin.js
   ansible.builtin.copy:
     src: vacation-plugin.js
     dest: /var/www/vacation-plugin.js
@@ -125,26 +120,26 @@
     group: "{{ vacation_webserver_user }}"
     mode: '0644'
   notify: reload nginx
-  tags: vacation_web, vacation_plugin
+  tags: vacation_web
 
-- name: Deploy Thunderbird extension XPI for download
+- name: Deploy Postsible Tools XPI (combined Vacation + Signature)
   ansible.builtin.copy:
-    src: postsible-vacation.xpi
-    dest: "{{ vacation_web_root }}/postsible-vacation.xpi"
+    src: postsible-tools.xpi
+    dest: "{{ vacation_web_root }}/postsible-tools.xpi"
     owner: "{{ vacation_webserver_user }}"
     group: "{{ vacation_webserver_user }}"
     mode: '0644'
   notify: reload nginx
-  tags: vacation_web, vacation_plugin
+  failed_when: false   # XPI built by signature role – skip if not present yet
+  tags: vacation_web
 
-# ── 5. nginx location block ───────────────────────────────────────────────────
-#    Inserted into the existing vhost template via lineinfile
+# ── 6. nginx: vacation location in EVERY domain vhost ────────────────────────
 
-- name: Insert vacation location block into nginx vhost
+- name: Insert vacation location into each domain vhost
   ansible.builtin.blockinfile:
-    path: /etc/nginx/sites-available/rspamd
+    path: "/etc/nginx/sites-available/{{ item.mx_hostname }}.conf"
     marker: "# {mark} ANSIBLE MANAGED - vacation location"
-    insertafter: "# INSERT SNAPPY HERE"
+    insertafter: "# INSERT VACATION HERE – {{ item.mx_hostname }}"
     block: |
       # Vacation Manager
       location {{ vacation_web_path }}/ {
@@ -158,40 +153,41 @@
               fastcgi_param  SCRIPT_FILENAME $request_filename;
           }
 
-          location ~ /\. {
-              deny all;
-          }
+          location ~ /\. { deny all; }
       }
+  loop: "{{ mail_virtual_domains }}"
+  loop_control:
+    label: "{{ item.mx_hostname }}"
   notify: reload nginx
   tags: vacation_nginx
 
-# ── 6. Set admin user as vacation superadmin ──────────────────────────────────
+# ── 7. Superadmin ─────────────────────────────────────────────────────────────
 
 - name: Check if superadmin already set
   community.mysql.mysql_query:
     login_user: root
     login_password: "{{ mariadb_root_password }}"
     login_db: "{{ vacation_db_name }}"
-    query: "SELECT COUNT(*) AS cnt FROM vacation_admins WHERE email='{{ mail_admin_email }}' AND role='superadmin';"
+    query: "SELECT COUNT(*) AS cnt FROM vacation_admins WHERE email='{{ mail_virtual_domains[0].admin_email }}' AND role='superadmin';"
   register: superadmin_check
   tags: vacation_superadmin
 
-- name: Set mail admin as vacation superadmin
+- name: Set primary domain admin as vacation superadmin
   ansible.builtin.command:
-    cmd: "{{ vacation_maildb_manage }} set-superadmin {{ mail_admin_email }}"
+    cmd: "{{ vacation_maildb_manage }} set-superadmin {{ mail_virtual_domains[0].admin_email }}"
   when: superadmin_check.query_result[0][0]['cnt'] | int == 0
   tags: vacation_superadmin
 
-# ── 7. Update deployment summary ──────────────────────────────────────────────
+# ── 8. Deployment summary ─────────────────────────────────────────────────────
 
 - name: Add vacation info to deployment summary
   ansible.builtin.blockinfile:
     path: /etc/postsible/deployment_summary.txt
     marker: "# {mark} ANSIBLE MANAGED - vacation"
     block: |
-
       Vacation Manager:
-      - URL: https://{{ common_hostname }}{{ vacation_web_path }}/
-      - Superadmin: {{ mail_admin_email }}
-      - CLI: maildb-manage set-vacation user@example.com --from YYYY-MM-DD --to YYYY-MM-DD --subject "..." --message "..."
+      {% for d in mail_virtual_domains %}
+        - https://{{ d.mx_hostname }}{{ vacation_web_path }}/
+      {% endfor %}
+        Superadmin: {{ mail_virtual_domains[0].admin_email }}
   tags: vacation_summary

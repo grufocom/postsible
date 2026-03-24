@@ -1,42 +1,23 @@
 #!/bin/bash
 # {{ ansible_managed }}
-# Certbot deploy hook - Fix permissions for Dovecot after certificate renewal
+# Certbot deploy hook – runs after every successful renewal
+# Fixes permissions so dovecot/postfix can read the new certs
 
-set -e
+set -euo pipefail
 
-DOMAIN="${RENEWED_DOMAINS:-all}"
-LINEAGE="${RENEWED_LINEAGE:-/etc/letsencrypt/live}"
+for DOMAIN_DIR in /etc/letsencrypt/live/*/; do
+    chown -R root:ssl-cert "${DOMAIN_DIR}" 2>/dev/null || true
+    chmod 750 "${DOMAIN_DIR}" 2>/dev/null || true
+    chmod 640 "${DOMAIN_DIR}"privkey.pem 2>/dev/null || true
+    chmod 644 "${DOMAIN_DIR}"fullchain.pem "${DOMAIN_DIR}"chain.pem 2>/dev/null || true
+done
 
-LOGFILE="/var/log/certbot-deploy-hook.log"
-
-log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOGFILE"
-}
-
-log "=== Certbot Deploy Hook Started ==="
-log "Certificate deployed for domain(s): $DOMAIN"
-
-# Fix Let's Encrypt base directory permissions
-log "Fixing /etc/letsencrypt permissions..."
-chmod 750 /etc/letsencrypt/live /etc/letsencrypt/archive 2>/dev/null || true
-chgrp ssl-cert /etc/letsencrypt/live /etc/letsencrypt/archive 2>/dev/null || true
-
-# Fix specific domain directory if provided
-if [ -n "$LINEAGE" ] && [ -d "$LINEAGE" ]; then
-    log "Fixing permissions for $LINEAGE"
-    chmod 750 "$LINEAGE" 2>/dev/null || true
-    chgrp ssl-cert "$LINEAGE" 2>/dev/null || true
+# Update .ok markers for renewed domains
+PENDING_DIR="{{ certbot_pending_dir }}"
+if [ -n "${RENEWED_DOMAINS:-}" ]; then
+    for d in $RENEWED_DOMAINS; do
+        touch "${PENDING_DIR}/${d}.ok" 2>/dev/null || true
+        rm -f "${PENDING_DIR}/${d}.pending" 2>/dev/null || true
+        echo "✓ Renewed: ${d}"
+    done
 fi
-
-# Ensure dovecot user is in ssl-cert group
-if ! groups dovecot 2>/dev/null | grep -q ssl-cert; then
-    log "Adding dovecot to ssl-cert group..."
-    usermod -aG ssl-cert dovecot
-    log "Dovecot added to ssl-cert group"
-else
-    log "Dovecot already in ssl-cert group"
-fi
-
-log "Deploy hook completed successfully"
-log "=== Certbot Deploy Hook Finished ==="
-exit 0

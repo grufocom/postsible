@@ -1,226 +1,95 @@
 ---
-# Nginx main tasks
+# roles/nginx/tasks/main.yml
+
+# ── Package installation (unchanged) ─────────────────────────────────────────
 
 - name: Ensure dpkg is in a clean state
-  command: dpkg --configure -a
+  ansible.builtin.command: dpkg --configure -a
   changed_when: false
   failed_when: false
 
-- name: Check for broken nginx installation
-  shell: dpkg -l | grep -E '^.[iHUFW].*(nginx|php)' || true
-  register: broken_packages
-  changed_when: false
-
-- name: Display potentially broken packages
-  debug:
-    msg: "{{ broken_packages.stdout_lines }}"
-  when: broken_packages.stdout != ""
-
-- name: Completely purge nginx and PHP if partially installed
-  shell: |
-    # Remove all nginx packages
-    apt-get -y purge 'nginx*' 'php*-fpm' 'php*-common' 'php*-cli' || true
-    apt-get -y autoremove --purge || true
-    apt-get -y autoclean || true
-    
-    # Remove config directories
-    rm -rf /etc/nginx
-    rm -rf /var/lib/nginx
-    rm -rf /var/log/nginx
-    rm -rf /etc/php
-    rm -rf /usr/lib/php
-    
-    # Fix any broken packages
-    dpkg --configure -a || true
-    apt-get -f install -y || true
-  environment:
-    DEBIAN_FRONTEND: noninteractive
-  changed_when: true
-
-- name: Update apt cache (force)
-  apt:
-    update_cache: yes
-    cache_valid_time: 0
-    force_apt_get: yes
-  environment:
-    DEBIAN_FRONTEND: noninteractive
-
 - name: Detect available PHP version
-  shell: |
-    apt-cache search php-fpm | grep -oP 'php\K[0-9]+\.[0-9]+' | head -1
+  ansible.builtin.shell: |
+    apt-cache search php-fpm | grep -oP 'php\K[0-9]+\.[0-9]+' | sort -V | tail -1
   register: detected_php_version
   changed_when: false
   tags: nginx
 
 - name: Set PHP version fact
-  set_fact:
+  ansible.builtin.set_fact:
     nginx_php_version: "{{ detected_php_version.stdout | default('8.2') }}"
   tags: nginx
 
-- name: Display detected PHP version
-  debug:
-    msg: "Using PHP version: {{ nginx_php_version }}"
-  tags: nginx
-
-- name: Install nginx-common first (critical for mime.types)
-  apt:
+- name: Install nginx and PHP packages
+  ansible.builtin.apt:
     name:
       - nginx-common
       - libnginx-mod-http-dav-ext
-    state: present
-    force_apt_get: yes
-  environment:
-    DEBIAN_FRONTEND: noninteractive
-  register: nginx_common_install
-  tags: nginx
-
-- name: Verify nginx-common installation
-  stat:
-    path: /etc/nginx/mime.types
-  register: mime_types_after_common
-  tags: nginx
-
-- name: Force reinstall nginx-common if mime.types missing
-  shell: |
-    apt-get install --reinstall -y nginx-common libnginx-mod-http-dav-ext
-  environment:
-    DEBIAN_FRONTEND: noninteractive
-  when: not mime_types_after_common.stat.exists
-  tags: nginx
-
-- name: Final check for mime.types
-  stat:
-    path: /etc/nginx/mime.types
-  register: mime_types_final
-  tags: nginx
-
-- name: Fail if mime.types still missing after reinstall
-  fail:
-    msg: |
-      ERROR: /etc/nginx/mime.types is still missing after nginx-common installation!
-      This indicates a serious problem with the nginx-common package or apt sources.
-      
-      Debug steps:
-      1. Check: dpkg -L nginx-common | grep mime.types
-      2. Check: apt-cache policy nginx-common
-      3. Manually run: apt-get install --reinstall nginx-common
-  when: not mime_types_final.stat.exists
-  tags: nginx
-
-- name: Install PHP-common first (critical for mods-available)
-  apt:
-    name:
-      - php{{ nginx_php_version }}-common
-    state: present
-    force_apt_get: yes
-  environment:
-    DEBIAN_FRONTEND: noninteractive
-  tags: nginx
-
-- name: Verify PHP-common installation
-  stat:
-    path: /etc/php/{{ nginx_php_version }}/mods-available
-  register: php_mods_after_common
-  tags: nginx
-
-- name: Force reinstall PHP-common if mods-available missing
-  shell: |
-    apt-get install --reinstall -y php{{ nginx_php_version }}-common
-  environment:
-    DEBIAN_FRONTEND: noninteractive
-  when: not php_mods_after_common.stat.exists
-  tags: nginx
-
-- name: Final check for PHP mods-available
-  stat:
-    path: /etc/php/{{ nginx_php_version }}/mods-available
-  register: php_mods_final
-  tags: nginx
-
-- name: Fail if PHP mods-available still missing
-  fail:
-    msg: |
-      ERROR: /etc/php/{{ nginx_php_version }}/mods-available is missing!
-      This indicates a serious problem with php{{ nginx_php_version }}-common package.
-      
-      Debug steps:
-      1. Check: dpkg -L php{{ nginx_php_version }}-common | grep mods-available
-      2. Check: apt-cache policy php{{ nginx_php_version }}-common
-      3. Manually run: apt-get install --reinstall php{{ nginx_php_version }}-common
-  when: not php_mods_final.stat.exists
-  tags: nginx
-
-- name: Install remaining Nginx and PHP-FPM packages
-  apt:
-    name:
       - nginx
-      - php{{ nginx_php_version }}-fpm
-      - php{{ nginx_php_version }}-cli
-      - php{{ nginx_php_version }}-mysql
-      - php{{ nginx_php_version }}-curl
-      - php{{ nginx_php_version }}-gd
-      - php{{ nginx_php_version }}-mbstring
-      - php{{ nginx_php_version }}-xml
-      - php{{ nginx_php_version }}-zip
-      - php{{ nginx_php_version }}-intl
-      - php{{ nginx_php_version }}-bcmath
+      - "php{{ nginx_php_version }}-fpm"
+      - "php{{ nginx_php_version }}-cli"
+      - "php{{ nginx_php_version }}-mysql"
+      - "php{{ nginx_php_version }}-curl"
+      - "php{{ nginx_php_version }}-gd"
+      - "php{{ nginx_php_version }}-mbstring"
+      - "php{{ nginx_php_version }}-xml"
+      - "php{{ nginx_php_version }}-zip"
+      - "php{{ nginx_php_version }}-intl"
+      - "php{{ nginx_php_version }}-bcmath"
     state: present
-    force_apt_get: yes
+    update_cache: yes
   environment:
     DEBIAN_FRONTEND: noninteractive
-  tags: nginx
-
-- name: Verify PHP-FPM installation
-  stat:
-    path: /etc/php/{{ nginx_php_version }}/fpm
-  register: php_fpm_check
-  tags: nginx
-
-- name: Display PHP installation status
-  debug:
-    msg: |
-      PHP Installation Check:
-      - Version: {{ nginx_php_version }}
-      - mods-available: {{ 'OK ✓' if php_mods_final.stat.exists else 'MISSING ✗' }}
-      - FPM directory: {{ 'OK ✓' if php_fpm_check.stat.exists else 'MISSING ✗' }}
   tags: nginx
 
 - name: Enable PHP extensions
-  command: phpenmod -v {{ nginx_php_version }} {{ item }}
-  loop:
-    - mbstring
-    - curl
-    - gd
-    - intl
-    - mysql
-    - opcache
-    - xml
-    - zip
-    - bcmath
+  ansible.builtin.command: "phpenmod -v {{ nginx_php_version }} {{ item }}"
+  loop: [mbstring, curl, gd, intl, mysql, opcache, xml, zip, bcmath]
   changed_when: false
   failed_when: false
   tags: nginx
 
-- name: Verify PHP extensions are enabled
-  stat:
-    path: /etc/php/{{ nginx_php_version }}/fpm/conf.d/20-{{ item }}.ini
-  register: php_ext_check
-  loop:
-    - mbstring
-    - curl
-    - gd
-    - mysql
-  failed_when: false
+# ── nginx.conf ────────────────────────────────────────────────────────────────
+
+- name: Configure nginx.conf
+  ansible.builtin.template:
+    src: nginx.conf.j2
+    dest: /etc/nginx/nginx.conf
+    owner: root
+    group: root
+    mode: '0644'
+    backup: yes
+  notify: reload nginx
   tags: nginx
 
-- name: Ensure nginx is stopped during configuration
-  systemd:
-    name: nginx
-    state: stopped
+- name: Configure PHP-FPM pool
+  ansible.builtin.template:
+    src: php-fpm-pool.conf.j2
+    dest: "/etc/php/{{ nginx_php_version }}/fpm/pool.d/www.conf"
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart php-fpm
   tags: nginx
+
+# ── Remove legacy rspamd vhost ────────────────────────────────────────────────
+
+- name: Remove legacy 'rspamd' vhost symlink (replaced by per-domain vhosts)
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/nginx/sites-enabled/rspamd
+    - /etc/nginx/sites-available/rspamd
+    - /etc/nginx/sites-enabled/default
+    - /etc/nginx/sites-available/default
+  notify: reload nginx
+  tags: nginx
+
+# ── Web root + default page ───────────────────────────────────────────────────
 
 - name: Create web directories
-  file:
+  ansible.builtin.file:
     path: "{{ item }}"
     state: directory
     owner: "{{ nginx_user }}"
@@ -229,11 +98,15 @@
   loop:
     - /var/www
     - /var/www/html
+    - /var/www/certbot
   tags: nginx
 
 - name: Create default index.html (Steampunk Standby Page)
-  copy:
+  ansible.builtin.copy:
     dest: /var/www/html/index.html
+    owner: "{{ nginx_user }}"
+    group: "{{ nginx_group }}"
+    mode: '0644'
     content: |
       <!DOCTYPE html>
       <html lang="en">
@@ -243,44 +116,17 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>ChronoEngine Node-12B</title>
         <style>
-          body {
-            margin: 0;
-            padding: 0;
-            background: #1b1b1b;
-            color: #d2b48c;
-            font-family: 'Courier New', monospace;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-            background-image: radial-gradient(#2e2e2e 1px, transparent 1px);
-            background-size: 40px 40px;
-          }
-          .container {
-            text-align: center;
-            max-width: 600px;
-          }
-          h1 {
-            font-size: 2.5em;
-            color: #e0c097;
-            text-shadow: 1px 1px 0 #000;
-          }
-          p {
-            font-size: 1.1em;
-            color: #c0a080;
-            margin-top: 1em;
-            line-height: 1.4;
-          }
-          .gear {
-            font-size: 2em;
-            animation: rotate 10s linear infinite;
-            display: inline-block;
-            color: #a67c52;
-          }
-          @keyframes rotate {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-          }
+          body { margin:0; padding:0; background:#1b1b1b; color:#d2b48c;
+                 font-family:'Courier New',monospace; display:flex;
+                 align-items:center; justify-content:center; height:100vh;
+                 background-image:radial-gradient(#2e2e2e 1px,transparent 1px);
+                 background-size:40px 40px; }
+          .container { text-align:center; max-width:600px; }
+          h1 { font-size:2.5em; color:#e0c097; text-shadow:1px 1px 0 #000; }
+          p  { font-size:1.1em; color:#c0a080; margin-top:1em; line-height:1.4; }
+          .gear { font-size:2em; animation:rotate 10s linear infinite;
+                  display:inline-block; color:#a67c52; }
+          @keyframes rotate { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
         </style>
       </head>
       <body>
@@ -292,130 +138,88 @@
         </div>
       </body>
       </html>
-    owner: "{{ nginx_user }}"
-    group: "{{ nginx_group }}"
-    mode: '0644'
   tags: nginx
 
-# SSL Certificate Detection - runs before vhost configuration
-- name: Detect and select SSL certificates
-  include_tasks: ssl-detection.yml
-  tags:
-    - nginx
-    - nginx-ssl
+# ── Per-domain vhosts ─────────────────────────────────────────────────────────
 
-- name: Configure nginx.conf
-  template:
-    src: nginx.conf.j2
-    dest: /etc/nginx/nginx.conf
+- name: Ensure SSL cert directory exists per domain (pre-certbot)
+  ansible.builtin.file:
+    path: "/etc/letsencrypt/live/{{ item.mx_hostname }}"
+    state: directory
+    owner: root
+    group: ssl-cert
+    mode: '0750'
+  loop: "{{ mail_virtual_domains }}"
+  loop_control:
+    label: "{{ item.mx_hostname }}"
+  tags: nginx
+
+- name: Generate self-signed cert for domains without LE cert yet
+  ansible.builtin.command: >
+    /usr/local/bin/postsible-generate-selfsigned {{ item.mx_hostname }}
+  args:
+    creates: "/etc/letsencrypt/live/{{ item.mx_hostname }}/fullchain.pem"
+  loop: "{{ mail_virtual_domains }}"
+  loop_control:
+    label: "{{ item.mx_hostname }}"
+  tags: nginx
+
+- name: Deploy nginx vhost per mx_hostname
+  ansible.builtin.template:
+    src: mailserver-vhost.conf.j2
+    dest: "/etc/nginx/sites-available/{{ item.mx_hostname }}.conf"
     owner: root
     group: root
     mode: '0644'
-    backup: yes
+  vars:
+    vdomain: "{{ item }}"
+  loop: "{{ mail_virtual_domains }}"
+  loop_control:
+    label: "{{ item.mx_hostname }}"
   notify: reload nginx
   tags: nginx
 
-- name: Remove default nginx site
-  file:
-    path: "{{ item }}"
-    state: absent
-  loop:
-    - /etc/nginx/sites-enabled/default
-    - /etc/nginx/sites-available/default
-  tags: nginx
-
-- name: Configure Rspamd WebUI VHost (SSL version if available)
-  template:
-    src: rspamd-vhost-ssl.conf.j2
-    dest: /etc/nginx/sites-available/rspamd
-    owner: root
-    group: root
-    mode: '0644'
-  when:
-    - nginx_rspamd_webui_enabled
-    - nginx_ssl_enabled | default(false)
-  notify: reload nginx
-  tags: nginx
-
-- name: Configure Rspamd WebUI VHost (HTTP-only fallback)
-  template:
-    src: rspamd-vhost.conf.j2
-    dest: /etc/nginx/sites-available/rspamd
-    owner: root
-    group: root
-    mode: '0644'
-  when:
-    - nginx_rspamd_webui_enabled
-    - not (nginx_ssl_enabled | default(false))
-  notify: reload nginx
-  tags: nginx
-
-- name: Enable Rspamd WebUI VHost
-  file:
-    src: /etc/nginx/sites-available/rspamd
-    dest: /etc/nginx/sites-enabled/rspamd
+- name: Enable nginx vhost per mx_hostname
+  ansible.builtin.file:
+    src: "/etc/nginx/sites-available/{{ item.mx_hostname }}.conf"
+    dest: "/etc/nginx/sites-enabled/{{ item.mx_hostname }}.conf"
     state: link
-  when: nginx_rspamd_webui_enabled
+  loop: "{{ mail_virtual_domains }}"
+  loop_control:
+    label: "{{ item.mx_hostname }}"
   notify: reload nginx
   tags: nginx
 
-- name: Configure PHP-FPM pool
-  template:
-    src: php-fpm-pool.conf.j2
-    dest: "/etc/php/{{ nginx_php_version }}/fpm/pool.d/www.conf"
-    owner: root
-    group: root
-    mode: '0644'
-    backup: yes
-  when: nginx_php_fpm_enabled
-  notify: restart php-fpm
-  tags: nginx
+# ── Start services ────────────────────────────────────────────────────────────
 
 - name: Test nginx configuration
-  command: nginx -t
+  ansible.builtin.command: nginx -t
   changed_when: false
   register: nginx_test
   failed_when: nginx_test.rc != 0
   tags: nginx
 
 - name: Enable and start PHP-FPM
-  systemd:
+  ansible.builtin.systemd:
     name: "php{{ nginx_php_version }}-fpm"
     enabled: yes
     state: started
-  when: nginx_php_fpm_enabled
   tags: nginx
 
-- name: Enable and start Nginx
-  systemd:
+- name: Enable and start nginx
+  ansible.builtin.systemd:
     name: nginx
     enabled: yes
     state: started
   tags: nginx
 
-- name: Display Nginx information
-  debug:
+- name: Display nginx summary
+  ansible.builtin.debug:
     msg: |
-      Nginx Configuration Complete!
-      ==========================================
-      SSL Status: {{ 'ENABLED ✓' if nginx_ssl_enabled | default(false) else 'DISABLED (HTTP only)' }}
-      SSL Source: {{ nginx_ssl_source | default('Not detected') }}
-      Certificate: {{ nginx_ssl_cert }}
-      HSTS: {{ 'Enabled' if nginx_hsts_enabled else 'Disabled' }}
-      ==========================================
-
-      HTTP Port: {{ nginx_http_port }}
-      HTTPS Port: {{ nginx_https_port }}{% if not (nginx_ssl_enabled | default(false)) %} (not active yet){% endif %}
-
-      Rspamd WebUI: {% if nginx_ssl_enabled | default(false) %}https{% else %}http{% endif %}://{{ nginx_server_name }}{{ nginx_rspamd_webui_path }}/
-
-      PHP-FPM Socket: {{ nginx_php_fpm_socket }}
-      PHP Version: {{ nginx_php_version }}
-
-      {% if not (nginx_ssl_enabled | default(false)) %}
-      Next steps:
-        1. Run certbot role for SSL certificates
-        2. Re-run nginx role to enable HTTPS
-        3. Deploy SnappyMail role
-      {% endif %}
+      Nginx configured for {{ mail_virtual_domains | length }} domain(s):
+      {% for d in mail_virtual_domains %}
+        • https://{{ d.mx_hostname }}/wm/       (Webmail)
+        • https://{{ d.mx_hostname }}/rspamd/   (Rspamd WebUI)
+      {% endfor %}
+      PHP version: {{ nginx_php_version }}
   tags: nginx

@@ -1,11 +1,12 @@
 ---
-# tasks/setup_directories.yml
+# roles/autoconfig/tasks/setup_directories.yml
+
 - name: Ensure nginx is installed
   ansible.builtin.package:
     name: nginx
     state: present
 
-- name: Create certbot webroot directory
+- name: Create certbot webroot
   ansible.builtin.file:
     path: /var/www/certbot
     state: directory
@@ -21,30 +22,68 @@
     group: www-data
     mode: '0755'
 
-- name: Create autoconfig domain directories
+- name: Create per-domain autoconfig directories
   ansible.builtin.file:
-    path: "/var/www/autoconfig/{{ item }}"
+    path: "{{ item[0] }}"
     state: directory
     owner: www-data
     group: www-data
     mode: '0755'
-  loop: "{{ mail_virtual_domains }}"
+  loop: "{{ mail_virtual_domains | product(subpaths) | list }}"
+  vars:
+    subpaths:
+      - ""
+  loop_control:
+    label: "{{ item[0].domain }}"
 
-- name: Create mail subdirectory for autoconfig files
+# Build proper paths per domain
+- name: Create autoconfig subdirectories per domain
   ansible.builtin.file:
-    path: "/var/www/autoconfig/{{ item }}/mail"
+    path: "/var/www/autoconfig/{{ item.domain }}/{{ subdir }}"
     state: directory
     owner: www-data
     group: www-data
     mode: '0755'
   loop: "{{ mail_virtual_domains }}"
+  loop_control:
+    label: "{{ item.domain }}/{{ subdir }}"
+  vars:
+    subdir: "{{ sub_item }}"
+  with_nested:
+    - "{{ mail_virtual_domains }}"
+    - ["mail", ".well-known/autoconfig/mail", "autodiscover"]
+  when: false  # replaced by explicit tasks below
 
-- name: Create .well-known/autoconfig directory for Microsoft
+- name: Create autoconfig/mail directory per domain
   ansible.builtin.file:
-    path: "/var/www/autoconfig/{{ item }}/.well-known/autoconfig/mail"
+    path: "/var/www/autoconfig/{{ item.domain }}/mail"
     state: directory
     owner: www-data
     group: www-data
     mode: '0755'
   loop: "{{ mail_virtual_domains }}"
+  loop_control:
+    label: "{{ item.domain }}"
+
+- name: Create .well-known/autoconfig/mail directory per domain
+  ansible.builtin.file:
+    path: "/var/www/autoconfig/{{ item.domain }}/.well-known/autoconfig/mail"
+    state: directory
+    owner: www-data
+    group: www-data
+    mode: '0755'
+  loop: "{{ mail_virtual_domains }}"
+  loop_control:
+    label: "{{ item.domain }}"
+
+- name: Create autodiscover directory per domain
+  ansible.builtin.file:
+    path: "/var/www/autoconfig/{{ item.domain }}/autodiscover"
+    state: directory
+    owner: www-data
+    group: www-data
+    mode: '0755'
+  loop: "{{ mail_virtual_domains }}"
+  loop_control:
+    label: "{{ item.domain }}"
   when: autoconfig_enable_autodiscover | default(true)

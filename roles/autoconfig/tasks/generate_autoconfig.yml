@@ -1,21 +1,26 @@
 ---
-# tasks/generate_autoconfig.yml
-- name: Generate Thunderbird autoconfig XML files
+# roles/autoconfig/tasks/generate_autoconfig.yml
+# Generates Thunderbird autoconfig XML per domain
+
+- name: Generate autoconfig XML per domain
   ansible.builtin.template:
     src: config-v1.1.xml.j2
-    dest: "/var/www/autoconfig/{{ item }}/mail/config-v1.1.xml"
+    dest: "/var/www/autoconfig/{{ item.domain }}/mail/config-v1.1.xml"
     owner: www-data
     group: www-data
     mode: '0644'
   loop: "{{ mail_virtual_domains }}"
+  loop_control:
+    label: "{{ item.domain }}"
 
-- name: Copy autoconfig to .well-known location (for some clients)
+- name: Copy autoconfig XML to .well-known path
   ansible.builtin.copy:
-    src: "/var/www/autoconfig/{{ item }}/mail/config-v1.1.xml"
-    dest: "/var/www/autoconfig/{{ item }}/.well-known/autoconfig/mail/config-v1.1.xml"
+    src: "/var/www/autoconfig/{{ item.domain }}/mail/config-v1.1.xml"
+    dest: "/var/www/autoconfig/{{ item.domain }}/.well-known/autoconfig/mail/config-v1.1.xml"
     remote_src: true
     owner: www-data
     group: www-data
     mode: '0644'
   loop: "{{ mail_virtual_domains }}"
-  when: autoconfig_enable_autodiscover | default(true)
+  loop_control:
+    label: "{{ item.domain }}"

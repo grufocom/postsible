@@ -125,6 +125,11 @@
         - vacation
         - phase6
 
+    - role: signature
+      tags:
+        - signature
+        - phase6
+
   post_tasks:
     - name: Ensure postsible directory exists
       file:

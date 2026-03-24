@@ -1,0 +1,90 @@
+---
+# roles/signature/tasks/build_xpi.yml
+# Builds the combined Postsible Tools XPI (Vacation + Signature)
+# and deploys it to the vacation web root for download.
+#
+# Called from main.yml – can also be run standalone:
+#   ansible-playbook playbooks/site.yml --tags signature_xpi
+
+- name: Ensure zip is installed (needed to build XPI)
+  ansible.builtin.apt:
+    name: zip
+    state: present
+  tags: signature_xpi
+
+- name: Create XPI build directory
+  ansible.builtin.file:
+    path: /tmp/postsible-xpi-build
+    state: directory
+    mode: '0755'
+  tags: signature_xpi
+
+- name: Deploy XPI manifest (Jinja2 rendered – injects hostname)
+  ansible.builtin.template:
+    src: xpi/manifest.json.j2
+    dest: /tmp/postsible-xpi-build/manifest.json
+    mode: '0644'
+  tags: signature_xpi
+
+- name: Create XPI popup directory
+  ansible.builtin.file:
+    path: /tmp/postsible-xpi-build/popup
+    state: directory
+    mode: '0755'
+  tags: signature_xpi
+
+- name: Deploy XPI popup HTML (rendered)
+  ansible.builtin.template:
+    src: xpi/popup.html.j2
+    dest: /tmp/postsible-xpi-build/popup/popup.html
+    mode: '0644'
+  tags: signature_xpi
+
+- name: Deploy XPI popup JS (rendered)
+  ansible.builtin.template:
+    src: xpi/popup.js.j2
+    dest: /tmp/postsible-xpi-build/popup/popup.js
+    mode: '0644'
+  tags: signature_xpi
+
+- name: Create XPI icons directory
+  ansible.builtin.file:
+    path: /tmp/postsible-xpi-build/icons
+    state: directory
+    mode: '0755'
+  tags: signature_xpi
+
+- name: Copy XPI icons
+  ansible.builtin.copy:
+    src: "xpi-icons/postsible-{{ item }}.png"
+    dest: "/tmp/postsible-xpi-build/icons/postsible-{{ item }}.png"
+    mode: '0644'
+  loop:
+    - 48
+    - 96
+  tags: signature_xpi
+
+- name: Build XPI archive
+  ansible.builtin.shell: |
+    cd /tmp/postsible-xpi-build
+    zip -r /tmp/postsible-tools.xpi .
+  args:
+    creates: /tmp/postsible-tools.xpi
+  tags: signature_xpi
+
+- name: Deploy XPI to vacation web root (for download)
+  ansible.builtin.copy:
+    src: /tmp/postsible-tools.xpi
+    dest: "{{ vacation_web_root }}/postsible-tools.xpi"
+    remote_src: true
+    owner: "{{ vacation_webserver_user }}"
+    group: "{{ vacation_webserver_user }}"
+    mode: '0644'
+  notify: reload nginx
+  tags: signature_xpi
+
+- name: Clean up XPI build directory
+  ansible.builtin.file:
+    path: /tmp/postsible-xpi-build
+    state: absent
+  tags: signature_xpi

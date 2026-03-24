@@ -1,0 +1,38 @@
+---
+# roles/signature/defaults/main.yml
+
+# Web interface
+signature_web_root:   "/var/www/signature"
+signature_web_path:   "/signature"
+
+# PHP-FPM socket – dedicated pool (allows exec() for file writes via sudo)
+signature_php_fpm_sock: "/run/php/php8.4-fpm-signature.sock"
+
+# IMAP auth (localhost TLS, no cert verification needed)
+signature_imap_host: "127.0.0.1"
+signature_imap_port: 993
+
+# User running php-fpm
+signature_webserver_user: "www-data"
+
+# Signature storage base directory
+signature_base_dir: "/etc/rspamd/signatures"
+
+# Script that writes/deletes signature files (called via sudo)
+signature_manage: "/usr/local/bin/signature-manage"
+
+# Database (reuse existing mariadb settings)
+signature_db_user: "{{ mariadb_user }}"
+signature_db_pass: "{{ mariadb_password }}"
+signature_db_name: "{{ mariadb_database }}"
+signature_db_host: "{{ mariadb_host }}"
+
+# Domains that get a fallback signature
+# List of domain names, e.g. ["example.com", "firma2.at"]
+signature_fallback_domains: "{{ mail_virtual_domains }}"
+
+# Max image upload size in bytes (default 512 KB)
+signature_max_image_bytes: 524288
+
+# Image dimensions after resize (px, longest edge)
+signature_image_max_px: 300

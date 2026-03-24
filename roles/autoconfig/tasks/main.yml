@@ -1,28 +1,39 @@
 ---
-# tasks file for autoconfig
-- name: Include DNS check tasks
-  ansible.builtin.include_tasks: check_dns.yml
+# roles/autoconfig/tasks/main.yml
 
-- name: Include directory setup tasks
+- name: Setup directories
   ansible.builtin.include_tasks: setup_directories.yml
+  tags: [autoconfig]
 
-- name: Include autoconfig file generation
+- name: Generate autoconfig XML files
   ansible.builtin.include_tasks: generate_autoconfig.yml
+  tags: [autoconfig]
 
-- name: Include autodiscover configuration (optional)
+- name: Generate autodiscover XML files
   ansible.builtin.include_tasks: autodiscover.yml
-  when: autoconfig_enable_autodiscover | default(true)
+  tags: [autoconfig]
 
-- name: Include nginx HTTP configuration for certbot
+- name: Setup HTTP nginx (ACME challenge – must run before certbot)
   ansible.builtin.include_tasks: nginx_http.yml
+  tags: [autoconfig, autoconfig_nginx]
 
-- name: Include certbot certificate tasks
+- name: Flush nginx handlers before certbot
+  ansible.builtin.meta: flush_handlers
+  tags: [autoconfig]
+
+- name: Obtain certificates (LE or self-signed per domain)
   ansible.builtin.include_tasks: certbot.yml
+  tags: [autoconfig, autoconfig_certbot]
 
-- name: Include nginx HTTPS configuration
+- name: Setup HTTPS nginx
   ansible.builtin.include_tasks: nginx_https.yml
+  tags: [autoconfig, autoconfig_nginx]
 
-- name: Include autodiscover nginx configuration (optional)
+- name: Setup autodiscover nginx (HTTP + HTTPS)
   ansible.builtin.include_tasks: autodiscover_nginx.yml
+  tags: [autoconfig, autoconfig_nginx]
   when: autoconfig_enable_autodiscover | default(true)
 
+- name: Final nginx reload
+  ansible.builtin.meta: flush_handlers
+  tags: [autoconfig]

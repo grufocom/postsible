@@ -1,0 +1,17 @@
+---
+# roles/signature/handlers/main.yml
+
+- name: reload nginx
+  ansible.builtin.systemd:
+    name: nginx
+    state: reloaded
+
+- name: restart php-fpm
+  ansible.builtin.systemd:
+    name: "php8.4-fpm"
+    state: restarted
+
+- name: restart rspamd
+  ansible.builtin.systemd:
+    name: rspamd
+    state: restarted

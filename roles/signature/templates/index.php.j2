@@ -1,0 +1,1023 @@
+<?php
+// {{ ansible_managed }}
+/**
+ * Postsible Signature Manager
+ * Material Design inspired, Nextcloud blue palette
+ * Analog to the Vacation Manager – same auth, same look & feel
+ */
+
+session_start();
+
+// ─── Configuration ────────────────────────────────────────────────────────────
+define('IMAP_HOST',        '{{ signature_imap_host }}');
+define('IMAP_PORT',        {{ signature_imap_port }});
+define('SIG_MANAGE',       '{{ signature_manage }}');
+define('SIG_BASE_DIR',     '{{ signature_base_dir }}');
+define('DB_HOST',          '{{ signature_db_host }}');
+define('DB_NAME',          '{{ signature_db_name }}');
+define('DB_USER',          '{{ signature_db_user }}');
+define('DB_PASS',          '{{ signature_db_pass }}');
+define('SESSION_TIMEOUT',  3600);
+define('MAX_IMG_BYTES',    {{ signature_max_image_bytes }});
+define('IMG_MAX_PX',       {{ signature_image_max_px }});
+define('FALLBACK_DOMAINS', json_encode({{ signature_fallback_domains | tojson }}));
+
+// ─── Database ─────────────────────────────────────────────────────────────────
+function db(): PDO {
+    static $pdo = null;
+    if ($pdo === null) {
+        $pdo = new PDO(
+            'mysql:host=' . DB_HOST . ';dbname=' . DB_NAME . ';charset=utf8mb4',
+            DB_USER, DB_PASS,
+            [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]
+        );
+    }
+    return $pdo;
+}
+
+// ─── IMAP auth ────────────────────────────────────────────────────────────────
+function imap_authenticate(string $email, string $password): bool {
+    $ctx = stream_context_create(['ssl' => [
+        'verify_peer' => false, 'verify_peer_name' => false,
+    ]]);
+    $socket = @stream_socket_client(
+        'ssl://' . IMAP_HOST . ':' . IMAP_PORT,
+        $errno, $errstr, 10, STREAM_CLIENT_CONNECT, $ctx
+    );
+    if (!$socket) return false;
+    fgets($socket, 1024);
+    $tag  = 'A001';
+    $user = str_replace(['"','\\'], ['\\"','\\\\'], $email);
+    $pass = str_replace(['"','\\'], ['\\"','\\\\'], $password);
+    fwrite($socket, "{$tag} LOGIN \"{$user}\" \"{$pass}\"\r\n");
+    $response = '';
+    while (!feof($socket)) {
+        $line = fgets($socket, 1024);
+        $response .= $line;
+        if (strpos($line, $tag) === 0) break;
+    }
+    fclose($socket);
+    return strpos($response, "{$tag} OK") !== false;
+}
+
+// ─── Session ──────────────────────────────────────────────────────────────────
+function session_valid(): bool {
+    if (empty($_SESSION['email']) || empty($_SESSION['ts'])) return false;
+    if (time() - $_SESSION['ts'] > SESSION_TIMEOUT) { session_destroy(); return false; }
+    $_SESSION['ts'] = time();
+    return true;
+}
+
+function get_user_role(string $email): string {
+    try {
+        $stmt = db()->prepare('SELECT role FROM signature_admins WHERE email = ?');
+        $stmt->execute([$email]);
+        $row = $stmt->fetch();
+        return $row ? $row['role'] : 'user';
+    } catch (Exception $e) { return 'user'; }
+}
+
+function get_all_users(): array {
+    try {
+        $stmt = db()->query('SELECT email FROM virtual_users WHERE enabled=1 ORDER BY email');
+        return $stmt->fetchAll(PDO::FETCH_COLUMN);
+    } catch (Exception $e) { return []; }
+}
+
+function get_all_admins(): array {
+    try {
+        return db()->query(
+            'SELECT email, role, granted_by, created_at FROM signature_admins ORDER BY role DESC, email'
+        )->fetchAll();
+    } catch (Exception $e) { return []; }
+}
+
+// ─── Signature file helpers ───────────────────────────────────────────────────
+function sig_dir_user(string $email): string {
+    return SIG_BASE_DIR . '/users/' . $email;
+}
+function sig_dir_domain(string $domain): string {
+    return SIG_BASE_DIR . '/domains/' . $domain;
+}
+function read_sig(string $dir): array {
+    return [
+        'html' => is_file($dir . '/signature.html') ? file_get_contents($dir . '/signature.html') : '',
+        'txt'  => is_file($dir . '/signature.txt')  ? file_get_contents($dir . '/signature.txt')  : '',
+        'logo' => is_file($dir . '/logo.png'),
+    ];
+}
+function has_sig(string $dir): bool {
+    return is_file($dir . '/signature.html') || is_file($dir . '/signature.txt');
+}
+function fallback_domains(): array {
+    return json_decode(FALLBACK_DOMAINS, true) ?: [];
+}
+function email_domain(string $email): string {
+    return substr(strrchr($email, '@'), 1);
+}
+
+// ─── Image processing ─────────────────────────────────────────────────────────
+/**
+ * Accepts PNG/JPG/SVG upload, resizes to max IMG_MAX_PX on longest edge,
+ * saves as PNG to $dest.  Returns [ok, error].
+ */
+function process_image(array $file, string $dest): array {
+    if ($file['size'] > MAX_IMG_BYTES)
+        return [false, 'Image too large (max ' . (MAX_IMG_BYTES/1024) . ' KB).'];
+
+    $tmp  = $file['tmp_name'];
+    $mime = mime_content_type($tmp);
+
+    // SVG → rasterize via Imagick if available, else reject
+    if ($mime === 'image/svg+xml') {
+        if (!extension_loaded('imagick'))
+            return [false, 'SVG upload requires the Imagick PHP extension. Please upload PNG/JPG instead.'];
+        try {
+            $im = new Imagick();
+            $im->readImageBlob(file_get_contents($tmp));
+            $im->setImageFormat('png');
+            $im->resizeImage(IMG_MAX_PX, IMG_MAX_PX, Imagick::FILTER_LANCZOS, 1, true);
+            $im->writeImage($dest);
+            $im->destroy();
+            return [true, ''];
+        } catch (Exception $e) {
+            return [false, 'SVG conversion failed: ' . $e->getMessage()];
+        }
+    }
+
+    // PNG / JPG via GD
+    if (!in_array($mime, ['image/png', 'image/jpeg']))
+        return [false, 'Unsupported image type. Please upload PNG, JPG or SVG.'];
+
+    $src = ($mime === 'image/jpeg') ? imagecreatefromjpeg($tmp) : imagecreatefrompng($tmp);
+    if (!$src) return [false, 'Could not read image file.'];
+
+    $ow = imagesx($src); $oh = imagesy($src);
+    $max = IMG_MAX_PX;
+    if ($ow > $max || $oh > $max) {
+        $ratio = $ow >= $oh ? $max / $ow : $max / $oh;
+        $nw = (int)round($ow * $ratio);
+        $nh = (int)round($oh * $ratio);
+    } else {
+        $nw = $ow; $nh = $oh;
+    }
+
+    $dst = imagecreatetruecolor($nw, $nh);
+    // Preserve transparency
+    imagealphablending($dst, false);
+    imagesavealpha($dst, true);
+    $trans = imagecolorallocatealpha($dst, 0, 0, 0, 127);
+    imagefilledrectangle($dst, 0, 0, $nw, $nh, $trans);
+
+    imagecopyresampled($dst, $src, 0, 0, 0, 0, $nw, $nh, $ow, $oh);
+    imagedestroy($src);
+
+    $ok = imagepng($dst, $dest, 6);
+    imagedestroy($dst);
+
+    return $ok ? [true, ''] : [false, 'Failed to write PNG.'];
+}
+
+// ─── sudo helper ──────────────────────────────────────────────────────────────
+function run_sig_manage(array $args): array {
+    foreach ($args as $arg) {
+        if (preg_match('/[;&|`$<>\n\r]/', (string)$arg))
+            return ['ok' => false, 'output' => 'Invalid characters in argument.'];
+    }
+    $cmd   = 'sudo ' . escapeshellcmd(SIG_MANAGE);
+    $parts = array_map('escapeshellarg', $args);
+    $full  = $cmd . ' ' . implode(' ', $parts) . ' 2>&1';
+    exec($full, $output, $rc);
+    return ['ok' => ($rc === 0), 'output' => implode("\n", $output)];
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function h(string $s): string { return htmlspecialchars($s, ENT_QUOTES, 'UTF-8'); }
+function validate_email(string $e): bool { return (bool)filter_var($e, FILTER_VALIDATE_EMAIL); }
+function validate_domain(string $d): bool {
+    return (bool)preg_match('/^[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/', $d);
+}
+
+// ─── Request routing ──────────────────────────────────────────────────────────
+$action  = $_POST['action']  ?? $_GET['action']  ?? '';
+$message = '';
+$error   = '';
+
+// LOGIN
+if ($action === 'login') {
+    $email    = trim($_POST['email']    ?? '');
+    $password = trim($_POST['password'] ?? '');
+    if (!validate_email($email)) {
+        $error = 'Please enter a valid email address.';
+    } elseif (empty($password)) {
+        $error = 'Please enter your password.';
+    } elseif (imap_authenticate($email, $password)) {
+        session_regenerate_id(true);
+        $_SESSION['email'] = $email;
+        $_SESSION['role']  = get_user_role($email);
+        $_SESSION['ts']    = time();
+        header('Location: ?'); exit;
+    } else {
+        $error = 'Invalid email address or password.';
+    }
+}
+if ($action === 'logout') { session_destroy(); header('Location: ?'); exit; }
+
+// ── Authenticated actions ─────────────────────────────────────────────────────
+if (session_valid()) {
+    $me   = $_SESSION['email'];
+    $role = $_SESSION['role'];
+
+    // SAVE signature (user or domain)
+    if ($action === 'save_signature') {
+        $scope  = $_POST['scope'] ?? 'user';   // 'user' or 'domain'
+        $target = ($scope === 'domain')
+            ? trim($_POST['target_domain'] ?? '')
+            : (($role !== 'user') ? trim($_POST['target_email'] ?? $me) : $me);
+
+        $html_raw = trim($_POST['sig_html'] ?? '');
+        // Auto-generate plain text from HTML
+        $txt_raw  = trim(strip_tags(
+            str_replace(['<br>', '<br/>', '<br />', '</p>', '</div>'],
+                        ["\n",   "\n",    "\n",     "\n",   "\n"],
+                        $html_raw)
+        ));
+
+        if (empty($html_raw)) {
+            $error = 'Signature HTML cannot be empty.';
+        } elseif ($scope === 'domain' && !validate_domain($target)) {
+            $error = 'Invalid domain name.';
+        } elseif ($scope === 'user' && !validate_email($target)) {
+            $error = 'Invalid email address.';
+        } else {
+            // Write temp files (php-fpm user owns them, signature-manage copies as root)
+            $tmp_html = tempnam(sys_get_temp_dir(), 'sig_html_');
+            $tmp_txt  = tempnam(sys_get_temp_dir(), 'sig_txt_');
+            file_put_contents($tmp_html, $html_raw);
+            file_put_contents($tmp_txt,  $txt_raw);
+
+            // Handle image upload
+            $tmp_img = '';
+            if (!empty($_FILES['logo']['name']) && $_FILES['logo']['error'] === UPLOAD_ERR_OK) {
+                $tmp_img_dest = tempnam(sys_get_temp_dir(), 'sig_img_');
+                [$img_ok, $img_err] = process_image($_FILES['logo'], $tmp_img_dest);
+                if (!$img_ok) {
+                    $error = $img_err;
+                } else {
+                    $tmp_img = $tmp_img_dest;
+                }
+            }
+
+            if (!$error) {
+                $cmd = ($scope === 'domain') ? 'save-domain' : 'save-user';
+                $args = [$cmd, $target, $tmp_html, $tmp_txt];
+                if ($tmp_img) $args[] = $tmp_img;
+
+                $result = run_sig_manage($args);
+                if ($result['ok']) {
+                    $message = ($scope === 'domain')
+                        ? "Domain signature saved for {$target}."
+                        : "Signature saved for {$target}.";
+                } else {
+                    $error = 'Error: ' . h($result['output']);
+                }
+            }
+
+            @unlink($tmp_html);
+            @unlink($tmp_txt);
+            if ($tmp_img) @unlink($tmp_img);
+        }
+    }
+
+    // DELETE signature
+    if ($action === 'delete_signature') {
+        $scope  = $_POST['scope'] ?? 'user';
+        $target = ($scope === 'domain')
+            ? trim($_POST['target_domain'] ?? '')
+            : (($role !== 'user') ? trim($_POST['target_email'] ?? $me) : $me);
+
+        $cmd    = ($scope === 'domain') ? 'delete-domain' : 'delete-user';
+        $result = run_sig_manage([$cmd, $target]);
+        if ($result['ok']) {
+            $message = "Signature deleted for {$target}.";
+        } else {
+            $error = 'Error: ' . h($result['output']);
+        }
+    }
+
+    // Admin management
+    if ($action === 'add_admin' && $role === 'superadmin') {
+        $target = trim($_POST['admin_email'] ?? '');
+        if (!validate_email($target)) { $error = 'Invalid email.'; }
+        else {
+            $r = run_sig_manage(['add-admin', $target, '--granted-by', $me]);
+            $r['ok'] ? $message = "Admin granted to {$target}."
+                     : $error   = 'Error: ' . h($r['output']);
+        }
+    }
+    if ($action === 'remove_admin' && $role === 'superadmin') {
+        $target = trim($_POST['admin_email'] ?? '');
+        if (!validate_email($target)) { $error = 'Invalid email.'; }
+        else {
+            $r = run_sig_manage(['remove-admin', $target]);
+            $r['ok'] ? $message = "Admin revoked from {$target}."
+                     : $error   = 'Error: ' . h($r['output']);
+        }
+    }
+    if ($action === 'set_superadmin' && $role === 'superadmin') {
+        $target = trim($_POST['admin_email'] ?? '');
+        if (!validate_email($target)) { $error = 'Invalid email.'; }
+        else {
+            $r = run_sig_manage(['set-superadmin', $target]);
+            $r['ok'] ? $message = "{$target} is now superadmin."
+                     : $error   = 'Error: ' . h($r['output']);
+        }
+    }
+}
+
+// ─── Determine what to show ───────────────────────────────────────────────────
+if (session_valid()) {
+    $me   = $_SESSION['email'];
+    $role = $_SESSION['role'];
+
+    $view_email = ($role !== 'user')
+        ? (trim($_GET['view'] ?? '') ?: $me)
+        : $me;
+
+    $view_domain = trim($_GET['domain'] ?? '');
+
+    // Load signature for display
+    $user_sig_dir = sig_dir_user($view_email);
+    $user_sig     = read_sig($user_sig_dir);
+    $has_user_sig = has_sig($user_sig_dir);
+
+    // Determine what to pre-fill in editor
+    // Priority: user sig → domain fallback sig → empty
+    $edit_html = $user_sig['html'];
+    $edit_from_fallback = false;
+    if (!$has_user_sig) {
+        $dom = email_domain($view_email);
+        $dom_dir = sig_dir_domain($dom);
+        if (has_sig($dom_dir)) {
+            $dom_sig = read_sig($dom_dir);
+            $edit_html = $dom_sig['html'];
+            $edit_from_fallback = true;
+        }
+    }
+}
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Postsible – Signature Manager</title>
+<!-- Quill.js WYSIWYG editor -->
+<link href="https://cdnjs.cloudflare.com/ajax/libs/quill/1.3.7/quill.snow.min.css" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/quill/1.3.7/quill.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --nc-blue:#0082c9;--nc-blue-dark:#006aa3;--nc-blue-bg:#e8f4fb;
+  --surface:#fff;--surface2:#f5f7fa;--border:#dde3ea;
+  --text:#1a1f2e;--text-muted:#6b7280;
+  --green:#2d7d46;--green-bg:#e8f5ec;
+  --red:#c0392b;--red-bg:#fdf0ee;
+  --yellow:#b45309;--yellow-bg:#fffbeb;
+  --radius:8px;--shadow:0 2px 8px rgba(0,0,0,.10);--shadow-lg:0 4px 20px rgba(0,0,0,.13);
+}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  background:var(--surface2);color:var(--text);min-height:100vh;font-size:15px}
+
+.topbar{background:var(--nc-blue);color:#fff;height:56px;display:flex;
+  align-items:center;padding:0 24px;gap:12px;
+  box-shadow:0 2px 6px rgba(0,0,0,.18);position:sticky;top:0;z-index:100}
+.topbar-logo{width:32px;height:32px;background:rgba(255,255,255,.22);border-radius:50%;
+  display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px}
+.topbar-title{font-size:17px;font-weight:600;flex:1}
+.topbar-user{font-size:13px;opacity:.85}
+.topbar-logout{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);
+  color:#fff;padding:5px 14px;border-radius:var(--radius);cursor:pointer;
+  font-size:13px;text-decoration:none;transition:background .15s}
+.topbar-logout:hover{background:rgba(255,255,255,.28)}
+
+.page{max-width:900px;margin:32px auto;padding:0 16px 48px}
+
+.card{background:var(--surface);border-radius:var(--radius);
+  box-shadow:var(--shadow);margin-bottom:24px;overflow:hidden}
+.card-header{background:var(--nc-blue);color:#fff;padding:14px 20px;
+  font-size:15px;font-weight:600;display:flex;align-items:center;gap:8px}
+.card-header .icon{font-size:18px}
+.card-body{padding:20px}
+
+.login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px}
+.login-card{background:var(--surface);border-radius:var(--radius);
+  box-shadow:var(--shadow-lg);width:100%;max-width:400px;overflow:hidden}
+.login-header{background:var(--nc-blue);color:#fff;padding:28px 24px 22px;text-align:center}
+.login-header h1{font-size:22px;font-weight:700;margin-bottom:4px}
+.login-header p{font-size:13px;opacity:.8}
+.login-body{padding:24px}
+
+.form-group{margin-bottom:16px}
+.form-group label{display:block;font-size:13px;font-weight:600;color:var(--text-muted);
+  margin-bottom:6px;text-transform:uppercase;letter-spacing:.4px}
+.form-group input,.form-group select{width:100%;border:1.5px solid var(--border);
+  border-radius:var(--radius);padding:9px 12px;font-size:14px;color:var(--text);
+  background:var(--surface);transition:border-color .15s;font-family:inherit}
+.form-group input:focus,.form-group select:focus{outline:none;border-color:var(--nc-blue);
+  box-shadow:0 0 0 3px rgba(0,130,201,.12)}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:520px){.form-row{grid-template-columns:1fr}}
+
+.btn{display:inline-flex;align-items:center;gap:6px;
+  padding:9px 20px;border-radius:var(--radius);border:none;cursor:pointer;
+  font-size:14px;font-weight:600;font-family:inherit;
+  transition:background .15s,box-shadow .15s;text-decoration:none}
+.btn-primary{background:var(--nc-blue);color:#fff}
+.btn-primary:hover{background:var(--nc-blue-dark);box-shadow:var(--shadow)}
+.btn-danger{background:var(--red);color:#fff}
+.btn-danger:hover{background:#a93226;box-shadow:var(--shadow)}
+.btn-ghost{background:transparent;border:1.5px solid var(--border);color:var(--text)}
+.btn-ghost:hover{background:var(--surface2)}
+.btn-sm{padding:5px 12px;font-size:13px}
+.btn-block{width:100%;justify-content:center}
+
+.alert{border-radius:var(--radius);padding:12px 16px;margin-bottom:20px;
+  font-size:14px;display:flex;align-items:flex-start;gap:10px}
+.alert-success{background:var(--green-bg);color:var(--green);border-left:4px solid var(--green)}
+.alert-error{background:var(--red-bg);color:var(--red);border-left:4px solid var(--red)}
+.alert-info{background:var(--nc-blue-bg);color:var(--nc-blue);border-left:4px solid var(--nc-blue)}
+.alert-warning{background:var(--yellow-bg);color:var(--yellow);border-left:4px solid var(--yellow)}
+
+.badge{display:inline-block;padding:3px 10px;border-radius:99px;
+  font-size:12px;font-weight:700;letter-spacing:.3px}
+.badge-active{background:var(--green-bg);color:var(--green)}
+.badge-inactive{background:var(--surface2);color:var(--text-muted)}
+.badge-admin{background:var(--nc-blue-bg);color:var(--nc-blue)}
+.badge-super{background:#fef3c7;color:#92400e}
+.badge-fallback{background:var(--yellow-bg);color:var(--yellow)}
+
+.user-selector{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-bottom:16px}
+.user-selector select{flex:1;min-width:200px}
+
+.admin-table{width:100%;border-collapse:collapse;font-size:14px}
+.admin-table th{text-align:left;padding:8px 12px;border-bottom:2px solid var(--border);
+  font-size:12px;text-transform:uppercase;letter-spacing:.4px;color:var(--text-muted)}
+.admin-table td{padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
+.admin-table tr:last-child td{border-bottom:none}
+.admin-table tr:hover td{background:var(--surface2)}
+
+.tabs{display:flex;border-bottom:2px solid var(--border);margin-bottom:20px}
+.tab-btn{padding:10px 20px;border:none;background:none;cursor:pointer;font-size:14px;
+  font-weight:600;color:var(--text-muted);border-bottom:2px solid transparent;
+  margin-bottom:-2px;font-family:inherit;transition:color .15s}
+.tab-btn.active{color:var(--nc-blue);border-bottom-color:var(--nc-blue)}
+.tab-btn:hover:not(.active){color:var(--text)}
+.tab-panel{display:none}
+.tab-panel.active{display:block}
+
+/* Quill editor customization */
+.ql-container{border-bottom-left-radius:var(--radius);border-bottom-right-radius:var(--radius);
+  font-family:inherit;font-size:14px;min-height:180px}
+.ql-toolbar{border-top-left-radius:var(--radius);border-top-right-radius:var(--radius);
+  border-color:var(--border) !important;background:var(--surface2)}
+.ql-container{border-color:var(--border) !important}
+.ql-editor:focus{outline:none}
+
+/* Preview iframe */
+.preview-wrap{border:1.5px solid var(--border);border-radius:var(--radius);
+  overflow:hidden;background:#fff}
+.preview-wrap iframe{width:100%;height:280px;border:none;display:block}
+
+/* Logo preview */
+.logo-preview{max-height:80px;max-width:240px;border-radius:4px;
+  border:1px solid var(--border);padding:4px;background:#fff;margin-top:8px}
+
+/* Upload area */
+.upload-area{border:2px dashed var(--border);border-radius:var(--radius);
+  padding:16px;text-align:center;cursor:pointer;transition:border-color .15s;
+  font-size:13px;color:var(--text-muted)}
+.upload-area:hover{border-color:var(--nc-blue);color:var(--nc-blue)}
+.upload-area input[type=file]{display:none}
+</style>
+</head>
+<body>
+
+<?php if (!session_valid()): ?>
+<!-- ═══════════════════════════════ LOGIN ════════════════════════════════════ -->
+<div class="login-wrap">
+  <div class="login-card">
+    <div class="login-header">
+      <h1>✍️ Signature Manager</h1>
+      <p>{{ common_hostname }} – Email signatures</p>
+    </div>
+    <div class="login-body">
+      <?php if ($error): ?><div class="alert alert-error">⚠️ <?= h($error) ?></div><?php endif; ?>
+      <form method="post">
+        <input type="hidden" name="action" value="login">
+        <div class="form-group">
+          <label>Email address</label>
+          <input type="email" name="email" required autofocus
+                 value="<?= h($_POST['email'] ?? '') ?>"
+                 placeholder="you@{{ mail_primary_domain }}">
+        </div>
+        <div class="form-group">
+          <label>Password</label>
+          <input type="password" name="password" required placeholder="Your mail password">
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">Sign in</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<?php else: ?>
+<!-- ═══════════════════════════════ APP ══════════════════════════════════════ -->
+<div class="topbar">
+  <div class="topbar-logo">✍</div>
+  <span class="topbar-title">Signature Manager</span>
+  <?php if ($role !== 'user'): ?>
+    <span class="badge badge-<?= $role === 'superadmin' ? 'super' : 'admin' ?>">
+      <?= $role === 'superadmin' ? '★ Superadmin' : 'Admin' ?>
+    </span>
+  <?php endif; ?>
+  <span class="topbar-user"><?= h($me) ?></span>
+  <a href="?action=logout" class="topbar-logout">Sign out</a>
+</div>
+
+<div class="page">
+  <?php if ($message && !$error): ?>
+    <div class="alert alert-success">✓ <?= h($message) ?></div>
+  <?php endif; ?>
+  <?php if ($error): ?>
+    <div class="alert alert-error">⚠️ <?= h($error) ?></div>
+  <?php endif; ?>
+
+  <?php
+  $show_tabs  = ($role !== 'user');
+  $active_tab = $_GET['tab'] ?? 'signature';
+  if (!in_array($active_tab, ['signature','users','domains','admins'])) $active_tab = 'signature';
+  ?>
+
+  <?php if ($show_tabs): ?>
+  <div class="tabs">
+    <button class="tab-btn <?= $active_tab==='signature'?'active':'' ?>" onclick="switchTab('signature')">✍️ My Signature</button>
+    <button class="tab-btn <?= $active_tab==='users'   ?'active':'' ?>" onclick="switchTab('users')">👥 All Users</button>
+    <button class="tab-btn <?= $active_tab==='domains' ?'active':'' ?>" onclick="switchTab('domains')">🌐 Domain Defaults</button>
+    <?php if ($role === 'superadmin'): ?>
+    <button class="tab-btn <?= $active_tab==='admins'  ?'active':'' ?>" onclick="switchTab('admins')">🔑 Admins</button>
+    <?php endif; ?>
+  </div>
+  <?php endif; ?>
+
+  <!-- ── Tab: My Signature / Edit User ──────────────────────────────────── -->
+  <div class="tab-panel <?= (!$show_tabs || $active_tab==='signature')?'active':'' ?>" id="tab-signature">
+
+    <?php if ($role !== 'user'): ?>
+    <div class="card">
+      <div class="card-header"><span class="icon">🔍</span> Select User</div>
+      <div class="card-body">
+        <form method="get" class="user-selector">
+          <input type="hidden" name="tab" value="signature">
+          <div class="form-group" style="margin:0;flex:1">
+            <label>Edit signature for</label>
+            <select name="view">
+              <?php foreach (get_all_users() as $u): ?>
+                <option value="<?= h($u) ?>" <?= $u===$view_email?'selected':'' ?>><?= h($u) ?></option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+          <button type="submit" class="btn btn-ghost">Load</button>
+        </form>
+      </div>
+    </div>
+    <?php endif; ?>
+
+    <!-- Current status -->
+    <div class="card">
+      <div class="card-header">
+        <span class="icon">📋</span> Current Signature
+        <?php if ($role !== 'user'): ?>– <?= h($view_email) ?><?php endif; ?>
+      </div>
+      <div class="card-body">
+        <?php if ($has_user_sig): ?>
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+            <span class="badge badge-active">● Active</span>
+            <?php if ($user_sig['logo']): ?>
+              <img src="data:image/png;base64,<?= base64_encode(file_get_contents(sig_dir_user($view_email).'/logo.png')) ?>"
+                   class="logo-preview" alt="Logo">
+            <?php endif; ?>
+          </div>
+          <div class="preview-wrap">
+            <iframe srcdoc="<?= h('<html><body style=\'font-family:sans-serif;padding:12px\'>' . $user_sig['html'] . '</body></html>') ?>"></iframe>
+          </div>
+          <form method="post" style="margin-top:12px"
+                onsubmit="return confirm('Delete signature for <?= h($view_email) ?>?')">
+            <input type="hidden" name="action"       value="delete_signature">
+            <input type="hidden" name="scope"        value="user">
+            <input type="hidden" name="target_email" value="<?= h($view_email) ?>">
+            <button type="submit" class="btn btn-danger btn-sm">✕ Delete signature</button>
+          </form>
+        <?php else: ?>
+          <div class="alert alert-info">
+            <?php if ($edit_from_fallback): ?>
+              ℹ️ No personal signature yet – the domain default has been pre-loaded as a starting point.
+            <?php else: ?>
+              ℹ️ No signature configured for <?= h($view_email) ?>.
+            <?php endif; ?>
+          </div>
+        <?php endif; ?>
+      </div>
+    </div>
+
+    <!-- Editor -->
+    <div class="card">
+      <div class="card-header">
+        <span class="icon">✏️</span>
+        <?= $has_user_sig ? 'Update' : 'Create' ?> Signature
+        <?php if ($role !== 'user'): ?>– <?= h($view_email) ?><?php endif; ?>
+        <?php if ($edit_from_fallback): ?>
+          <span class="badge badge-fallback" style="margin-left:auto">Pre-filled from domain default</span>
+        <?php endif; ?>
+      </div>
+      <div class="card-body">
+        <form method="post" enctype="multipart/form-data" id="sig-form">
+          <input type="hidden" name="action"       value="save_signature">
+          <input type="hidden" name="scope"        value="user">
+          <input type="hidden" name="target_email" value="<?= h($view_email) ?>">
+          <input type="hidden" name="sig_html"     id="sig_html_input">
+
+          <div class="form-group">
+            <label>Signature (HTML)</label>
+            <div id="quill-editor"><?= $edit_html /* raw HTML into Quill */ ?></div>
+          </div>
+
+          <div class="form-group" style="margin-top:16px">
+            <label>Logo / Image <span style="font-weight:400;text-transform:none">(optional – PNG, JPG or SVG, max <?= MAX_IMG_BYTES/1024 ?> KB)</span></label>
+            <div class="upload-area" onclick="document.getElementById('logo-input').click()">
+              <input type="file" id="logo-input" name="logo" accept=".png,.jpg,.jpeg,.svg,image/png,image/jpeg,image/svg+xml"
+                     onchange="previewLogo(this)">
+              <span id="upload-label">📎 Click to choose image…</span>
+            </div>
+            <?php if ($has_user_sig && $user_sig['logo']): ?>
+            <div id="current-logo" style="margin-top:8px;font-size:13px;color:var(--text-muted)">
+              Current logo: <img src="data:image/png;base64,<?= base64_encode(file_get_contents(sig_dir_user($view_email).'/logo.png')) ?>"
+                                 class="logo-preview" id="logo-preview-img" alt="Logo">
+            </div>
+            <?php else: ?>
+            <div id="current-logo" style="display:none"></div>
+            <?php endif; ?>
+            <img id="new-logo-preview" class="logo-preview" style="display:none" alt="New logo preview">
+          </div>
+
+          <div class="form-group" style="margin-top:16px">
+            <label>Preview</label>
+            <div class="preview-wrap">
+              <iframe id="sig-preview" srcdoc="<html><body style='font-family:sans-serif;padding:12px'>
+                <?= $edit_html ? h('<html><body style=\'font-family:sans-serif;padding:12px\'>' . $edit_html . '</body></html>') : '' ?>
+              "></iframe>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:8px;margin-top:16px">
+            <button type="submit" class="btn btn-primary">💾 Save signature</button>
+            <button type="button" class="btn btn-ghost" onclick="updatePreview()">👁 Refresh preview</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div><!-- /tab-signature -->
+
+  <?php if ($show_tabs): ?>
+
+  <!-- ── Tab: All Users ─────────────────────────────────────────────────── -->
+  <div class="tab-panel <?= $active_tab==='users'?'active':'' ?>" id="tab-users">
+    <div class="card">
+      <div class="card-header"><span class="icon">👥</span> All Users – Signature Overview</div>
+      <div class="card-body" style="padding:0">
+        <table class="admin-table">
+          <thead><tr><th>User</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody>
+          <?php foreach (get_all_users() as $u):
+            $udir    = sig_dir_user($u);
+            $has_u   = has_sig($udir);
+            $dom     = email_domain($u);
+            $has_dom = has_sig(sig_dir_domain($dom));
+          ?>
+            <tr>
+              <td><?= h($u) ?></td>
+              <td>
+                <?php if ($has_u): ?>
+                  <span class="badge badge-active">● Personal</span>
+                <?php elseif ($has_dom): ?>
+                  <span class="badge badge-fallback">◑ Domain default</span>
+                <?php else: ?>
+                  <span class="badge badge-inactive">— None</span>
+                <?php endif; ?>
+              </td>
+              <td>
+                <a href="?tab=signature&view=<?= urlencode($u) ?>" class="btn btn-ghost btn-sm">Edit</a>
+                <?php if ($has_u): ?>
+                <form method="post" style="display:inline"
+                      onsubmit="return confirm('Delete signature for <?= h($u) ?>?')">
+                  <input type="hidden" name="action"       value="delete_signature">
+                  <input type="hidden" name="scope"        value="user">
+                  <input type="hidden" name="target_email" value="<?= h($u) ?>">
+                  <button type="submit" class="btn btn-danger btn-sm">✕ Delete</button>
+                </form>
+                <?php endif; ?>
+              </td>
+            </tr>
+          <?php endforeach; ?>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div><!-- /tab-users -->
+
+  <!-- ── Tab: Domain Defaults ───────────────────────────────────────────── -->
+  <div class="tab-panel <?= $active_tab==='domains'?'active':'' ?>" id="tab-domains">
+    <?php
+    $domains = fallback_domains();
+    $sel_domain = $view_domain ?: ($domains[0] ?? '');
+    $dom_sig_dir = $sel_domain ? sig_dir_domain($sel_domain) : '';
+    $dom_sig     = ($dom_sig_dir && has_sig($dom_sig_dir)) ? read_sig($dom_sig_dir) : ['html'=>'','txt'=>'','logo'=>false];
+    $has_dom_sig = $dom_sig_dir && has_sig($dom_sig_dir);
+    ?>
+
+    <div class="card">
+      <div class="card-header"><span class="icon">🌐</span> Select Domain</div>
+      <div class="card-body">
+        <form method="get" class="user-selector">
+          <input type="hidden" name="tab" value="domains">
+          <div class="form-group" style="margin:0;flex:1">
+            <label>Domain</label>
+            <select name="domain">
+              <?php foreach ($domains as $d): ?>
+                <option value="<?= h($d) ?>" <?= $d===$sel_domain?'selected':'' ?>><?= h($d) ?></option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+          <button type="submit" class="btn btn-ghost">Load</button>
+        </form>
+      </div>
+    </div>
+
+    <?php if ($sel_domain): ?>
+    <div class="card">
+      <div class="card-header"><span class="icon">📋</span> Current Default – <?= h($sel_domain) ?></div>
+      <div class="card-body">
+        <?php if ($has_dom_sig): ?>
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+            <span class="badge badge-active">● Configured</span>
+            <?php if ($dom_sig['logo']): ?>
+              <img src="data:image/png;base64,<?= base64_encode(file_get_contents($dom_sig_dir.'/logo.png')) ?>"
+                   class="logo-preview" alt="Domain logo">
+            <?php endif; ?>
+          </div>
+          <div class="preview-wrap">
+            <iframe srcdoc="<?= h('<html><body style=\'font-family:sans-serif;padding:12px\'>' . $dom_sig['html'] . '</body></html>') ?>"></iframe>
+          </div>
+          <form method="post" style="margin-top:12px"
+                onsubmit="return confirm('Delete domain default for <?= h($sel_domain) ?>?')">
+            <input type="hidden" name="action"        value="delete_signature">
+            <input type="hidden" name="scope"         value="domain">
+            <input type="hidden" name="target_domain" value="<?= h($sel_domain) ?>">
+            <button type="submit" class="btn btn-danger btn-sm">✕ Delete domain default</button>
+          </form>
+        <?php else: ?>
+          <div class="alert alert-info">ℹ️ No default signature for <?= h($sel_domain) ?> yet.</div>
+        <?php endif; ?>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><span class="icon">✏️</span>
+        <?= $has_dom_sig ? 'Update' : 'Create' ?> Default – <?= h($sel_domain) ?>
+      </div>
+      <div class="card-body">
+        <form method="post" enctype="multipart/form-data" id="dom-sig-form">
+          <input type="hidden" name="action"        value="save_signature">
+          <input type="hidden" name="scope"         value="domain">
+          <input type="hidden" name="target_domain" value="<?= h($sel_domain) ?>">
+          <input type="hidden" name="sig_html"      id="dom_sig_html_input">
+
+          <div class="alert alert-warning" style="margin-bottom:16px;font-size:13px">
+            ⚠️ This is the <strong>domain-wide fallback</strong> signature used for all users of
+            <strong><?= h($sel_domain) ?></strong> who have no personal signature.
+            Users without a personal signature will see this as their starting template.
+          </div>
+
+          <div class="form-group">
+            <label>Signature (HTML)</label>
+            <div id="dom-quill-editor"><?= $dom_sig['html'] ?></div>
+          </div>
+
+          <div class="form-group" style="margin-top:16px">
+            <label>Logo / Image <span style="font-weight:400;text-transform:none">(optional)</span></label>
+            <div class="upload-area" onclick="document.getElementById('dom-logo-input').click()">
+              <input type="file" id="dom-logo-input" name="logo" accept=".png,.jpg,.jpeg,.svg,image/png,image/jpeg,image/svg+xml"
+                     onchange="previewDomLogo(this)">
+              <span id="dom-upload-label">📎 Click to choose image…</span>
+            </div>
+            <?php if ($has_dom_sig && $dom_sig['logo']): ?>
+            <img src="data:image/png;base64,<?= base64_encode(file_get_contents($dom_sig_dir.'/logo.png')) ?>"
+                 class="logo-preview" id="dom-logo-preview-img" alt="Domain logo">
+            <?php endif; ?>
+            <img id="dom-new-logo-preview" class="logo-preview" style="display:none" alt="New logo preview">
+          </div>
+
+          <div class="form-group" style="margin-top:16px">
+            <label>Preview</label>
+            <div class="preview-wrap">
+              <iframe id="dom-sig-preview" srcdoc="<?= $has_dom_sig ? h('<html><body style=\'font-family:sans-serif;padding:12px\'>' . $dom_sig['html'] . '</body></html>') : '' ?>"></iframe>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:8px;margin-top:16px">
+            <button type="submit" class="btn btn-primary">💾 Save domain default</button>
+            <button type="button" class="btn btn-ghost" onclick="updateDomPreview()">👁 Refresh preview</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    <?php endif; // sel_domain ?>
+  </div><!-- /tab-domains -->
+
+  <?php if ($role === 'superadmin'): ?>
+  <!-- ── Tab: Admins ────────────────────────────────────────────────────── -->
+  <div class="tab-panel <?= $active_tab==='admins'?'active':'' ?>" id="tab-admins">
+    <div class="card">
+      <div class="card-header"><span class="icon">🔑</span> Current Admins</div>
+      <div class="card-body" style="padding:0">
+        <table class="admin-table">
+          <thead><tr><th>Email</th><th>Role</th><th>Granted by</th><th>Since</th><th>Action</th></tr></thead>
+          <tbody>
+          <?php foreach (get_all_admins() as $adm): ?>
+            <tr>
+              <td><?= h($adm['email']) ?></td>
+              <td><span class="badge badge-<?= $adm['role']==='superadmin'?'super':'admin' ?>"><?= h($adm['role']) ?></span></td>
+              <td><?= h($adm['granted_by'] ?: '—') ?></td>
+              <td style="font-size:12px;color:var(--text-muted)"><?= h(substr($adm['created_at'],0,10)) ?></td>
+              <td>
+                <?php if ($adm['role'] !== 'superadmin'): ?>
+                <form method="post" style="display:inline"
+                      onsubmit="return confirm('Revoke admin from <?= h($adm['email']) ?>?')">
+                  <input type="hidden" name="action"      value="remove_admin">
+                  <input type="hidden" name="admin_email" value="<?= h($adm['email']) ?>">
+                  <button type="submit" class="btn btn-danger btn-sm">Revoke</button>
+                </form>
+                <?php else: ?><span style="color:var(--text-muted);font-size:12px">protected</span><?php endif; ?>
+              </td>
+            </tr>
+          <?php endforeach; ?>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><span class="icon">➕</span> Grant Admin Role</div>
+      <div class="card-body">
+        <form method="post" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+          <input type="hidden" name="action" value="add_admin">
+          <div class="form-group" style="margin:0;flex:1;min-width:220px">
+            <label>User</label>
+            <select name="admin_email">
+              <?php foreach (get_all_users() as $u): ?>
+                <option value="<?= h($u) ?>"><?= h($u) ?></option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+          <button type="submit" class="btn btn-primary">Grant admin</button>
+        </form>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><span class="icon">★</span> Set Superadmin</div>
+      <div class="card-body">
+        <div class="alert alert-warning" style="margin-bottom:16px;font-size:13px">
+          ⚠️ Superadmin grants full access. Use with care.
+        </div>
+        <form method="post" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end"
+              onsubmit="return confirm('Set this user as superadmin?')">
+          <input type="hidden" name="action" value="set_superadmin">
+          <div class="form-group" style="margin:0;flex:1;min-width:220px">
+            <label>User</label>
+            <select name="admin_email">
+              <?php foreach (get_all_users() as $u): ?>
+                <option value="<?= h($u) ?>"><?= h($u) ?></option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+          <button type="submit" class="btn btn-primary">Set superadmin</button>
+        </form>
+      </div>
+    </div>
+  </div><!-- /tab-admins -->
+  <?php endif; ?>
+  <?php endif; // show_tabs ?>
+
+</div><!-- /page -->
+
+<script>
+// ── Tab switching ──────────────────────────────────────────────────────────────
+function switchTab(name) {
+  const names = ['signature','users','domains','admins'];
+  document.querySelectorAll('.tab-btn').forEach((b,i) => b.classList.toggle('active', names[i]===name));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id==='tab-'+name));
+  const url = new URL(window.location);
+  url.searchParams.set('tab', name);
+  history.pushState({}, '', url);
+}
+(function(){
+  const tab = new URL(window.location).searchParams.get('tab');
+  if (tab && document.getElementById('tab-'+tab)) switchTab(tab);
+})();
+
+// ── Quill – user signature editor ─────────────────────────────────────────────
+const quill = new Quill('#quill-editor', {
+  theme: 'snow',
+  modules: {
+    toolbar: [
+      ['bold','italic','underline','strike'],
+      [{'color':[]},{'background':[]}],
+      [{'font':[]},{'size':['small',false,'large','huge']}],
+      [{'align':[]}],
+      ['link','image'],
+      ['clean']
+    ]
+  }
+});
+
+function updatePreview() {
+  const html = quill.root.innerHTML;
+  document.getElementById('sig_html_input').value = html;
+  const frame = document.getElementById('sig-preview');
+  frame.srcdoc = "<html><body style='font-family:sans-serif;padding:12px'>" + html + "</body></html>";
+}
+quill.on('text-change', () => { clearTimeout(quill._previewTimer); quill._previewTimer = setTimeout(updatePreview, 600); });
+
+document.getElementById('sig-form').addEventListener('submit', function() {
+  document.getElementById('sig_html_input').value = quill.root.innerHTML;
+});
+
+// ── Quill – domain signature editor ───────────────────────────────────────────
+<?php if ($show_tabs): ?>
+const domQuill = new Quill('#dom-quill-editor', {
+  theme: 'snow',
+  modules: {
+    toolbar: [
+      ['bold','italic','underline','strike'],
+      [{'color':[]},{'background':[]}],
+      [{'font':[]},{'size':['small',false,'large','huge']}],
+      [{'align':[]}],
+      ['link','image'],
+      ['clean']
+    ]
+  }
+});
+
+function updateDomPreview() {
+  const html = domQuill.root.innerHTML;
+  document.getElementById('dom_sig_html_input').value = html;
+  const frame = document.getElementById('dom-sig-preview');
+  frame.srcdoc = "<html><body style='font-family:sans-serif;padding:12px'>" + html + "</body></html>";
+}
+domQuill.on('text-change', () => { clearTimeout(domQuill._previewTimer); domQuill._previewTimer = setTimeout(updateDomPreview, 600); });
+
+document.getElementById('dom-sig-form').addEventListener('submit', function() {
+  document.getElementById('dom_sig_html_input').value = domQuill.root.innerHTML;
+});
+<?php endif; ?>
+
+// ── Logo preview helpers ───────────────────────────────────────────────────────
+function previewLogo(input) {
+  if (!input.files || !input.files[0]) return;
+  const file = input.files[0];
+  document.getElementById('upload-label').textContent = '📎 ' + file.name;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const img = document.getElementById('new-logo-preview');
+    img.src = e.target.result;
+    img.style.display = 'block';
+  };
+  reader.readAsDataURL(file);
+}
+
+function previewDomLogo(input) {
+  if (!input.files || !input.files[0]) return;
+  const file = input.files[0];
+  document.getElementById('dom-upload-label').textContent = '📎 ' + file.name;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const img = document.getElementById('dom-new-logo-preview');
+    img.src = e.target.result;
+    img.style.display = 'block';
+  };
+  reader.readAsDataURL(file);
+}
+</script>
+<?php endif; // session_valid ?>
+</body>
+</html>

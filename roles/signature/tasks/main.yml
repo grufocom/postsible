@@ -1,0 +1,206 @@
+---
+# roles/signature/tasks/main.yml
+# Key change: signature location block inserted into EVERY domain vhost.
+
+# ── 1. PHP GD extension ───────────────────────────────────────────────────────
+
+- name: Ensure PHP GD extension is installed
+  ansible.builtin.apt:
+    name: "php8.4-gd"
+    state: present
+  tags: signature_php
+
+# ── 2. Signature storage directories ─────────────────────────────────────────
+
+- name: Create signature base directory
+  ansible.builtin.file:
+    path: "{{ signature_base_dir }}"
+    state: directory
+    owner: root
+    group: _rspamd
+    mode: '0750'
+  tags: signature_dirs
+
+- name: Create signature users/domains directories
+  ansible.builtin.file:
+    path: "{{ signature_base_dir }}/{{ item }}"
+    state: directory
+    owner: root
+    group: _rspamd
+    mode: '0750'
+  loop: [users, domains]
+  tags: signature_dirs
+
+- name: Create domain fallback directories
+  ansible.builtin.file:
+    path: "{{ signature_base_dir }}/domains/{{ item.domain }}"
+    state: directory
+    owner: root
+    group: _rspamd
+    mode: '0750'
+  loop: "{{ mail_virtual_domains }}"
+  loop_control:
+    label: "{{ item.domain }}"
+  tags: signature_dirs
+
+# ── 3. signature-manage helper script ────────────────────────────────────────
+
+- name: Deploy signature-manage script
+  ansible.builtin.template:
+    src: signature-manage.sh.j2
+    dest: "{{ signature_manage }}"
+    owner: root
+    group: root
+    mode: '0750'
+  tags: signature_manage
+
+# ── 4. sudoers ────────────────────────────────────────────────────────────────
+
+- name: Deploy sudoers rule for signature web interface
+  ansible.builtin.template:
+    src: postsible-signature.sudoers.j2
+    dest: /etc/sudoers.d/postsible-signature
+    owner: root
+    group: root
+    mode: '0440'
+    validate: 'visudo -cf %s'
+  tags: signature_sudo
+
+# ── 5. rspamd Lua module ──────────────────────────────────────────────────────
+
+- name: Deploy rspamd signature Lua module
+  ansible.builtin.template:
+    src: rspamd-signatures.lua.j2
+    dest: /etc/rspamd/local.d/signatures.lua
+    owner: _rspamd
+    group: _rspamd
+    mode: '0644'
+  notify: restart rspamd
+  tags: signature_rspamd
+
+- name: Deploy rspamd signature module config
+  ansible.builtin.template:
+    src: rspamd-signatures.conf.j2
+    dest: /etc/rspamd/local.d/signatures.conf
+    owner: _rspamd
+    group: _rspamd
+    mode: '0644'
+  notify: restart rspamd
+  tags: signature_rspamd
+
+# ── 6. PHP-FPM pool ───────────────────────────────────────────────────────────
+
+- name: Deploy PHP-FPM pool for signature
+  ansible.builtin.template:
+    src: php-fpm-signature.conf.j2
+    dest: /etc/php/8.4/fpm/pool.d/signature.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart php-fpm
+  tags: signature_php
+
+# ── 7. Web root & PHP app ─────────────────────────────────────────────────────
+
+- name: Create signature web root directory
+  ansible.builtin.file:
+    path: "{{ signature_web_root }}"
+    state: directory
+    owner: "{{ signature_webserver_user }}"
+    group: "{{ signature_webserver_user }}"
+    mode: '0755'
+  tags: signature_web
+
+- name: Deploy signature PHP application
+  ansible.builtin.template:
+    src: index.php.j2
+    dest: "{{ signature_web_root }}/index.php"
+    owner: "{{ signature_webserver_user }}"
+    group: "{{ signature_webserver_user }}"
+    mode: '0640'
+  tags: signature_web
+
+- name: Deploy signature-plugin.js
+  ansible.builtin.copy:
+    src: signature-plugin.js
+    dest: /var/www/signature-plugin.js
+    owner: "{{ signature_webserver_user }}"
+    group: "{{ signature_webserver_user }}"
+    mode: '0644'
+  notify: reload nginx
+  tags: signature_web
+
+# ── 8. nginx: signature location in EVERY domain vhost ───────────────────────
+
+- name: Insert signature location into each domain vhost
+  ansible.builtin.blockinfile:
+    path: "/etc/nginx/sites-available/{{ item.mx_hostname }}.conf"
+    marker: "# {mark} ANSIBLE MANAGED - signature location"
+    insertafter: "# INSERT SIGNATURE HERE – {{ item.mx_hostname }}"
+    block: |
+      # Signature Manager
+      location {{ signature_web_path }}/ {
+          alias {{ signature_web_root }}/;
+          index index.php;
+
+          location ~ \.php$ {
+              include        fastcgi_params;
+              fastcgi_pass   unix:{{ signature_php_fpm_sock }};
+              fastcgi_index  index.php;
+              fastcgi_param  SCRIPT_FILENAME $request_filename;
+          }
+
+          location ~ /\. { deny all; }
+      }
+  loop: "{{ mail_virtual_domains }}"
+  loop_control:
+    label: "{{ item.mx_hostname }}"
+  notify: reload nginx
+  tags: signature_nginx
+
+# ── 9. Build XPI ──────────────────────────────────────────────────────────────
+
+- name: Build and deploy Postsible Tools XPI
+  ansible.builtin.include_tasks: build_xpi.yml
+  tags: signature_xpi
+
+# ── 10. Database table ────────────────────────────────────────────────────────
+
+- name: Create signature_admins table
+  community.mysql.mysql_query:
+    login_user: root
+    login_password: "{{ mariadb_root_password }}"
+    login_db: "{{ signature_db_name }}"
+    query: |
+      CREATE TABLE IF NOT EXISTS signature_admins (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        email VARCHAR(255) NOT NULL UNIQUE,
+        role ENUM('superadmin', 'admin') DEFAULT 'admin',
+        granted_by VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  tags: signature_db
+
+- name: Set primary domain admin as signature superadmin
+  community.mysql.mysql_query:
+    login_user: root
+    login_password: "{{ mariadb_root_password }}"
+    login_db: "{{ signature_db_name }}"
+    query: |
+      INSERT IGNORE INTO signature_admins (email, role, granted_by)
+      VALUES ('{{ mail_virtual_domains[0].admin_email }}', 'superadmin', 'ansible');
+  tags: signature_db
+
+# ── 11. Deployment summary ────────────────────────────────────────────────────
+
+- name: Add signature info to deployment summary
+  ansible.builtin.blockinfile:
+    path: /etc/postsible/deployment_summary.txt
+    marker: "# {mark} ANSIBLE MANAGED - signature"
+    block: |
+      Signature Manager:
+      {% for d in mail_virtual_domains %}
+        - https://{{ d.mx_hostname }}{{ signature_web_path }}/
+      {% endfor %}
+        Signatures stored: {{ signature_base_dir }}/
+  tags: signature_summary

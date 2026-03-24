@@ -1,46 +1,21 @@
 ---
-# Certbot Defaults for Postsible
+# roles/certbot/defaults/main.yml
 
-# Email for Let's Encrypt notifications
-certbot_email: "{{ mail_admin_email }}"
-
-# Certbot plugin (nginx = easiest, uses nginx plugin)
+certbot_email: "{{ mail_letsencrypt_email }}"
 certbot_plugin: "nginx"
-
-# Domains to get certificates for
-# Each domain gets its own certificate
-certbot_domains:
-  - "{{ mail_primary_domain }}"
-
-# Staging (test mode, doesn't count against rate limits)
-certbot_staging: false  # Set to true for testing
-
-# Auto-renewal configuration
+certbot_staging: false
+certbot_force_renewal: false
+certbot_rsa_key_size: 4096
 certbot_auto_renew: true
-certbot_renew_hour: 3
-certbot_renew_minute: 30
-
-# Post-renewal hooks (reload services after renewal)
 certbot_renewal_hooks_enabled: true
 certbot_reload_services:
   - nginx
   - postfix
   - dovecot
 
-# Webroot for ACME challenge (used if plugin=webroot)
-certbot_webroot: "/var/www/html"
-
-# RSA key size
-certbot_rsa_key_size: 4096
-
-# Agree to TOS automatically
-certbot_agree_tos: true
-
-# Certificate paths (after successful issue)
+certbot_webroot: "/var/www/certbot"
 certbot_cert_path: "/etc/letsencrypt/live"
+certbot_selfsigned_script: "/usr/local/bin/postsible-generate-selfsigned"
+certbot_pending_dir: "/var/lib/postsible/certs"
 
-# Force renewal (useful for testing)
-certbot_force_renewal: false
-
-# marker if dns is not correctly set to mx record
-certbot_pending_marker: /var/lib/postsible/certbot.pending
+certbot_enable_dry_run: false
