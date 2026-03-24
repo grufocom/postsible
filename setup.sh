@@ -441,7 +441,7 @@ done
 
 printf "${BOLD}Next steps:${NC}\n\n"
 printf "1. Set passwords in vault:\n"
-printf "   cp inventory/group_vars/mailservers/vault.yml.example \\\n"
+printf "   cp inventory/group_vars/mailservers/vault.yml.example \\ \n"
 printf "      inventory/group_vars/mailservers/vault.yml\n"
 printf "   \$EDITOR inventory/group_vars/mailservers/vault.yml\n"
 printf "   ansible-vault encrypt inventory/group_vars/mailservers/vault.yml\n\n"
