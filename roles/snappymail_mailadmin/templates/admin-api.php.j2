@@ -19,7 +19,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 session_start();
 
 // Configuration from Ansible
-define('ADMIN_EMAILS', '{{ mail_admin_email }}');
+define('ADMIN_EMAILS', '{{ mail_virtual_domains[0].admin_email }}');
 define('DB_HOST', '{{ mariadb_host }}');
 define('DB_NAME', '{{ mariadb_database }}');
 define('DB_USER', 'root');

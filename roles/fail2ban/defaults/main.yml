@@ -8,7 +8,7 @@ fail2ban_maxretry: 5
 
 # Email notifications
 fail2ban_enable_email: true
-fail2ban_destemail: "{{ mail_admin_email }}"
+fail2ban_destemail: "{{ mail_virtual_domains[0].admin_email }}"
 
 # Per-service settings (optional overrides)
 fail2ban_ssh_maxretry: 5

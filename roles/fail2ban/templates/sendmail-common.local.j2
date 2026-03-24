@@ -5,7 +5,7 @@
 # Option: dest
 # Notes.: email address to send notifications to
 # Values: CMD
-dest = {{ fail2ban_destemail | default(mail_admin_email) }}
+dest = {{ fail2ban_destemail | default(mail_virtual_domains[0].admin_email) }}
 
 # Option: sender
 # Notes.: email address from which to send notifications

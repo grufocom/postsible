@@ -22,10 +22,10 @@ sign_local = false;
 # Domain configuration
 {% if mail_virtual_domains | length > 0 %}
 domain {
-{% for domain in mail_virtual_domains %}
-  {{ domain }} {
+{% for domain_item in mail_virtual_domains %}
+  {{ domain_item.domain }} {
     selector = "dkim";
-    path = "/var/lib/rspamd/dkim/{{ domain }}.dkim.key";
+    path = "/var/lib/rspamd/dkim/{{ domain_item.domain }}.dkim.key";
   }
 {% endfor %}
 }

@@ -13,7 +13,7 @@ action = %(action_mwl)s
 
 # Email settings
 {% if fail2ban_enable_email | default(true) %}
-destemail = {{ fail2ban_destemail | default(mail_admin_email) }}
+destemail = {{ fail2ban_destemail | default(mail_virtual_domains[0].admin_email) }}
 sender = fail2ban@{{ mail_primary_domain }}
 mta = sendmail
 {% endif %}

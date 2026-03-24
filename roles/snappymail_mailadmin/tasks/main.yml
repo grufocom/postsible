@@ -238,9 +238,9 @@
       - "Next steps:"
       - "1. Logout from SnappyMail"
       - "2. Clear browser cache (Ctrl+Shift+R)"
-      - "3. Login as {{ mail_admin_email }}"
+      - "3. Login as {{ mail_virtual_domains[0].admin_email }}"
       - "4. Look for '⚙️ Admin' button (bottom right)"
       - ""
       - "API endpoint: https://{{ postfix_myhostname }}/wm/admin-api.php"
-      - "Admin email: {{ mail_admin_email }}"
+      - "Admin email: {{ mail_virtual_domains[0].admin_email }}"
   tags: mailadmin
