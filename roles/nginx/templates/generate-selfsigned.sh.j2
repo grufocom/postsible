@@ -1,0 +1,55 @@
+#!/bin/bash
+# generate-selfsigned.sh.j2
+# Generates self-signed SSL certificates for Let's Encrypt fallback
+
+DOMAIN="$1"
+CERT_DIR="/etc/letsencrypt/live/$DOMAIN"
+CERT_FILE="$CERT_DIR/fullchain.pem"
+KEY_FILE="$CERT_DIR/privkey.pem"
+
+# Check if domain is provided
+if [ -z "$DOMAIN" ]; then
+    echo "ERROR: No domain specified"
+    echo "Usage: $0 <domain>"
+    exit 1
+fi
+
+# Create certificate directory if it doesn't exist
+if [ ! -d "$CERT_DIR" ]; then
+    echo "Creating certificate directory: $CERT_DIR"
+    mkdir -p "$CERT_DIR"
+    chmod 755 "$CERT_DIR"
+fi
+
+# Generate self-signed certificate only if it doesn't exist
+if [ ! -f "$CERT_FILE" ] || [ ! -f "$KEY_FILE" ]; then
+    echo "Generating self-signed certificate for $DOMAIN..."
+    
+    # Generate private key and certificate
+    openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+        -keyout "$KEY_FILE" \
+        -out "$CERT_FILE" \
+        -subj "/C=DE/ST=State/L=City/O=Postsible Mailserver/CN=$DOMAIN" \
+        -addext "subjectAltName = DNS:$DOMAIN"
+    
+    # Create chain.pem symlink (self-signed doesn't have a chain)
+    ln -sf "$CERT_FILE" "$CERT_DIR/chain.pem"
+    
+    # Set proper permissions
+    chmod 640 "$KEY_FILE"
+    chmod 644 "$CERT_FILE"
+    chown root:ssl-cert "$KEY_FILE" "$CERT_FILE"
+    
+    echo "✓ Self-signed certificate generated for $DOMAIN"
+    echo "  Certificate: $CERT_FILE"
+    echo "  Private key: $KEY_FILE"
+else
+    echo "✓ Certificate already exists for $DOMAIN"
+fi
+
+# Show certificate information
+echo ""
+echo "Certificate information:"
+openssl x509 -in "$CERT_FILE" -noout -issuer -subject -dates 2>/dev/null || true
+
+exit 0

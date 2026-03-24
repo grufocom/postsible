@@ -142,6 +142,8 @@
 
 # ── Per-domain vhosts ─────────────────────────────────────────────────────────
 
+# roles/nginx/tasks/main.yml (Auszug für SSL-Zertifikate und VHosts)
+
 - name: Ensure SSL cert directory exists per domain (pre-certbot)
   ansible.builtin.file:
     path: "/etc/letsencrypt/live/{{ item.mx_hostname }}"
@@ -154,11 +156,57 @@
     label: "{{ item.mx_hostname }}"
   tags: nginx
 
+- name: Deploy self-signed certificate generation script
+  ansible.builtin.template:
+    src: generate-selfsigned.sh.j2
+    dest: /usr/local/bin/postsible-generate-selfsigned
+    owner: root
+    group: root
+    mode: '0750'
+  tags: nginx
+
 - name: Generate self-signed cert for domains without LE cert yet
   ansible.builtin.command: >
     /usr/local/bin/postsible-generate-selfsigned {{ item.mx_hostname }}
   args:
     creates: "/etc/letsencrypt/live/{{ item.mx_hostname }}/fullchain.pem"
+  loop: "{{ mail_virtual_domains }}"
+  loop_control:
+    label: "{{ item.mx_hostname }}"
+  tags: nginx
+
+- name: Check if Let's Encrypt certificates exist
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/live/{{ item.mx_hostname }}/fullchain.pem"
+  register: le_cert_check
+  loop: "{{ mail_virtual_domains }}"
+  tags: nginx
+
+- name: Set fact for domains with Let's Encrypt certificates
+  ansible.builtin.set_fact:
+    domains_with_le_certs: >-
+      {{
+        le_cert_check.results
+        | selectattr('stat.exists', 'equalto', true)
+        | map(attribute='item')
+        | map(attribute='mx_hostname')
+        | list
+      }}
+  tags: nginx
+
+- name: Display SSL certificate status per domain
+  ansible.builtin.debug:
+    msg: |
+      ========================================
+      SSL Certificate Status for {{ item.mx_hostname }}
+      ========================================
+      {% if item.mx_hostname in domains_with_le_certs %}
+      ✓ Let's Encrypt certificate exists
+      {% else %}
+      ⚠️  Self-signed certificate (Let's Encrypt not yet available)
+      {% endif %}
+      Certificate path: /etc/letsencrypt/live/{{ item.mx_hostname }}/
+      ========================================
   loop: "{{ mail_virtual_domains }}"
   loop_control:
     label: "{{ item.mx_hostname }}"
@@ -173,6 +221,7 @@
     mode: '0644'
   vars:
     vdomain: "{{ item }}"
+    has_le_cert: "{{ item.mx_hostname in domains_with_le_certs }}"
   loop: "{{ mail_virtual_domains }}"
   loop_control:
     label: "{{ item.mx_hostname }}"
@@ -223,3 +272,4 @@
       {% endfor %}
       PHP version: {{ nginx_php_version }}
   tags: nginx
+
