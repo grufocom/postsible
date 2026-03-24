@@ -38,11 +38,11 @@ snappymail_smtp_secure: "tls"  # tls or ssl
 snappymail_smtp_auth: true
 
 # Default domain for login (optional)
-snappymail_default_domain: "{{ mail_primary_domain }}"
+snappymail_default_domain: "{{ mail_virtual_domains[0].mx_hostname }}"
 
 # Branding (optional)
 snappymail_title: "Webmail"
-snappymail_loading_description: "{{ mail_primary_domain }}"
+snappymail_loading_description: "{{ mail_virtual_domains[0].mx_hostname }}"
 
 # Features
 snappymail_enable_sieve: true
@@ -56,3 +56,4 @@ snappymail_attachment_size_limit: "50M"
 # Logging
 snappymail_enable_logging: true
 snappymail_log_path: "/var/log/snappymail"
+

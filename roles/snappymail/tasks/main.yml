@@ -1,3 +1,4 @@
+# roles/snappymail/tasks/main.yml
 ---
 # roles/snappymail/tasks/main.yml
 # Key change: SnappyMail location block is inserted into EVERY domain vhost,
@@ -47,6 +48,7 @@
   loop:
     - "{{ snappymail_install_path }}"
     - "{{ snappymail_data_path }}"
+    - "{{ snappymail_data_path }}/_data_/_default_/configs"
     - "{{ snappymail_log_path }}"
   tags: snappymail
 
@@ -79,11 +81,18 @@
 
 # ── nginx: insert SnappyMail into EVERY domain vhost ─────────────────────────
 
+- name: Check if nginx vhost files exist
+  ansible.builtin.stat:
+    path: "/etc/nginx/sites-available/{{ item.mx_hostname }}.conf"
+  register: nginx_vhost_check
+  loop: "{{ mail_virtual_domains }}"
+  tags: snappymail
+
 - name: Insert SnappyMail location into each domain vhost
   ansible.builtin.blockinfile:
-    path: "/etc/nginx/sites-available/{{ item.mx_hostname }}.conf"
+    path: "/etc/nginx/sites-available/{{ item.item.mx_hostname }}.conf"
     marker: "    # {mark} ANSIBLE MANAGED BLOCK - SnappyMail"
-    insertafter: "# INSERT SNAPPY HERE – {{ item.mx_hostname }}"
+    insertafter: "# INSERT SNAPPY HERE – {{ item.item.mx_hostname }}"
     block: |2
           # SnappyMail Webmail
           location {{ snappymail_url_path }}/ {
@@ -94,7 +103,7 @@
               sub_filter_once on;
               sub_filter_types text/html;
 
-              try_files $uri $uri/ @snappymail_{{ item.mx_hostname | replace('.','_') }};
+              try_files $uri $uri/ @snappymail_{{ item.item.mx_hostname | replace('.','_') }};
 
               location ~ \.php$ {
                   include snippets/fastcgi-php.conf;
@@ -122,13 +131,14 @@
               }
           }
 
-          location @snappymail_{{ item.mx_hostname | replace('.','_') }} {
+          location @snappymail_{{ item.item.mx_hostname | replace('.','_') }} {
               rewrite ^{{ snappymail_url_path }}/(.*)$ {{ snappymail_url_path }}/index.php?$1 last;
           }
 
-  loop: "{{ mail_virtual_domains }}"
+  loop: "{{ nginx_vhost_check.results | selectattr('stat.exists', 'equalto', true) | list }}"
   loop_control:
-    label: "{{ item.mx_hostname }}"
+    label: "{{ item.item.mx_hostname }}"
+  when: item.stat.exists
   notify: reload nginx
   tags: snappymail
 
@@ -156,12 +166,66 @@
     state: reloaded
   tags: snappymail
 
+- name: Create SnappyMail plugin directory
+  ansible.builtin.file:
+    path: "{{ snappymail_install_path }}/plugins"
+    state: directory
+    owner: "{{ snappymail_user }}"
+    group: "{{ snappymail_group }}"
+    mode: '0755'
+  tags: snappymail
+
+- name: Create vacation plugin JS file
+  ansible.builtin.copy:
+    dest: /var/www/vacation-plugin.js
+    content: |
+      // Vacation Plugin for SnappyMail
+      // This plugin adds vacation/out-of-office functionality
+      (function() {
+          console.log('Vacation plugin loaded');
+          // Add your vacation plugin logic here
+      })();
+    owner: www-data
+    group: www-data
+    mode: '0644'
+  tags: snappymail
+
+- name: Create signature plugin JS file
+  ansible.builtin.copy:
+    dest: /var/www/signature-plugin.js
+    content: |
+      // Signature Plugin for SnappyMail
+      // This plugin adds signature management
+      (function() {
+          console.log('Signature plugin loaded');
+          // Add your signature plugin logic here
+      })();
+    owner: www-data
+    group: www-data
+    mode: '0644'
+  tags: snappymail
+
 - name: Display SnappyMail information
   ansible.builtin.debug:
     msg: |
+      ========================================
+      SnappyMail Installation Complete
+      ========================================
+      
       SnappyMail installed – accessible on all domains:
       {% for d in mail_virtual_domains %}
         • https://{{ d.mx_hostname }}{{ snappymail_url_path }}/
       {% endfor %}
+      
       Admin panel: https://{{ mail_virtual_domains[0].mx_hostname }}{{ snappymail_url_path }}/?admin
+      
+      Data directory: {{ snappymail_data_path }}
+      Install path: {{ snappymail_install_path }}
+      
+      Default admin credentials (first login):
+      Username: admin
+      Password: (set during first login)
+      
+      ========================================
   tags: snappymail
+

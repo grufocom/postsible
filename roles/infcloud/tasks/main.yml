@@ -1,3 +1,4 @@
+# roles/infcloud/tasks/main.yml
 ---
 - name: Install required packages
   apt:
@@ -6,6 +7,7 @@
       - curl
     state: present
     update_cache: yes
+  tags: infcloud
 
 - name: Create InfCloud installation directory
   file:
@@ -14,11 +16,13 @@
     owner: "{{ infcloud_web_user }}"
     group: "{{ infcloud_web_group }}"
     mode: '0755'
+  tags: infcloud
 
 - name: Check if InfCloud is already installed
   stat:
     path: "{{ infcloud_install_path }}/index.html"
   register: infcloud_installed
+  tags: infcloud
 
 - name: Download InfCloud
   get_url:
@@ -26,6 +30,7 @@
     dest: "/tmp/infcloud-{{ infcloud_version }}.zip"
     mode: '0644'
   when: not infcloud_installed.stat.exists
+  tags: infcloud
 
 - name: Create temporary extraction directory
   file:
@@ -33,6 +38,7 @@
     state: directory
     mode: '0755'
   when: not infcloud_installed.stat.exists
+  tags: infcloud
 
 - name: Extract InfCloud
   unarchive:
@@ -40,6 +46,7 @@
     dest: "/tmp/infcloud-extract/"
     remote_src: yes
   when: not infcloud_installed.stat.exists
+  tags: infcloud
 
 - name: Find extracted files
   find:
@@ -48,11 +55,13 @@
     recurse: no
   register: extracted_contents
   when: not infcloud_installed.stat.exists
+  tags: infcloud
 
 - name: Debug extracted contents
   debug:
     var: extracted_contents
   when: not infcloud_installed.stat.exists
+  tags: infcloud
 
 - name: Copy InfCloud files (if single directory)
   shell: |
@@ -67,23 +76,27 @@
   args:
     executable: /bin/bash
   when: not infcloud_installed.stat.exists
+  tags: infcloud
 
 - name: Remove temporary extraction directory
   file:
     path: "/tmp/infcloud-extract"
     state: absent
   when: not infcloud_installed.stat.exists
+  tags: infcloud
 
 - name: Remove download file
   file:
     path: "/tmp/infcloud-{{ infcloud_version }}.zip"
     state: absent
+  tags: infcloud
 
 - name: Verify InfCloud installation
   stat:
     path: "{{ infcloud_install_path }}/index.html"
   register: infcloud_verify
   failed_when: not infcloud_verify.stat.exists
+  tags: infcloud
 
 - name: Deploy InfCloud configuration
   template:
@@ -93,6 +106,7 @@
     group: "{{ infcloud_web_group }}"
     mode: '0644'
   notify: reload nginx
+  tags: infcloud
 
 - name: Set correct permissions on InfCloud directory
   file:
@@ -101,6 +115,9 @@
     group: "{{ infcloud_web_group }}"
     recurse: yes
     mode: '0755'
+  tags: infcloud
+
+# ── Nginx configuration for subdomain option ─────────────────────────────────
 
 - name: Deploy Nginx configuration (subdomain)
   template:
@@ -111,54 +128,7 @@
     mode: '0644'
   when: infcloud_use_subdomain
   notify: reload nginx
-
-- name: Check if InfCloud block already exists in rspamd vhost
-  shell: grep -q "BEGIN ANSIBLE MANAGED BLOCK - InfCloud" /etc/nginx/sites-available/rspamd
-  register: infcloud_block_exists
-  changed_when: false
-  failed_when: false
-  when: not infcloud_use_subdomain
-
-- name: Insert InfCloud location block into rspamd vhost
-  blockinfile:
-    path: "/etc/nginx/sites-available/rspamd"
-    marker: "    # {mark} ANSIBLE MANAGED BLOCK - InfCloud"
-    insertafter: "    # END ANSIBLE MANAGED BLOCK - Baïkal"
-    block: |2
-          # InfCloud CalDAV/CardDAV Web Client
-          location {{ infcloud_base_path }} {
-              alias {{ infcloud_install_path }};
-              index index.html;
-      
-              try_files $uri $uri/ {{ infcloud_base_path }}/index.html;
-      
-              # Cache static files
-              location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
-                  expires 1y;
-                  add_header Cache-Control "public, immutable";
-              }
-      
-              # Deny access to sensitive files
-              location ~ /\. {
-                  deny all;
-              }
-          }
-      
-          # Optional: Separate contacts interface
-          location /contacts {
-              alias {{ infcloud_install_path }};
-              index index.html;
-      
-              try_files $uri $uri/ /contacts/index.html;
-      
-              location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
-                  expires 1y;
-                  add_header Cache-Control "public, immutable";
-              }
-          }
-    state: present
-  when: not infcloud_use_subdomain and infcloud_block_exists.rc != 0
-  notify: reload nginx
+  tags: infcloud
 
 - name: Enable InfCloud site (subdomain)
   file:
@@ -167,15 +137,122 @@
     state: link
   when: infcloud_use_subdomain
   notify: reload nginx
+  tags: infcloud
+
+# ── Nginx configuration for main domain (insert into all vhosts) ─────────────
+
+- name: Get list of existing nginx vhosts for mail domains
+  ansible.builtin.stat:
+    path: "/etc/nginx/sites-available/{{ item.mx_hostname }}.conf"
+  register: nginx_vhost_check
+  loop: "{{ mail_virtual_domains }}"
+  when: not infcloud_use_subdomain
+  tags: infcloud
+
+- name: Remove existing InfCloud blocks from all vhosts (cleanup)
+  ansible.builtin.shell: |
+    sed -i '/# BEGIN ANSIBLE MANAGED BLOCK - InfCloud/,/# END ANSIBLE MANAGED BLOCK - InfCloud/d' /etc/nginx/sites-available/{{ item.item.mx_hostname }}.conf
+  loop: "{{ nginx_vhost_check.results | selectattr('stat.exists', 'equalto', true) | list }}"
+  register: cleanup_result
+  changed_when: false
+  failed_when: false
+  when: not infcloud_use_subdomain
+  tags: infcloud
+
+- name: Ensure marker line exists in vhosts (for insertion)
+  ansible.builtin.lineinfile:
+    path: "/etc/nginx/sites-available/{{ item.item.mx_hostname }}.conf"
+    line: "    # INSERT INFCLOUD HERE"
+    insertafter: "    # END ANSIBLE MANAGED BLOCK - Baïkal"
+    state: present
+  loop: "{{ nginx_vhost_check.results | selectattr('stat.exists', 'equalto', true) | list }}"
+  when: not infcloud_use_subdomain
+  tags: infcloud
+
+- name: Insert InfCloud location block into each domain vhost
+  ansible.builtin.blockinfile:
+    path: "/etc/nginx/sites-available/{{ item.item.mx_hostname }}.conf"
+    marker: "    # {mark} ANSIBLE MANAGED BLOCK - InfCloud"
+    insertafter: "# INSERT INFCLOUD HERE"
+    block: |2
+          # BEGIN ANSIBLE MANAGED BLOCK - InfCloud
+          # InfCloud CalDAV/CardDAV Web Client
+          location {{ infcloud_base_path }} {
+              alias {{ infcloud_install_path }};
+              index index.html;
+
+              try_files $uri $uri/ {{ infcloud_base_path }}/index.html;
+
+              # Cache static files
+              location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+                  expires 1y;
+                  add_header Cache-Control "public, immutable";
+              }
+
+              # Deny access to sensitive files
+              location ~ /\. {
+                  deny all;
+              }
+          }
+
+          # Optional: Separate contacts interface
+          location /contacts {
+              alias {{ infcloud_install_path }};
+              index index.html;
+
+              try_files $uri $uri/ /contacts/index.html;
+
+              location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+                  expires 1y;
+                  add_header Cache-Control "public, immutable";
+              }
+          }
+          # END ANSIBLE MANAGED BLOCK - InfCloud
+  loop: "{{ nginx_vhost_check.results | selectattr('stat.exists', 'equalto', true) | list }}"
+  loop_control:
+    label: "{{ item.item.mx_hostname }}"
+  when: not infcloud_use_subdomain
+  notify: reload nginx
+  tags: infcloud
+
+# ── Test and reload nginx ─────────────────────────────────────────────────────
 
 - name: Test Nginx configuration
   command: nginx -t
   register: nginx_test
   changed_when: false
   failed_when: nginx_test.rc != 0
+  tags: infcloud
 
 - name: Ensure Nginx is running
   service:
     name: nginx
     state: started
     enabled: yes
+  tags: infcloud
+
+- name: Display InfCloud information
+  ansible.builtin.debug:
+    msg: |
+      ========================================
+      InfCloud CalDAV/CardDAV Web Client
+      ========================================
+      
+      {% if infcloud_use_subdomain %}
+      Access URL: https://{{ infcloud_subdomain }}/
+      {% else %}
+      InfCloud is now available on all domains:
+      {% for domain in mail_virtual_domains %}
+        • https://{{ domain.mx_hostname }}{{ infcloud_base_path }}/
+        • https://{{ domain.mx_hostname }}/contacts/
+      {% endfor %}
+      {% endif %}
+      
+      Configuration file: {{ infcloud_install_path }}/config.js
+      
+      Client Configuration:
+      - CalDAV Server: https://{{ mail_virtual_domains[0].mx_hostname }}{{ baikal_url_path }}/dav.php
+      - CardDAV Server: https://{{ mail_virtual_domains[0].mx_hostname }}{{ baikal_url_path }}/dav.php
+      
+      ========================================
+  tags: infcloud

@@ -1,19 +1,28 @@
+# roles/baikal/tasks/nginx.yml
 ---
 # Nginx configuration for Baïkal
 
-- name: Remove any existing Baïkal blocks (cleanup)
-  shell: |
-    sed -i '/# BEGIN ANSIBLE MANAGED BLOCK - Baïkal/,/# END ANSIBLE MANAGED BLOCK - Baïkal/d' /etc/nginx/sites-available/rspamd
-    sed -i '/# BEGIN ANSIBLE MANAGED - Baïkal/,/# END ANSIBLE MANAGED - Baïkal/d' /etc/nginx/sites-available/rspamd
-    sed -i '/# BEGIN ANSIBLE MANAGED BLOCK - Baïkal Well-Known/,/# END ANSIBLE MANAGED BLOCK - Baïkal Well-Known/d' /etc/nginx/sites-available/rspamd
+- name: Get list of existing nginx vhosts for mail domains
+  ansible.builtin.stat:
+    path: "/etc/nginx/sites-available/{{ item.mx_hostname }}.conf"
+  register: nginx_vhost_check
+  loop: "{{ mail_virtual_domains }}"
+  tags: baikal
+
+- name: Remove any existing Baïkal blocks from all vhosts (cleanup)
+  ansible.builtin.shell: |
+    sed -i '/# BEGIN ANSIBLE MANAGED BLOCK - Baïkal/,/# END ANSIBLE MANAGED BLOCK - Baïkal/d' /etc/nginx/sites-available/{{ item.item.mx_hostname }}.conf
+    sed -i '/# BEGIN ANSIBLE MANAGED - Baïkal/,/# END ANSIBLE MANAGED - Baïkal/d' /etc/nginx/sites-available/{{ item.item.mx_hostname }}.conf
+    sed -i '/# BEGIN ANSIBLE MANAGED BLOCK - Baïkal Well-Known/,/# END ANSIBLE MANAGED BLOCK - Baïkal Well-Known/d' /etc/nginx/sites-available/{{ item.item.mx_hostname }}.conf
+  loop: "{{ nginx_vhost_check.results | selectattr('stat.exists', 'equalto', true) | list }}"
   register: cleanup_result
   changed_when: false
   failed_when: false
   tags: baikal
 
-- name: Add Baïkal location to main VHost (inside HTTPS server block)
-  blockinfile:
-    path: /etc/nginx/sites-available/rspamd
+- name: Add Baïkal location to each domain vhost (inside HTTPS server block)
+  ansible.builtin.blockinfile:
+    path: "/etc/nginx/sites-available/{{ item.item.mx_hostname }}.conf"
     marker: "    # {mark} ANSIBLE MANAGED BLOCK - Baïkal"
     insertafter: "# INSERT BAIKAL HERE"
     block: |2
@@ -57,25 +66,71 @@
               try_files $uri $uri/ =404;
           }
           # END ANSIBLE MANAGED BLOCK - Baïkal
+  loop: "{{ nginx_vhost_check.results | selectattr('stat.exists', 'equalto', true) | list }}"
+  loop_control:
+    label: "{{ item.item.mx_hostname }}"
   notify: reload nginx
   tags: baikal
 
+- name: Add Baïkal configuration to all vhosts
+  ansible.builtin.lineinfile:
+    path: "/etc/nginx/sites-available/{{ item.item.mx_hostname }}.conf"
+    line: "# INSERT BAIKAL HERE"
+    insertafter: "server {"
+    state: present
+  loop: "{{ nginx_vhost_check.results | selectattr('stat.exists', 'equalto', true) | list }}"
+  when: not ansible_check_mode
+  tags: baikal
+
 - name: Test Nginx configuration
-  command: nginx -t
+  ansible.builtin.command: nginx -t
   changed_when: false
   register: nginx_test
   failed_when: nginx_test.rc != 0
   tags: baikal
 
 - name: Display Nginx test result
-  debug:
+  ansible.builtin.debug:
     var: nginx_test.stderr_lines
   when: nginx_test.rc != 0
   tags: baikal
 
 - name: Reload Nginx
-  systemd:
+  ansible.builtin.systemd:
     name: nginx
     state: reloaded
   when: nginx_test.rc == 0
+  tags: baikal
+
+- name: Display Baïkal access information
+  ansible.builtin.debug:
+    msg: |
+      ========================================
+      Baïkal CalDAV/CardDAV Server
+      ========================================
+      
+      Baïkal is now available on all domains:
+      {% for domain in mail_virtual_domains %}
+        • https://{{ domain.mx_hostname }}{{ baikal_url_path }}/
+      {% endfor %}
+      
+      Web Admin:
+      {% for domain in mail_virtual_domains %}
+        • https://{{ domain.mx_hostname }}/dav/admin/
+      {% endfor %}
+      
+      CalDAV/CardDAV URLs:
+      {% for domain in mail_virtual_domains %}
+        • https://{{ domain.mx_hostname }}{{ baikal_url_path }}/dav.php
+      {% endfor %}
+      
+      Default credentials:
+      Username: admin
+      Password: admin (change immediately!)
+      
+      Client Configuration:
+      - CalDAV: https://{{ mail_virtual_domains[0].mx_hostname }}{{ baikal_url_path }}/dav.php/calendars/username/
+      - CardDAV: https://{{ mail_virtual_domains[0].mx_hostname }}{{ baikal_url_path }}/dav.php/addressbooks/username/
+      
+      ========================================
   tags: baikal

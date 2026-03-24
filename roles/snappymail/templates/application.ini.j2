@@ -53,6 +53,11 @@ allow_self_signed = Off
 cafile = ""
 capath = ""
 
+[domains]
+allow_domains = "{{ mail_virtual_domains | map(attribute='domain') | join(',') }}"
+use_domain_for_login = true
+default_domain = "{{ mail_virtual_domains[0].domain }}"
+
 [capa]
 additional_accounts = On
 identities = On
@@ -136,3 +141,17 @@ sieve_utf8_folder_name = On
 mail_func_clear_headers = On
 mail_use_parse_mime = On
 kolab_enable = Off
+
+[imap]
+server = "{{ mail_virtual_domains[0].mx_hostname }}"
+port = 993
+secure = "SSL"
+short_login = true
+use_short_login = true
+
+[smtp]
+server = "{{ mail_virtual_domains[0].mx_hostname }}"
+port = 587
+secure = "TLS"
+auth = true
+
