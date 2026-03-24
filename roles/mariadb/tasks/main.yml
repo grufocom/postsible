@@ -158,8 +158,10 @@
     login_db: "{{ mariadb_database }}"
     query: |
       INSERT IGNORE INTO virtual_domains (name)
-      VALUES ('{{ item }}');
+      VALUES ('{{ item.domain }}');
   loop: "{{ mail_virtual_domains }}"
+  loop_control:
+    label: "{{ item.domain }}"
   when: mariadb_insert_initial_domains | default(true)
   tags: mariadb
 
@@ -243,7 +245,7 @@
       - "MariaDB Configuration Complete!"
       - "Database: {{ mariadb_database }}"
       - "User: {{ mariadb_user }}"
-      - "Initial domains: {{ mail_virtual_domains | join(', ') }}"
+      - "Initial domains: {{ mail_virtual_domains | map(attribute='domain') | join(', ') }}"
       - ""
       - "Management commands:"
       - "  maildb-manage list-domains"
