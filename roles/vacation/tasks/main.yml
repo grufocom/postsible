@@ -152,7 +152,52 @@
 
 # ── 7. Superadmin ─────────────────────────────────────────────────────────────
 
-- name: Check if superadmin already set
+- name: Check if primary domain admin user exists in mail database
+  community.mysql.mysql_query:
+    login_user: root
+    login_password: "{{ mariadb_root_password }}"
+    login_db: "{{ mariadb_database }}"
+    query: "SELECT COUNT(*) AS cnt FROM virtual_users WHERE email='{{ mail_virtual_domains[0].admin_email }}';"
+  register: admin_exists
+  tags: vacation_superadmin
+
+- name: Create primary domain admin user if not exists (with auto-generated password)
+  ansible.builtin.command:
+    cmd: "{{ vacation_maildb_manage }} add-user {{ mail_virtual_domains[0].admin_email }} --auto-password --quiet"
+  when: admin_exists.query_result[0][0]['cnt'] | int == 0
+  register: admin_creation
+  tags: vacation_superadmin
+
+- name: Store admin password in vault (if newly created)
+  ansible.builtin.set_fact:
+    mail_admin_password: "{{ admin_creation.stdout }}"
+  when: admin_creation is defined and admin_creation.changed
+  tags: vacation_superadmin
+
+- name: Display admin password (only in interactive mode)
+  ansible.builtin.debug:
+    msg: |
+      ========================================
+      🔐 ADMIN USER CREDENTIALS
+      ========================================
+      Email:    {{ mail_virtual_domains[0].admin_email }}
+      Password: {{ admin_creation.stdout }}
+      
+      Please save this password securely!
+      ========================================
+  when: 
+    - admin_creation is defined
+    - admin_creation.changed
+    - not ansible_check_mode
+  tags: vacation_superadmin
+
+- name: Wait a moment for user to be fully registered
+  ansible.builtin.pause:
+    seconds: 2
+  when: admin_creation is defined and admin_creation.changed
+  tags: vacation_superadmin
+
+- name: Check if superadmin already set in vacation_admins
   community.mysql.mysql_query:
     login_user: root
     login_password: "{{ mariadb_root_password }}"
@@ -165,6 +210,10 @@
   ansible.builtin.command:
     cmd: "{{ vacation_maildb_manage }} set-superadmin {{ mail_virtual_domains[0].admin_email }}"
   when: superadmin_check.query_result[0][0]['cnt'] | int == 0
+  register: superadmin_set
+  retries: 3
+  delay: 1
+  until: superadmin_set is success
   tags: vacation_superadmin
 
 # ── 8. Deployment summary ─────────────────────────────────────────────────────
