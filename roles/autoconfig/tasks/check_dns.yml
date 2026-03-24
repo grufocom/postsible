@@ -1,5 +1,5 @@
----
 # tasks/check_dns.yml
+---
 - name: Get mail server IP address
   ansible.builtin.set_fact:
     mail_server_ip: "{{ ansible_default_ipv4.address }}"
@@ -19,18 +19,72 @@
   loop_control:
     label: "{{ item.item }}"
 
-- name: Warn if DNS records are missing or incorrect
-  ansible.builtin.fail:
+- name: Determine missing DNS records
+  ansible.builtin.set_fact:
+    autoconfig_missing_dns: >-
+      {{
+        autoconfig_dns_check.results
+        | rejectattr('stdout', '==', mail_server_ip)
+        | map(attribute='item')
+        | list
+      }}
+    autoconfig_missing_records: >-
+      {{
+        autoconfig_dns_check.results
+        | rejectattr('stdout', '==', mail_server_ip)
+        | map(attribute='item')
+        | map('regex_replace', '^(.*)$', 'autoconfig.\\1  IN  A  ' + mail_server_ip)
+        | list
+      }}
+  when: not autoconfig_skip_dns_check | default(false)
+
+- name: Warn about missing DNS records (individual)
+  ansible.builtin.debug:
     msg: |
-      DNS record for autoconfig.{{ item.item }} is missing or incorrect!
+      ⚠️  WARNING: DNS record for autoconfig.{{ item }} is missing or incorrect!
       Expected: {{ mail_server_ip }}
-      Found: {{ item.stdout | default('NONE') }}
-      
-      Please create the following DNS record:
-      autoconfig.{{ item.item }}  IN  A  {{ mail_server_ip }}
-  when: 
-    - item.stdout != mail_server_ip
+      Please add: autoconfig.{{ item }}  IN  A  {{ mail_server_ip }}
+  loop: "{{ autoconfig_missing_dns }}"
+  when:
     - not autoconfig_skip_dns_check | default(false)
-  loop: "{{ autoconfig_dns_check.results }}"
-  loop_control:
-    label: "{{ item.item }}"
+    - autoconfig_missing_dns | length > 0
+
+- name: Set global deployment warning fact
+  ansible.builtin.set_fact:
+    autoconfig_dns_warning: >-
+      {{
+        {
+          'has_warnings': autoconfig_missing_dns | length > 0,
+          'missing_count': autoconfig_missing_dns | length,
+          'missing_domains': autoconfig_missing_dns,
+          'missing_records': autoconfig_missing_records,
+          'message': 'Autoconfig DNS records missing for ' + (autoconfig_missing_dns | length | string) + ' domain(s)'
+        }
+      }}
+  when: not autoconfig_skip_dns_check | default(false)
+
+- name: Display summary of DNS issues
+  ansible.builtin.debug:
+    msg: |
+      ===========================================
+      AUTOCONFIG DNS STATUS
+      ===========================================
+      Domains checked: {{ mail_virtual_domains | length }}
+      Valid DNS: {{ mail_virtual_domains | length - (autoconfig_missing_dns | length) }}
+      Missing DNS: {{ autoconfig_missing_dns | length }}
+      
+      {% if autoconfig_missing_dns | length > 0 %}
+      ⚠️  MISSING DNS RECORDS:
+      {% for record in autoconfig_missing_records %}
+        - {{ record }}
+      {% endfor %}
+      
+      ACTION REQUIRED: Add these DNS records for email client auto-configuration.
+      Mail clients (Outlook, Thunderbird, etc.) will not auto-configure without them.
+      {% else %}
+      ✓ All autoconfig DNS records are correctly configured.
+      {% endif %}
+      ===========================================
+  when:
+    - not autoconfig_skip_dns_check | default(false)
+    - autoconfig_missing_dns is defined

@@ -1,0 +1,38 @@
+#!/bin/bash
+# Generate self-signed certificate for autoconfig domain in Let's Encrypt path
+
+DOMAIN="autoconfig.$1"
+CERT_DIR="/etc/letsencrypt/live/$DOMAIN"
+CERT_FILE="$CERT_DIR/fullchain.pem"
+KEY_FILE="$CERT_DIR/privkey.pem"
+
+# Create certificate directory if not exists
+mkdir -p "$CERT_DIR"
+
+# Generate self-signed certificate only if it doesn't exist
+if [ ! -f "$CERT_FILE" ] || [ ! -f "$KEY_FILE" ]; then
+    echo "Generating self-signed certificate for $DOMAIN in Let's Encrypt path..."
+    
+    # Generate self-signed certificate
+    openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+        -keyout "$KEY_FILE" \
+        -out "$CERT_FILE" \
+        -subj "/CN=$DOMAIN/O=Postsible Autoconfig/C=DE"
+    
+    # Create symlink for chain.pem (self-signed doesn't have a chain)
+    ln -sf "$CERT_FILE" "$CERT_DIR/chain.pem"
+    
+    # Set proper permissions
+    chmod 640 "$KEY_FILE"
+    chmod 644 "$CERT_FILE"
+    chown root:ssl-cert "$KEY_FILE" "$CERT_FILE"
+    
+    echo "✓ Self-signed certificate created for $DOMAIN"
+    echo "  Location: $CERT_DIR/"
+else
+    echo "✓ Certificate for $DOMAIN already exists (will be used as-is)"
+fi
+
+# Show certificate info
+echo "Certificate info for $DOMAIN:"
+openssl x509 -in "$CERT_FILE" -noout -issuer -subject -dates 2>/dev/null || true

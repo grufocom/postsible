@@ -19,6 +19,9 @@ autoconfig_username_type: "%EMAILADDRESS%"  # %EMAILADDRESS%, %EMAILLOCALPART%
 # Features
 autoconfig_enable_autodiscover: true  # Microsoft Outlook autodiscover
 autoconfig_skip_dns_check: false  # Set to true to skip DNS validation
+autoconfig_selfsigned_dir: /etc/ssl/autoconfig-selfsigned
+autoconfig_skip_certbot: false
+autoconfig_force_renewal: false
 autoconfig_remove_http_config: false  # Set to true to remove HTTP config after HTTPS is set up
 
 # Display names
@@ -28,3 +31,4 @@ autoconfig_provider_documentation_url: "https://{{ mail_primary_domain }}/suppor
 
 # Certificate settings
 autoconfig_cert_path: "/etc/letsencrypt/live/autoconfig.{{ mail_primary_domain }}"
+

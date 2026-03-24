@@ -293,6 +293,32 @@
         - welcome_email
         - always
 
+    - name: Display summary of DNS issues
+      ansible.builtin.debug:
+        msg: |
+          ===========================================
+          AUTOCONFIG DNS STATUS
+          ===========================================
+          Domains checked: {{ mail_virtual_domains | length }}
+          Valid DNS: {{ mail_virtual_domains | length - (autoconfig_missing_dns | length) }}
+          Missing DNS: {{ autoconfig_missing_dns | length }}
+    
+          {% if autoconfig_missing_dns | length > 0 %}
+          ⚠️  MISSING DNS RECORDS:
+          {% for record in autoconfig_missing_records %}
+            - {{ record }}
+          {% endfor %}
+    
+          ACTION REQUIRED: Add these DNS records for email client auto-configuration.
+          Mail clients (Outlook, Thunderbird, etc.) will not auto-configure without them.
+          {% else %}
+          ✓ All autoconfig DNS records are correctly configured.
+          {% endif %}
+          ===========================================
+      when:
+        - not autoconfig_skip_dns_check | default(false)
+        - autoconfig_missing_dns is defined
+
     - name: Send welcome email to admin
       shell: |
         sendmail {{ mail_admin_email }} < /tmp/welcome_email.txt
