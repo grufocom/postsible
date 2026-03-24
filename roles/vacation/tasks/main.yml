@@ -122,17 +122,6 @@
   notify: reload nginx
   tags: vacation_web
 
-- name: Deploy Postsible Tools XPI (combined Vacation + Signature)
-  ansible.builtin.copy:
-    src: postsible-tools.xpi
-    dest: "{{ vacation_web_root }}/postsible-tools.xpi"
-    owner: "{{ vacation_webserver_user }}"
-    group: "{{ vacation_webserver_user }}"
-    mode: '0644'
-  notify: reload nginx
-  failed_when: false   # XPI built by signature role – skip if not present yet
-  tags: vacation_web
-
 # ── 6. nginx: vacation location in EVERY domain vhost ────────────────────────
 
 - name: Insert vacation location into each domain vhost
