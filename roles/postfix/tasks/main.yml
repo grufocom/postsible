@@ -185,7 +185,19 @@
   loop:
     - { alias: 'postmaster', destination: 'root' }
     - { alias: 'abuse', destination: 'root' }
-    - { alias: 'root', destination: '{{ mail_admin_email }}' }
+    - { alias: 'root', destination: "{{ mail_virtual_domains[0].admin_email }}" }
+  tags: postfix
+
+- name: Create alias for admin emails of all domains
+  lineinfile:
+    path: /etc/aliases
+    regexp: "^{{ domain.admin_email }}:"
+    line: "{{ domain.admin_email }}: root"
+    state: present
+  loop: "{{ mail_virtual_domains }}"
+  loop_control:
+    loop_var: domain
+  when: mail_virtual_domains | length > 1
   tags: postfix
 
 - name: Update aliases database
