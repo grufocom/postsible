@@ -13,6 +13,7 @@
           - "Target Host: {{ inventory_hostname }}"
           - "Hostname: {{ common_hostname | default(ansible_hostname) }}"
           - "Primary Domain: {{ mail_primary_domain }}"
+          - "Virtual Domains: {{ mail_virtual_domains | map(attribute='domain') | join(', ') }}"
           - "Deployment Date: {{ ansible_date_time.iso8601 }}"
           - "==================================================="
       tags: always
@@ -32,7 +33,7 @@
       tags: always
 
   roles:
-    # Phase 1: Basic-infrastructur
+    # Phase 1: Basic-infrastructure
     - role: common
       tags:
         - common
@@ -138,46 +139,68 @@
         mode: '0755'
       tags: always
 
-    - name: Check if admin user already exists
+    # ── Admin user: one per domain ────────────────────────────────────────────
+
+    - name: Check if admin user exists per domain
       shell: |
-        mysql -u root -p'{{ mariadb_root_password }}' {{ mariadb_database }} -sN -e "SELECT COUNT(*) FROM virtual_users WHERE email='{{ mail_admin_email }}';"
-      register: admin_user_exists
+        mysql -u root -p'{{ mariadb_root_password }}' {{ mariadb_database }} -sN \
+          -e "SELECT COUNT(*) FROM virtual_users WHERE email='{{ item.admin_email }}';"
+      register: admin_user_check
       changed_when: false
+      no_log: true
+      loop: "{{ mail_virtual_domains }}"
+      loop_control:
+        label: "{{ item.admin_email }}"
       tags: always
 
-    - name: Create admin user with auto-generated password
+    - name: Create admin user per domain (if not exists)
       shell: |
-        /usr/local/bin/maildb-manage add-user {{ mail_admin_email }} --auto-password --displayname "Administrator" --quiet
-      register: admin_password_output
-      when: admin_user_exists.stdout == "0"
+        /usr/local/bin/maildb-manage add-user {{ item.item.admin_email }} \
+          --auto-password --displayname "Administrator" --quiet
+      register: admin_password_results
+      when: item.stdout == "0"
+      loop: "{{ admin_user_check.results }}"
+      loop_control:
+        label: "{{ item.item.admin_email }}"
       tags: always
 
-    - name: Save admin password to file
+    - name: Save admin credentials per domain
       copy:
         content: |
           Postsible Admin User Credentials
           ================================
-          Email: {{ mail_admin_email }}
-          Password: {{ admin_password_output.stdout }}
+          Domain:   {{ item.item.item.domain }}
+          Email:    {{ item.item.item.admin_email }}
+          Password: {{ item.stdout }}
 
           Created: {{ ansible_date_time.iso8601 }}
 
           IMPORTANT: Save this password securely and delete this file!
 
-          Access:
-          - Webmail: https://{{ snappymail_domain }}
-          - CalDAV/CardDAV: https://{{ common_hostname }}/dav/
-          - InfCloud: https://{{ common_hostname }}/cal/
-          - Vacation Manager: https://{{ common_hostname }}/vacation/
-        dest: /root/admin-credentials.txt
+          Access (this domain):
+          - Webmail:          https://{{ item.item.item.mx_hostname }}/wm/
+          - Vacation Manager: https://{{ item.item.item.mx_hostname }}/vacation/
+          - Signature Manager:https://{{ item.item.item.mx_hostname }}/signature/
+          - Rspamd WebUI:     https://{{ item.item.item.mx_hostname }}/rspamd/
+          - CalDAV/CardDAV:   https://{{ item.item.item.mx_hostname }}/dav/
+          - InfCloud:         https://{{ item.item.item.mx_hostname }}/cal/
+          - IMAP:             {{ item.item.item.mx_hostname }}:993 (SSL/TLS)
+          - SMTP:             {{ item.item.item.mx_hostname }}:587 (STARTTLS)
+        dest: "/root/admin-credentials-{{ item.item.item.domain }}.txt"
         mode: '0600'
-      when: admin_user_exists.stdout == "0"
+      when: item.changed
+      loop: "{{ admin_password_results.results }}"
+      loop_control:
+        label: "{{ item.item.item.admin_email }}"
       tags: always
+
+    # ── Restart services ──────────────────────────────────────────────────────
 
     - name: Gather service facts
       ansible.builtin.service_facts:
+      tags: always
 
-    - name: Restart all existing mail and web services (to pick up new user)
+    - name: Restart all mail and web services
       ansible.builtin.systemd:
         name: "{{ item }}"
         state: restarted
@@ -190,21 +213,15 @@
         - fail2ban
         - php8.4-fpm
       when: ansible_facts.services is defined and (item + '.service') in ansible_facts.services
-      tags:
-        - always
+      tags: always
 
-    - name: Extract username from admin email
-      set_fact:
-        mail_admin_username: "{{ mail_admin_email.split('@')[0] }}"
-      tags:
-        - welcome_email
-        - always
+    # ── Welcome email per domain ──────────────────────────────────────────────
 
-    - name: Create welcome email template
+    - name: Create welcome email per domain
       copy:
         content: |
-          From: Postsible Mailserver <postmaster@{{ mail_primary_domain }}>
-          To: {{ mail_admin_email }}
+          From: Postsible Mailserver <postmaster@{{ item.domain }}>
+          To: {{ item.admin_email }}
           Subject: Welcome to your Postsible Mailserver! 🎉
           Date: {{ ansible_date_time.iso8601 }}
           MIME-Version: 1.0
@@ -216,87 +233,72 @@
 
           Dear Administrator,
 
-          your mailserver has been successfully deployed and configured.
+          your mailserver has been successfully deployed for domain {{ item.domain }}.
 
-          📍 **Access Information**
-          ------------------------
-          Webmail:          https://{{ snappymail_domain }}/wm/
-          Vacation Manager: https://{{ common_hostname }}/vacation/
-          Admin URL:        https://{{ snappymail_domain }}/wm/?admin
+          📍 Access Information
+          ----------------------
+          Webmail:           https://{{ item.mx_hostname }}/wm/
+          Vacation Manager:  https://{{ item.mx_hostname }}/vacation/
+          Signature Manager: https://{{ item.mx_hostname }}/signature/
+          Rspamd WebUI:      https://{{ item.mx_hostname }}/rspamd/
+          InfCloud:          https://{{ item.mx_hostname }}/cal/
+          IMAP:              {{ item.mx_hostname }}:993 (SSL/TLS)
+          SMTP:              {{ item.mx_hostname }}:587 (STARTTLS)
 
-          IMAP:      {{ common_hostname }}:993 (SSL/TLS)
-          SMTP:      {{ common_hostname }}:587 (STARTTLS)
+          📅 Calendar Integration (CalDAV)
+          ---------------------------------
+          URL: https://{{ item.mx_hostname }}/dav/dav.php/calendars/{{ item.admin_email }}/default/
+          Username: {{ item.admin_email }}
 
-          📅 **Calendar Integration (CalDAV)**
-          -------------------------
-          To integrate your calendar into Thunderbird:
+          👥 Contacts Integration (CardDAV)
+          ----------------------------------
+          URL: https://{{ item.mx_hostname }}/dav/dav.php/addressbooks/{{ item.admin_email }}/default/
+          Username: {{ item.admin_email }}
 
-          1. Open Thunderbird
-          2. Click on "Calendar" tab
-          3. Right-click → "New Calendar"
-          4. Select "On the Network" → "CalDAV"
-          5. Enter your email: {{ mail_admin_email }}
-          6. Enter this location:
-             https://{{ mail_primary_domain }}/dav/dav.php/calendars/{{ mail_admin_email }}/default/
-          7. Enter your email password
+          📱 Mobile Setup (iOS/Android)
+          ------------------------------
+          iOS/macOS: Settings → Accounts → Other → CalDAV/CardDAV
+          Android (DAVx⁵): Base URL: https://{{ item.mx_hostname }}/dav/dav.php/
 
-          👥 **Contacts Integration (CardDAV)**
-          ---------------------------
-          To integrate your contacts into Thunderbird:
+          🔧 Management Commands
+          -----------------------
+          Add user:         maildb-manage add-user user@{{ item.domain }}
+          List users:       maildb-manage list-users {{ item.domain }}
+          Change password:  maildb-manage change-password user@{{ item.domain }}
+          Set vacation:     maildb-manage set-vacation user@{{ item.domain }} \
+                              --from YYYY-MM-DD --to YYYY-MM-DD \
+                              --subject "..." --message "..."
 
-          1. Install the "CardBook" addon (recommended) or use built-in CardDAV
-          2. Add a new address book:
-             - Type: CardDAV
-             - Name: "My Contacts"
-             - URL: https://{{ mail_primary_domain }}/dav/dav.php/addressbooks/{{ mail_admin_email }}/{{ mail_admin_username }}-contacts/
-             - Username: {{ mail_admin_email }}
-             - Password: (your email password)
-
-          📱 **Mobile Setup (iOS/Android)**
-          -------------------------
-          iOS/macOS:
-          - Settings → Mail → Accounts → Add Account → Other
-          - Add CalDAV/CardDAV account with your credentials
-
-          Android (using DAVx⁵):
-          - Install DAVx⁵ from F-Droid/Play Store
-          - Add account with base URL: https://{{ mail_primary_domain }}/dav/dav.php/
-          - Username: {{ mail_admin_email }}
-          - Password: (your email password)
-
-          🔧 **Management Commands**
+          📚 Documentation
           -----------------
-          Add user:         maildb-manage add-user user@{{ mail_primary_domain }}
-          List users:       maildb-manage list-users
-          Change password:  maildb-manage change-password user@{{ mail_primary_domain }}
-          Set vacation:     maildb-manage set-vacation user@{{ mail_primary_domain }} --from YYYY-MM-DD --to YYYY-MM-DD --subject "..." --message "..."
-          Disable vacation: maildb-manage disable-vacation user@{{ mail_primary_domain }}
-
-          Check queue:      postfix-queue show
-          Monitor:          postfix-monitor
-          Firewall:         ufw-manage status
-          Rspamd:           rspamd-stats.sh
-
-          📚 **Documentation**
-          -----------------
-          All credentials are stored in:
-          - /root/admin-credentials.txt
-          - /etc/postsible/deployment_summary.txt
-
-          Important files:
-          - DKIM DNS records: /root/dkim-dns-records.txt
-          - Database backups: /var/backups/mariadb/
-          - Logs: /var/log/mail/
+          - Admin credentials: /root/admin-credentials-{{ item.domain }}.txt
+          - DKIM DNS records:  /root/dkim-dns-records.txt
+          - Deployment summary: /etc/postsible/deployment_summary.txt
 
           ========================================
           Thank you for using Postsible!
-          Your mailserver is ready to serve.
           ========================================
-        dest: /tmp/welcome_email.txt
+        dest: "/tmp/welcome_email_{{ item.domain }}.txt"
         mode: '0600'
-      tags:
-        - welcome_email
-        - always
+      loop: "{{ mail_virtual_domains }}"
+      loop_control:
+        label: "{{ item.domain }}"
+      tags: [welcome_email, always]
+
+    - name: Send welcome email per domain
+      shell: |
+        sendmail {{ item.admin_email }} < /tmp/welcome_email_{{ item.domain }}.txt
+      args:
+        executable: /bin/bash
+      register: welcome_email_results
+      changed_when: false
+      failed_when: false
+      loop: "{{ mail_virtual_domains }}"
+      loop_control:
+        label: "{{ item.admin_email }}"
+      tags: [welcome_email, always]
+
+    # ── DNS summary ───────────────────────────────────────────────────────────
 
     - name: Display summary of DNS issues
       ansible.builtin.debug:
@@ -304,18 +306,15 @@
           ===========================================
           AUTOCONFIG DNS STATUS
           ===========================================
-          Domains checked: {{ mail_virtual_domains | length }}
-          Valid DNS: {{ mail_virtual_domains | length - (autoconfig_missing_dns | length) }}
-          Missing DNS: {{ autoconfig_missing_dns | length }}
-    
-          {% if autoconfig_missing_dns | length > 0 %}
+          {% if autoconfig_missing_dns is defined and autoconfig_missing_dns | length > 0 %}
           ⚠️  MISSING DNS RECORDS:
           {% for record in autoconfig_missing_records %}
             - {{ record }}
           {% endfor %}
-    
+
           ACTION REQUIRED: Add these DNS records for email client auto-configuration.
-          Mail clients (Outlook, Thunderbird, etc.) will not auto-configure without them.
+          Re-run after DNS is set:
+            ansible-playbook playbooks/site.yml --tags certbot --ask-vault-pass
           {% else %}
           ✓ All autoconfig DNS records are correctly configured.
           {% endif %}
@@ -323,55 +322,19 @@
       when:
         - not autoconfig_skip_dns_check | default(false)
         - autoconfig_missing_dns is defined
+      tags: always
 
-    - name: Send welcome email to admin
-      shell: |
-        sendmail {{ mail_admin_email }} < /tmp/welcome_email.txt
-      args:
-        executable: /bin/bash
-      register: welcome_email_result
-      changed_when: welcome_email_result.rc == 0
-      failed_when: false  # Don't fail the whole playbook if email fails
-      tags:
-        - welcome_email
-        - always
+    # ── Completion summary ────────────────────────────────────────────────────
 
-    - name: Display email status
-      debug:
-        msg:
-          - "Welcome email sent to {{ mail_admin_email }}"
-          - "Calendar URL: https://{{ mail_primary_domain }}/dav/dav.php/calendars/{{ mail_admin_email }}/default/"
-          - "Contacts URL: https://{{ mail_primary_domain }}/dav/dav.php/addressbooks/{{ mail_admin_email }}/{{ mail_admin_username }}-contacts/"
-      when: welcome_email_result.rc == 0
-      tags:
-        - welcome_email
-        - always
-
-    - name: Display warning if email failed
-      debug:
-        msg:
-          - "⚠️  Could not send welcome email to {{ mail_admin_email }}"
-          - "The email content is saved at: /tmp/welcome_email.txt"
-          - "You can send it manually with:"
-          - "  sendmail {{ mail_admin_email }} < /tmp/welcome_email.txt"
-      when: welcome_email_result.rc != 0
-      tags:
-        - welcome_email
-        - always
-
-    - name: Display admin user information
+    - name: Display admin credentials summary
       debug:
         msg:
           - "==================================================="
-          - "Admin User Created!"
+          - "Admin Users Created:"
           - "==================================================="
-          - "Email: {{ mail_admin_email }}"
-          - "Password: {{ admin_password_output.stdout }}"
-          - ""
-          - "Credentials saved to: /root/admin-credentials.txt"
-          - "Please save the password securely and delete the file!"
+          - "{% for r in admin_password_results.results %}{% if r.changed %}  {{ r.item.item.admin_email }} → /root/admin-credentials-{{ r.item.item.domain }}.txt{% endif %}{% endfor %}"
+          - "Please save all passwords securely and delete the files!"
           - "==================================================="
-      when: admin_user_exists.stdout == "0"
       tags: always
 
     - name: Display completion information
@@ -380,19 +343,22 @@
           - "==================================================="
           - "Postsible Mailserver Deployment Complete!"
           - "==================================================="
-          - "Webmail: https://{{ snappymail_domain }}"
-          - "Vacation Manager: https://{{ common_hostname }}/vacation/"
-          - "Rspamd WebUI: https://{{ common_hostname }}/rspamd"
-          - "CalDAV/CardDAV: https://{{ common_hostname }}/dav/"
-          - "InfCloud: https://{{ common_hostname }}/cal/"
-          - "IMAP: {{ common_hostname }}:993 (SSL/TLS)"
-          - "SMTP Submission: {{ common_hostname }}:587 (STARTTLS)"
+          - "Domains configured: {{ mail_virtual_domains | length }}"
+          - ""
+          - "{% for d in mail_virtual_domains %}Domain: {{ d.domain }}"
+          - "  Webmail:   https://{{ d.mx_hostname }}/wm/"
+          - "  Vacation:  https://{{ d.mx_hostname }}/vacation/"
+          - "  Signature: https://{{ d.mx_hostname }}/signature/"
+          - "  Rspamd:    https://{{ d.mx_hostname }}/rspamd/"
+          - "  IMAP:      {{ d.mx_hostname }}:993"
+          - "  SMTP:      {{ d.mx_hostname }}:587"
+          - "{% endfor %}"
           - "==================================================="
           - "Next Steps:"
-          - "1. Configure DNS records (MX, SPF, DKIM, DMARC)"
-          - "2. Save admin password from /root/admin-credentials.txt"
+          - "1. Add DKIM DNS records from /root/dkim-dns-records.txt"
+          - "2. Save admin passwords from /root/admin-credentials-*.txt"
           - "3. Test email sending/receiving"
-          - "4. Configure backup strategy"
+          - "4. Check cert status: ls /var/lib/postsible/certs/"
           - "==================================================="
       tags: always
 
@@ -402,36 +368,44 @@
           Postsible Mailserver Deployment Summary
           ========================================
           Deployment Date: {{ ansible_date_time.iso8601 }}
-          Hostname: {{ common_hostname }}
-          Primary Domain: {{ mail_primary_domain }}
-          Admin Email: {{ mail_admin_email }}
+          Primary Domain:  {{ mail_primary_domain }}
           OS: {{ ansible_distribution }} {{ ansible_distribution_version }}
+
+          Domains configured:
+          {% for d in mail_virtual_domains %}
+            - {{ d.domain }}
+                MX Hostname:  {{ d.mx_hostname }}
+                Admin Email:  {{ d.admin_email }}
+                Webmail:      https://{{ d.mx_hostname }}/wm/
+                Vacation:     https://{{ d.mx_hostname }}/vacation/
+                Signature:    https://{{ d.mx_hostname }}/signature/
+                Rspamd:       https://{{ d.mx_hostname }}/rspamd/
+                CalDAV:       https://{{ d.mx_hostname }}/dav/
+                InfCloud:     https://{{ d.mx_hostname }}/cal/
+                IMAP:         {{ d.mx_hostname }}:993 (SSL/TLS)
+                SMTP:         {{ d.mx_hostname }}:587 (STARTTLS)
+          {% endfor %}
 
           Services Installed:
           - Postfix (SMTP)
           - Dovecot (IMAP/LMTP/Sieve)
-          - Rspamd (Spam Filter)
-          - SnappyMail (Webmail)
+          - Rspamd (Spam Filter + DKIM per domain)
+          - SnappyMail (Webmail – all domains)
           - Baikal (CalDAV/CardDAV)
           - InfCloud (Web Calendar/Contacts)
-          - Nginx (Web Server)
+          - Nginx (per-domain vhosts)
           - MariaDB (Database)
-          - Certbot (Let's Encrypt)
+          - Certbot (Let's Encrypt per hostname)
           - UFW (Firewall)
           - Fail2ban (Intrusion Prevention)
-          - Vacation Manager (Out-of-office replies)
+          - Vacation Manager (all domains)
+          - Signature Manager (all domains)
           {% if eset_icap_enabled %}
           - ESET ICAP (Antivirus)
           {% endif %}
 
-          Access Points:
-          - Webmail: https://{{ snappymail_domain }}
-          - Vacation Manager: https://{{ common_hostname }}/vacation/
-          - Rspamd WebUI: https://{{ common_hostname }}/rspamd
-          - CalDAV/CardDAV: https://{{ common_hostname }}/dav/
-          - InfCloud: https://{{ common_hostname }}/cal/
-          - IMAP: {{ common_hostname }}:993
-          - SMTP: {{ common_hostname }}:587
+          SSL Certificate Status:
+          (see /var/lib/postsible/certs/ for *.ok / *.pending markers)
 
           Database:
           - Name: {{ mariadb_database }}
@@ -439,19 +413,20 @@
           - Host: {{ mariadb_host }}
 
           Important Files:
-          - Maildir: /srv/imap/
-          - Logs: /var/log/mail/
-          - Config: /etc/postsible/
-          - Admin Credentials: /root/admin-credentials.txt (DELETE AFTER SAVING!)
+          - Maildir:           /srv/imap/
+          - Logs:              /var/log/mail/
+          - Config:            /etc/postsible/
+          - Admin credentials: /root/admin-credentials-<domain>.txt
+          - DKIM records:      /root/dkim-dns-records.txt
+          - Cert markers:      /var/lib/postsible/certs/
 
           User Management:
-          - Add user:         maildb-manage add-user user@example.com
-          - Add user (auto):  maildb-manage add-user user@example.com --auto-password
-          - List users:       maildb-manage list-users
-          - Change password:  maildb-manage change-password user@example.com
-          - Set vacation:     maildb-manage set-vacation user@example.com --from YYYY-MM-DD --to YYYY-MM-DD --subject "..." --message "..."
-          - Disable vacation: maildb-manage disable-vacation user@example.com
-          - Help:             maildb-manage help
+            maildb-manage add-user user@example.com --auto-password
+            maildb-manage list-users
+            maildb-manage change-password user@example.com
+            maildb-manage set-vacation user@example.com --from YYYY-MM-DD --to YYYY-MM-DD --subject "..." --message "..."
+            maildb-manage disable-vacation user@example.com
+            maildb-manage help
         dest: /etc/postsible/deployment_summary.txt
         mode: '0644'
       tags: always
