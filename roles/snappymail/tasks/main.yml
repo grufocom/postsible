@@ -151,6 +151,13 @@
     line: "allow_domains = \"{{ mail_virtual_domains | map(attribute='domain') | join(',') }}\""
   tags: snappymail
 
+- name: Set SnappyMail theme to NextcloudV25+
+  ansible.builtin.lineinfile:
+    path: "{{ snappymail_data_path }}/_data_/_default_/configs/application.ini"
+    regexp: "^theme\\s*="
+    line: "theme = \"NextcloudV25+\""
+  tags: snappymail
+
 # ── Test and reload nginx ─────────────────────────────────────────────────────
 
 - name: Test nginx configuration
