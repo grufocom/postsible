@@ -328,38 +328,44 @@
 
     - name: Display admin credentials summary
       debug:
-        msg:
-          - "==================================================="
-          - "Admin Users Created:"
-          - "==================================================="
-          - "{% for r in admin_password_results.results %}{% if r.changed %}  {{ r.item.item.admin_email }} → /root/admin-credentials-{{ r.item.item.domain }}.txt{% endif %}{% endfor %}"
-          - "Please save all passwords securely and delete the files!"
-          - "==================================================="
+        msg: |
+          ===================================================
+          Admin Users Created:
+          ===================================================
+          {% for r in admin_password_results.results %}
+          {% if r.changed %}
+            {{ r.item.item.admin_email }}
+            -> /root/admin-credentials-{{ r.item.item.domain }}.txt
+          {% endif %}
+          {% endfor %}
+          Please save all passwords securely and delete the files!
+          ===================================================
       tags: always
 
     - name: Display completion information
       debug:
-        msg:
-          - "==================================================="
-          - "Postsible Mailserver Deployment Complete!"
-          - "==================================================="
-          - "Domains configured: {{ mail_virtual_domains | length }}"
-          - ""
-          - "{% for d in mail_virtual_domains %}Domain: {{ d.domain }}"
-          - "  Webmail:   https://{{ d.mx_hostname }}/wm/"
-          - "  Vacation:  https://{{ d.mx_hostname }}/vacation/"
-          - "  Signature: https://{{ d.mx_hostname }}/signature/"
-          - "  Rspamd:    https://{{ d.mx_hostname }}/rspamd/"
-          - "  IMAP:      {{ d.mx_hostname }}:993"
-          - "  SMTP:      {{ d.mx_hostname }}:587"
-          - "{% endfor %}"
-          - "==================================================="
-          - "Next Steps:"
-          - "1. Add DKIM DNS records from /root/dkim-dns-records.txt"
-          - "2. Save admin passwords from /root/admin-credentials-*.txt"
-          - "3. Test email sending/receiving"
-          - "4. Check cert status: ls /var/lib/postsible/certs/"
-          - "==================================================="
+        msg: |
+          ===================================================
+          Postsible Mailserver Deployment Complete!
+          ===================================================
+          Domains configured: {{ mail_virtual_domains | length }}
+
+          {% for d in mail_virtual_domains %}
+          Domain: {{ d.domain }}
+            Webmail:   https://{{ d.mx_hostname }}/wm/
+            Vacation:  https://{{ d.mx_hostname }}/vacation/
+            Signature: https://{{ d.mx_hostname }}/signature/
+            Rspamd:    https://{{ d.mx_hostname }}/rspamd/
+            IMAP:      {{ d.mx_hostname }}:993
+            SMTP:      {{ d.mx_hostname }}:587
+          {% endfor %}
+          ===================================================
+          Next Steps:
+          1. Add DKIM DNS records from /root/dkim-dns-records.txt
+          2. Save admin passwords from /root/admin-credentials-*.txt
+          3. Test email sending/receiving
+          4. Check cert status: ls /var/lib/postsible/certs/
+          ===================================================
       tags: always
 
     - name: Create deployment summary file
