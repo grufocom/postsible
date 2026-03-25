@@ -3,6 +3,11 @@
 # Called in a loop with loop_var: vdomain
 # vdomain.mx_hostname  = the hostname to certify
 # vdomain.admin_email  = email for LE registration
+#
+# Key fix: self-signed is NEVER generated before certbot runs.
+# Certbot runs first when DNS is ok. Self-signed only as fallback
+# when certbot is skipped or DNS does not resolve.
+# This prevents certbot from creating -0001 suffixed directories.
 
 - name: "[{{ vdomain.mx_hostname }}] Check DNS resolution"
   ansible.builtin.command: "dig +short {{ vdomain.mx_hostname }} A"
@@ -24,31 +29,50 @@
   ansible.builtin.debug:
     msg: >-
       {{ vdomain.mx_hostname }} resolves to
-      {{ _dns_result.stdout | default('(nothing)') | trim }}
-      – server is {{ certbot_server_ip }}
-      – match: {{ _dns_ok }}
+      '{{ _dns_result.stdout | default('(nothing)') | trim }}'
+      - server is {{ certbot_server_ip }}
+      - match: {{ _dns_ok }}
   tags: certbot
 
-# ── Ensure cert dir exists for self-signed fallback ──────────────────────────
+# Check what already exists on disk
 
-- name: "[{{ vdomain.mx_hostname }}] Ensure cert directory exists"
-  ansible.builtin.file:
-    path: "{{ _cert_dir }}"
-    state: directory
-    owner: root
-    group: ssl-cert
-    mode: '0750'
-  tags: certbot
-
-# ── Check if a valid cert already exists ─────────────────────────────────────
-
-- name: "[{{ vdomain.mx_hostname }}] Check existing certificate"
+- name: "[{{ vdomain.mx_hostname }}] Check existing certificate on disk"
   ansible.builtin.stat:
     path: "{{ _cert_dir }}/fullchain.pem"
   register: _cert_exists
   tags: certbot
 
-# ── Path A: DNS OK → attempt Let's Encrypt ───────────────────────────────────
+- name: "[{{ vdomain.mx_hostname }}] Check if renewal config exists (= real LE cert)"
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/renewal/{{ vdomain.mx_hostname }}.conf"
+  register: _renewal_conf_exists
+  tags: certbot
+
+# Path A: DNS OK - Let's Encrypt
+# If a self-signed cert exists (no renewal config) and DNS is now OK,
+# remove the directory first so certbot does not fall back to -0001 naming.
+
+- name: "[{{ vdomain.mx_hostname }}] Remove self-signed dir before certbot (DNS now OK)"
+  ansible.builtin.file:
+    path: "{{ _cert_dir }}"
+    state: absent
+  when:
+    - _dns_ok | bool
+    - not certbot_skip | default(false)
+    - _cert_exists.stat.exists | bool
+    - not _renewal_conf_exists.stat.exists | bool
+  tags: certbot
+
+- name: "[{{ vdomain.mx_hostname }}] Remove archive dir if present"
+  ansible.builtin.file:
+    path: "/etc/letsencrypt/archive/{{ vdomain.mx_hostname }}"
+    state: absent
+  when:
+    - _dns_ok | bool
+    - not certbot_skip | default(false)
+    - _cert_exists.stat.exists | bool
+    - not _renewal_conf_exists.stat.exists | bool
+  tags: certbot
 
 - name: "[{{ vdomain.mx_hostname }}] Obtain Let's Encrypt certificate"
   ansible.builtin.command: >
@@ -65,46 +89,71 @@
   when:
     - _dns_ok | bool
     - not certbot_skip | default(false)
-    - not _cert_exists.stat.exists or certbot_force_renewal | default(false)
+    - not _renewal_conf_exists.stat.exists | bool or certbot_force_renewal | default(false)
   failed_when: false
   tags: certbot
 
-- name: "[{{ vdomain.mx_hostname }}] Check if LE succeeded"
+# Re-check after certbot ran
+- name: "[{{ vdomain.mx_hostname }}] Re-check certificate after LE attempt"
   ansible.builtin.stat:
     path: "{{ _cert_dir }}/fullchain.pem"
-  register: _le_cert_exists
-  when: _dns_ok | bool
+  register: _cert_after_le
   tags: certbot
+
+- name: "[{{ vdomain.mx_hostname }}] Re-check renewal config after LE attempt"
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/renewal/{{ vdomain.mx_hostname }}.conf"
+  register: _renewal_after_le
+  tags: certbot
+
+# Determine final cert state
+
+- name: "[{{ vdomain.mx_hostname }}] Determine final certificate state"
+  ansible.builtin.set_fact:
+    _le_active: >-
+      {{
+        (_dns_ok | bool) and
+        (_cert_after_le.stat.exists | bool) and
+        (_renewal_after_le.stat.exists | bool) and
+        not (certbot_skip | default(false))
+      }}
+    _need_selfsigned: >-
+      {{
+        (not (_dns_ok | bool)) or
+        (certbot_skip | default(false))
+      }}
+  tags: certbot
+
+# Markers
 
 - name: "[{{ vdomain.mx_hostname }}] Mark as LE-active"
   ansible.builtin.file:
     path: "{{ _marker_ok }}"
     state: touch
     mode: '0644'
-  when:
-    - _dns_ok | bool
-    - _le_cert_exists.stat.exists | default(false)
+  when: _le_active | bool
   tags: certbot
 
 - name: "[{{ vdomain.mx_hostname }}] Remove pending marker (LE active)"
   ansible.builtin.file:
     path: "{{ _marker_pending }}"
     state: absent
-  when:
-    - _dns_ok | bool
-    - _le_cert_exists.stat.exists | default(false)
+  when: _le_active | bool
   tags: certbot
 
-# ── Path B: DNS missing / LE failed → self-signed ────────────────────────────
+# Path B: DNS missing or certbot skipped - self-signed
+# Only generate when no valid cert exists yet.
 
-- name: "[{{ vdomain.mx_hostname }}] Determine if self-signed needed"
-  ansible.builtin.set_fact:
-    _need_selfsigned: >-
-      {{
-        (not (_dns_ok | bool)) or
-        (certbot_skip | default(false)) or
-        (not (_le_cert_exists.stat.exists | default(false)))
-      }}
+- name: "[{{ vdomain.mx_hostname }}] Ensure cert directory exists for self-signed"
+  ansible.builtin.file:
+    path: "{{ _cert_dir }}"
+    state: directory
+    owner: root
+    group: ssl-cert
+    mode: '0750'
+  when:
+    - _need_selfsigned | bool
+    - not _cert_after_le.stat.exists | bool
   tags: certbot
 
 - name: "[{{ vdomain.mx_hostname }}] Generate self-signed certificate"
@@ -112,7 +161,7 @@
     {{ certbot_selfsigned_script }} {{ vdomain.mx_hostname }}
   when:
     - _need_selfsigned | bool
-    - not _cert_exists.stat.exists
+    - not _cert_after_le.stat.exists | bool
   register: _selfsigned_result
   tags: certbot
 
@@ -124,13 +173,13 @@
       dns_resolved: {{ _dns_result.stdout | default('(nothing)') | trim }}
       server_ip: {{ certbot_server_ip }}
       timestamp: {{ ansible_date_time.iso8601 }}
-      action: Add DNS A record for {{ vdomain.mx_hostname }} → {{ certbot_server_ip }}
+      action: Add DNS A record for {{ vdomain.mx_hostname }} to {{ certbot_server_ip }}
                then re-run: ansible-playbook playbooks/site.yml --tags certbot
     mode: '0644'
   when: _need_selfsigned | bool
   tags: certbot
 
-# ── Fix permissions on cert files ─────────────────────────────────────────────
+# Fix permissions
 
 - name: "[{{ vdomain.mx_hostname }}] Fix certificate permissions"
   ansible.builtin.file:
@@ -142,4 +191,16 @@
     - fullchain.pem
     - privkey.pem
   failed_when: false
+  tags: certbot
+
+# Summary
+
+- name: "[{{ vdomain.mx_hostname }}] Certificate result"
+  ansible.builtin.debug:
+    msg: >-
+      {{ vdomain.mx_hostname }}:
+      dns_ok={{ _dns_ok }},
+      le_active={{ _le_active }},
+      self_signed_needed={{ _need_selfsigned }},
+      renewal_conf={{ _renewal_after_le.stat.exists }}
   tags: certbot
