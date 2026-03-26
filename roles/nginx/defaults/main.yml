@@ -16,12 +16,6 @@ nginx_https_port: 443
 # Server names
 nginx_server_name: "{{ ansible_fqdn }}"
 
-# SSL Configuration (will be auto-detected, these are fallbacks)
-nginx_ssl_cert: "/etc/ssl/certs/ssl-cert-snakeoil.pem"
-nginx_ssl_key: "/etc/ssl/private/ssl-cert-snakeoil.key"
-nginx_ssl_enabled: false  # Will be set to true by ssl-detection if certs exist
-nginx_ssl_source: "Not detected"  # Will be set by ssl-detection
-
 # Optional: Custom certificates (if not using Let's Encrypt)
 # nginx_custom_ssl_cert: "/path/to/custom.crt"
 # nginx_custom_ssl_key: "/path/to/custom.key"

@@ -1,5 +1,8 @@
 ---
 # roles/autoconfig/tasks/main.yml
+# NOTE: Certificates for autoconfig.* and autodiscover.* are issued as SANs
+# by the certbot role (as part of the mx_hostname certificate).
+# No separate cert issuance or self-signed generation here.
 
 - name: Setup directories
   ansible.builtin.include_tasks: setup_directories.yml
@@ -13,17 +16,9 @@
   ansible.builtin.include_tasks: autodiscover.yml
   tags: [autoconfig]
 
-- name: Setup HTTP nginx (ACME challenge – must run before certbot)
+- name: Setup HTTP nginx (ACME challenge location)
   ansible.builtin.include_tasks: nginx_http.yml
   tags: [autoconfig, autoconfig_nginx]
-
-- name: Flush nginx handlers before certbot
-  ansible.builtin.meta: flush_handlers
-  tags: [autoconfig]
-
-- name: Obtain certificates (LE or self-signed per domain)
-  ansible.builtin.include_tasks: certbot.yml
-  tags: [autoconfig, autoconfig_certbot]
 
 - name: Setup HTTPS nginx
   ansible.builtin.include_tasks: nginx_https.yml

@@ -1,10 +1,6 @@
 # roles/snappymail/tasks/main.yml
 ---
-# roles/snappymail/tasks/main.yml
-# Key change: SnappyMail location block is inserted into EVERY domain vhost,
-# not just a single 'rspamd' vhost.
-
-# ── Installation (unchanged) ──────────────────────────────────────────────────
+# ── Installation ──────────────────────────────────────────────────────────────
 
 - name: Detect installed SnappyMail version
   ansible.builtin.shell: |
@@ -70,13 +66,54 @@
   when: snappymail_installed_version.stdout == "not_installed"
   tags: snappymail
 
-- name: Configure SnappyMail application.ini
+# Deploy application.ini AFTER extraction so it overwrites the default.
+# The template is always deployed (not conditional on installation) so that
+# config changes are applied on re-runs too.
+- name: Deploy SnappyMail application.ini
   ansible.builtin.template:
     src: application.ini.j2
     dest: "{{ snappymail_data_path }}/_data_/_default_/configs/application.ini"
     owner: "{{ snappymail_user }}"
     group: "{{ snappymail_group }}"
     mode: '0640'
+    force: yes
+  tags: snappymail
+
+# ── Plugin JS files ───────────────────────────────────────────────────────────
+
+- name: Create SnappyMail plugin directory
+  ansible.builtin.file:
+    path: "{{ snappymail_install_path }}/plugins"
+    state: directory
+    owner: "{{ snappymail_user }}"
+    group: "{{ snappymail_group }}"
+    mode: '0755'
+  tags: snappymail
+
+- name: Create vacation plugin JS file
+  ansible.builtin.copy:
+    dest: /var/www/vacation-plugin.js
+    content: |
+      // Vacation Plugin for SnappyMail
+      (function() {
+          console.log('Vacation plugin loaded');
+      })();
+    owner: www-data
+    group: www-data
+    mode: '0644'
+  tags: snappymail
+
+- name: Create signature plugin JS file
+  ansible.builtin.copy:
+    dest: /var/www/signature-plugin.js
+    content: |
+      // Signature Plugin for SnappyMail
+      (function() {
+          console.log('Signature plugin loaded');
+      })();
+    owner: www-data
+    group: www-data
+    mode: '0644'
   tags: snappymail
 
 # ── nginx: insert SnappyMail into EVERY domain vhost ─────────────────────────
@@ -101,7 +138,8 @@
 
               sub_filter '</body>' '<script src="{{ snappymail_url_path }}/vacation-plugin.js"></script><script src="{{ snappymail_url_path }}/signature-plugin.js"></script></body>';
               sub_filter_once on;
-              sub_filter_types text/html;
+              # text/html is nginx's built-in default – do NOT list it in sub_filter_types
+              sub_filter_types application/xhtml+xml;
 
               try_files $uri $uri/ @snappymail_{{ item.item.mx_hostname | replace('.','_') }};
 
@@ -114,7 +152,6 @@
                   fastcgi_send_timeout 300;
               }
 
-              # Serve plugin JS files
               location = {{ snappymail_url_path }}/vacation-plugin.js {
                   alias /var/www/vacation-plugin.js;
                   add_header Cache-Control "no-cache, must-revalidate";
@@ -142,97 +179,30 @@
   notify: reload nginx
   tags: snappymail
 
-# ── Configure SnappyMail domains ──────────────────────────────────────────────
+# ── Reload nginx ──────────────────────────────────────────────────────────────
 
-- name: Add all virtual domains to SnappyMail allowed domains
-  ansible.builtin.lineinfile:
-    path: "{{ snappymail_data_path }}/_data_/_default_/configs/application.ini"
-    regexp: "^allow_domains\\s*="
-    line: "allow_domains = \"{{ mail_virtual_domains | map(attribute='domain') | join(',') }}\""
-  tags: snappymail
-
-- name: Set SnappyMail theme to NextcloudV25+
-  ansible.builtin.lineinfile:
-    path: "{{ snappymail_data_path }}/_data_/_default_/configs/application.ini"
-    regexp: "^theme\\s*="
-    line: "theme = \"NextcloudV25+\""
-  tags: snappymail
-
-# ── Test and reload nginx ─────────────────────────────────────────────────────
-
-- name: Test nginx configuration
-  ansible.builtin.command: nginx -t
+- name: Check if nginx is currently running
+  ansible.builtin.command: systemctl is-active nginx
+  register: _snappy_nginx_active
   changed_when: false
-  register: nginx_test
-  failed_when: nginx_test.rc != 0
+  failed_when: false
   tags: snappymail
 
-- name: Reload nginx
+- name: Reload nginx to pick up SnappyMail config (only if already running)
   ansible.builtin.systemd:
     name: nginx
     state: reloaded
+  when: _snappy_nginx_active.stdout | trim == 'active'
   tags: snappymail
 
-- name: Create SnappyMail plugin directory
-  ansible.builtin.file:
-    path: "{{ snappymail_install_path }}/plugins"
-    state: directory
-    owner: "{{ snappymail_user }}"
-    group: "{{ snappymail_group }}"
-    mode: '0755'
-  tags: snappymail
-
-- name: Create vacation plugin JS file
-  ansible.builtin.copy:
-    dest: /var/www/vacation-plugin.js
-    content: |
-      // Vacation Plugin for SnappyMail
-      // This plugin adds vacation/out-of-office functionality
-      (function() {
-          console.log('Vacation plugin loaded');
-          // Add your vacation plugin logic here
-      })();
-    owner: www-data
-    group: www-data
-    mode: '0644'
-  tags: snappymail
-
-- name: Create signature plugin JS file
-  ansible.builtin.copy:
-    dest: /var/www/signature-plugin.js
-    content: |
-      // Signature Plugin for SnappyMail
-      // This plugin adds signature management
-      (function() {
-          console.log('Signature plugin loaded');
-          // Add your signature plugin logic here
-      })();
-    owner: www-data
-    group: www-data
-    mode: '0644'
-  tags: snappymail
+# ── Summary ───────────────────────────────────────────────────────────────────
 
 - name: Display SnappyMail information
   ansible.builtin.debug:
     msg: |
-      ========================================
-      SnappyMail Installation Complete
-      ========================================
-      
       SnappyMail installed – accessible on all domains:
       {% for d in mail_virtual_domains %}
         • https://{{ d.mx_hostname }}{{ snappymail_url_path }}/
       {% endfor %}
-      
-      Admin panel: https://{{ mail_virtual_domains[0].mx_hostname }}{{ snappymail_url_path }}/?admin
-      
-      Data directory: {{ snappymail_data_path }}
-      Install path: {{ snappymail_install_path }}
-      
-      Default admin credentials (first login):
-      Username: admin
-      Password: (set during first login)
-      
-      ========================================
+      Admin: https://{{ mail_virtual_domains[0].mx_hostname }}{{ snappymail_url_path }}/?admin
   tags: snappymail
-

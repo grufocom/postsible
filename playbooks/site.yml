@@ -79,16 +79,16 @@
       when: eset_icap_enabled | default(false)
 
     # Phase 4: Web & SSL
-    - role: nginx
-      tags:
-        - nginx
-        - web
-        - phase4
-
     - role: certbot
       tags:
         - certbot
         - ssl
+        - phase4
+
+    - role: nginx
+      tags:
+        - nginx
+        - web
         - phase4
 
     - role: snappymail

@@ -1,7 +1,9 @@
 ---
 # roles/nginx/tasks/main.yml
+# NOTE: SSL certificates are managed exclusively by the certbot role,
+# which runs before this role. No cert generation or detection here.
 
-# ── Package installation (unchanged) ─────────────────────────────────────────
+# ── Package installation ──────────────────────────────────────────────────────
 
 - name: Ensure dpkg is in a clean state
   ansible.builtin.command: dpkg --configure -a
@@ -72,9 +74,9 @@
   notify: restart php-fpm
   tags: nginx
 
-# ── Remove legacy rspamd vhost ────────────────────────────────────────────────
+# ── Remove legacy vhosts ──────────────────────────────────────────────────────
 
-- name: Remove legacy 'rspamd' vhost symlink (replaced by per-domain vhosts)
+- name: Remove legacy vhost files (replaced by per-domain vhosts)
   ansible.builtin.file:
     path: "{{ item }}"
     state: absent
@@ -83,6 +85,8 @@
     - /etc/nginx/sites-available/rspamd
     - /etc/nginx/sites-enabled/default
     - /etc/nginx/sites-available/default
+    - /etc/nginx/sites-enabled/00-acme-challenge.conf
+    - /etc/nginx/sites-available/00-acme-challenge.conf
   notify: reload nginx
   tags: nginx
 
@@ -141,76 +145,7 @@
   tags: nginx
 
 # ── Per-domain vhosts ─────────────────────────────────────────────────────────
-
-# roles/nginx/tasks/main.yml (Auszug für SSL-Zertifikate und VHosts)
-
-- name: Ensure SSL cert directory exists per domain (pre-certbot)
-  ansible.builtin.file:
-    path: "/etc/letsencrypt/live/{{ item.mx_hostname }}"
-    state: directory
-    owner: root
-    group: ssl-cert
-    mode: '0750'
-  loop: "{{ mail_virtual_domains }}"
-  loop_control:
-    label: "{{ item.mx_hostname }}"
-  tags: nginx
-
-- name: Deploy self-signed certificate generation script
-  ansible.builtin.template:
-    src: generate-selfsigned.sh.j2
-    dest: /usr/local/bin/postsible-generate-selfsigned
-    owner: root
-    group: root
-    mode: '0750'
-  tags: nginx
-
-- name: Generate self-signed cert for domains without LE cert yet
-  ansible.builtin.command: >
-    /usr/local/bin/postsible-generate-selfsigned {{ item.mx_hostname }}
-  args:
-    creates: "/etc/letsencrypt/live/{{ item.mx_hostname }}/fullchain.pem"
-  loop: "{{ mail_virtual_domains }}"
-  loop_control:
-    label: "{{ item.mx_hostname }}"
-  tags: nginx
-
-- name: Check if Let's Encrypt certificates exist
-  ansible.builtin.stat:
-    path: "/etc/letsencrypt/live/{{ item.mx_hostname }}/fullchain.pem"
-  register: le_cert_check
-  loop: "{{ mail_virtual_domains }}"
-  tags: nginx
-
-- name: Set fact for domains with Let's Encrypt certificates
-  ansible.builtin.set_fact:
-    domains_with_le_certs: >-
-      {{
-        le_cert_check.results
-        | selectattr('stat.exists', 'equalto', true)
-        | map(attribute='item')
-        | map(attribute='mx_hostname')
-        | list
-      }}
-  tags: nginx
-
-- name: Display SSL certificate status per domain
-  ansible.builtin.debug:
-    msg: |
-      ========================================
-      SSL Certificate Status for {{ item.mx_hostname }}
-      ========================================
-      {% if item.mx_hostname in domains_with_le_certs %}
-      ✓ Let's Encrypt certificate exists
-      {% else %}
-      ⚠️  Self-signed certificate (Let's Encrypt not yet available)
-      {% endif %}
-      Certificate path: /etc/letsencrypt/live/{{ item.mx_hostname }}/
-      ========================================
-  loop: "{{ mail_virtual_domains }}"
-  loop_control:
-    label: "{{ item.mx_hostname }}"
-  tags: nginx
+# Certs are guaranteed to exist at this point (certbot role ran first).
 
 - name: Deploy nginx vhost per mx_hostname
   ansible.builtin.template:
@@ -221,7 +156,6 @@
     mode: '0644'
   vars:
     vdomain: "{{ item }}"
-    has_le_cert: "{{ item.mx_hostname in domains_with_le_certs }}"
   loop: "{{ mail_virtual_domains }}"
   loop_control:
     label: "{{ item.mx_hostname }}"
@@ -272,4 +206,3 @@
       {% endfor %}
       PHP version: {{ nginx_php_version }}
   tags: nginx
-

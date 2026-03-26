@@ -1,20 +1,16 @@
 ---
 # roles/certbot/tasks/cert_for_host.yml
 #
-# Strategy (nginx-independent):
+# Strategy:
 #   1. Always ensure a cert exists (self-signed fallback) → nginx can always start
 #   2. Check DNS for mx_hostname AND each extra subdomain prefix individually
-#   3. If mx_hostname DNS is correct → attempt LE via standalone or webroot
-#      - Uses webroot if nginx is already running (ACME vhost on port 80)
-#      - Falls back to standalone (briefly binds port 80) if nginx is not running
-#   4. SANs include only subdomains that also resolve correctly
-#   5. After LE success → fix permissions, write markers
-#   6. nginx is NOT required for cert issuance; reload happens only afterwards
+#   3. If mx_hostname DNS is correct AND no renewal config yet (or force renewal):
+#      → Run certbot --standalone (nginx already stopped in main.yml before loop)
+#   4. SANs include only subdomains whose DNS also resolves to this server
+#   5. nginx stop/start is handled in main.yml around the entire domain loop,
+#      not per-host, to avoid start/stop thrashing
 
-# ── Step 1: Resolve server IP ─────────────────────────────────────────────────
-# (already set in main.yml as certbot_server_ip)
-
-# ── Step 2: DNS checks ────────────────────────────────────────────────────────
+# ── Step 1: DNS checks ────────────────────────────────────────────────────────
 
 - name: "[{{ vdomain.mx_hostname }}] Check DNS for mx_hostname"
   ansible.builtin.command: "dig +short {{ vdomain.mx_hostname }} A"
@@ -24,7 +20,7 @@
   check_mode: false
   tags: certbot
 
-- name: "[{{ vdomain.mx_hostname }}] Set base domain from vdomain.domain"
+- name: "[{{ vdomain.mx_hostname }}] Set base domain"
   ansible.builtin.set_fact:
     _base_domain: "{{ vdomain.domain }}"
   tags: certbot
@@ -44,14 +40,13 @@
     _cert_dir: "{{ certbot_cert_path }}/{{ vdomain.mx_hostname }}"
     _marker_ok: "{{ certbot_pending_dir }}/{{ vdomain.mx_hostname }}.ok"
     _marker_pending: "{{ certbot_pending_dir }}/{{ vdomain.mx_hostname }}.pending"
-    # Build list of extra SANs where DNS actually resolves to this server
     _extra_sans: >-
       {{
         _dns_extra_results.results
         | selectattr('stdout', 'defined')
         | selectattr('stdout', 'equalto', certbot_server_ip | trim)
         | map(attribute='item')
-        | map('regex_replace', '^(.*)$', '\1.' + _base_domain)
+        | map('regex_replace', '^(.*)$', '\1.' + vdomain.domain)
         | list
       }}
   tags: certbot
@@ -66,7 +61,7 @@
       extra_sans={{ _extra_sans }}
   tags: certbot
 
-# ── Step 3: Always ensure cert directory and self-signed fallback ─────────────
+# ── Step 2: Always ensure cert directory and self-signed fallback ─────────────
 
 - name: "[{{ vdomain.mx_hostname }}] Ensure cert directory exists"
   ansible.builtin.file:
@@ -77,14 +72,14 @@
     mode: '0750'
   tags: certbot
 
-- name: "[{{ vdomain.mx_hostname }}] Generate self-signed cert (bootstrap, only if none exists)"
+- name: "[{{ vdomain.mx_hostname }}] Generate self-signed cert (only if none exists)"
   ansible.builtin.command: >
     {{ certbot_selfsigned_script }} {{ vdomain.mx_hostname }}
   args:
     creates: "{{ _cert_dir }}/fullchain.pem"
   tags: certbot
 
-# ── Step 4: Check existing LE state ──────────────────────────────────────────
+# ── Step 3: Check existing LE state ──────────────────────────────────────────
 
 - name: "[{{ vdomain.mx_hostname }}] Check existing renewal config"
   ansible.builtin.stat:
@@ -92,73 +87,37 @@
   register: _renewal_conf
   tags: certbot
 
-# ── Step 5: Determine certbot method ─────────────────────────────────────────
-# Use webroot if nginx is active (it serves /.well-known/acme-challenge/ on port 80)
-# Otherwise use standalone (certbot itself binds port 80 temporarily)
-
-- name: "[{{ vdomain.mx_hostname }}] Check if nginx is active"
-  ansible.builtin.command: systemctl is-active nginx
-  register: _nginx_active
-  changed_when: false
-  failed_when: false
-  tags: certbot
-
-- name: "[{{ vdomain.mx_hostname }}] Set certbot method"
+- name: "[{{ vdomain.mx_hostname }}] Determine if LE issuance is needed"
   ansible.builtin.set_fact:
-    _use_webroot: "{{ _nginx_active.stdout | trim == 'active' }}"
+    _needs_le: >-
+      {{
+        (_dns_ok | bool) and
+        not (certbot_skip | default(false)) and
+        (not _renewal_conf.stat.exists | bool or certbot_force_renewal | default(false))
+      }}
   tags: certbot
 
-# ── Step 6: Attempt Let's Encrypt certificate ─────────────────────────────────
-# Only when:
-#   - DNS for mx_hostname points here
-#   - certbot_skip is false
-#   - No renewal config yet (or force renewal requested)
+# ── Step 4: Obtain LE cert via standalone ────────────────────────────────────
+# nginx was stopped in main.yml before this loop. certbot binds port 80 itself.
 
 - name: "[{{ vdomain.mx_hostname }}] Build certbot domain list (mx + valid SANs)"
   ansible.builtin.set_fact:
     _certbot_domains: >-
       {{ ([vdomain.mx_hostname] + _extra_sans) | join(' --domain ') }}
-  when:
-    - _dns_ok | bool
-    - not certbot_skip | default(false)
+  when: _needs_le | bool
   tags: certbot
 
-- name: "[{{ vdomain.mx_hostname }}] Remove self-signed cert before LE issuance (if no renewal config)"
+- name: "[{{ vdomain.mx_hostname }}] Remove self-signed cert before LE issuance"
   ansible.builtin.file:
     path: "{{ item }}"
     state: absent
   loop:
     - "{{ _cert_dir }}"
     - "/etc/letsencrypt/archive/{{ vdomain.mx_hostname }}"
-  when:
-    - _dns_ok | bool
-    - not certbot_skip | default(false)
-    - not _renewal_conf.stat.exists | bool
+  when: _needs_le | bool
   tags: certbot
 
-- name: "[{{ vdomain.mx_hostname }}] Obtain LE cert via webroot (nginx is running)"
-  ansible.builtin.command: >
-    certbot certonly
-    --webroot
-    --webroot-path {{ certbot_webroot }}
-    --non-interactive
-    --agree-tos
-    --email {{ vdomain.admin_email }}
-    --domain {{ _certbot_domains }}
-    --rsa-key-size {{ certbot_rsa_key_size }}
-    {{ '--staging' if certbot_staging else '' }}
-    {{ '--force-renewal' if certbot_force_renewal else '' }}
-  register: _le_result_webroot
-  when:
-    - _dns_ok | bool
-    - not certbot_skip | default(false)
-    - not _renewal_conf.stat.exists | bool or certbot_force_renewal | default(false)
-    - _use_webroot | bool
-  failed_when: false
-  changed_when: _le_result_webroot.rc | default(1) == 0
-  tags: certbot
-
-- name: "[{{ vdomain.mx_hostname }}] Obtain LE cert via standalone (nginx not running)"
+- name: "[{{ vdomain.mx_hostname }}] Obtain LE cert via standalone"
   ansible.builtin.command: >
     certbot certonly
     --standalone
@@ -169,48 +128,22 @@
     --rsa-key-size {{ certbot_rsa_key_size }}
     {{ '--staging' if certbot_staging else '' }}
     {{ '--force-renewal' if certbot_force_renewal else '' }}
-  register: _le_result_standalone
-  when:
-    - _dns_ok | bool
-    - not certbot_skip | default(false)
-    - not _renewal_conf.stat.exists | bool or certbot_force_renewal | default(false)
-    - not (_use_webroot | bool)
+  register: _le_result
+  when: _needs_le | bool
   failed_when: false
-  changed_when: _le_result_standalone.rc | default(1) == 0
+  changed_when: _le_result.rc | default(1) == 0
   tags: certbot
 
-# Unified result fact
-- name: "[{{ vdomain.mx_hostname }}] Unify LE result"
-  ansible.builtin.set_fact:
-    _le_rc: >-
-      {{
-        (_le_result_webroot.rc   | default(-1))
-        if (_le_result_webroot   is defined and _le_result_webroot.rc   is defined)
-        else (_le_result_standalone.rc | default(-1))
-        if (_le_result_standalone is defined and _le_result_standalone.rc is defined)
-        else -1
-      }}
-    _le_stdout: >-
-      {{
-        (_le_result_webroot.stdout   | default(''))
-        if (_le_result_webroot   is defined)
-        else (_le_result_standalone.stdout | default(''))
-      }}
-    _le_stderr: >-
-      {{
-        (_le_result_webroot.stderr   | default(''))
-        if (_le_result_webroot   is defined)
-        else (_le_result_standalone.stderr | default(''))
-      }}
-  tags: certbot
-
-- name: "[{{ vdomain.mx_hostname }}] Show LE result (if attempted)"
+- name: "[{{ vdomain.mx_hostname }}] Show LE result"
   ansible.builtin.debug:
-    msg: "certbot rc={{ _le_rc }} | {{ _le_stdout }} {{ _le_stderr }}"
-  when: _le_rc | int != -1
+    msg: >-
+      certbot rc={{ _le_result.rc | default('skipped') }}
+      {{ _le_result.stdout | default('') }}
+      {{ _le_result.stderr | default('') }}
+  when: _needs_le | bool
   tags: certbot
 
-# ── Step 7: Re-check final cert state ────────────────────────────────────────
+# ── Step 5: Re-check final cert state ────────────────────────────────────────
 
 - name: "[{{ vdomain.mx_hostname }}] Re-check fullchain.pem"
   ansible.builtin.stat:
@@ -239,7 +172,7 @@
       }}
   tags: certbot
 
-# ── Step 8: Fix permissions ───────────────────────────────────────────────────
+# ── Step 6: Fix permissions ───────────────────────────────────────────────────
 
 - name: "[{{ vdomain.mx_hostname }}] Fix cert directory permissions"
   ansible.builtin.file:
@@ -264,7 +197,7 @@
   failed_when: false
   tags: certbot
 
-# ── Step 9: Markers ───────────────────────────────────────────────────────────
+# ── Step 7: Markers ───────────────────────────────────────────────────────────
 
 - name: "[{{ vdomain.mx_hostname }}] Write .ok marker (LE active)"
   ansible.builtin.file:
@@ -302,21 +235,7 @@
   when: _need_selfsigned | bool
   tags: certbot
 
-# ── Step 10: Reload nginx to pick up new LE cert ──────────────────────────────
-# Only when nginx is running and we actually just got a new cert (rc == 0)
-
-- name: "[{{ vdomain.mx_hostname }}] Reload nginx after new LE cert"
-  ansible.builtin.systemd:
-    name: nginx
-    state: reloaded
-  when:
-    - _le_active | bool
-    - _le_rc | int == 0
-    - _nginx_active.stdout | trim == 'active'
-  failed_when: false
-  tags: certbot
-
-# ── Step 11: Summary ──────────────────────────────────────────────────────────
+# ── Step 8: Summary ───────────────────────────────────────────────────────────
 
 - name: "[{{ vdomain.mx_hostname }}] Certificate result summary"
   ansible.builtin.debug:

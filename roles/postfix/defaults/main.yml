@@ -21,8 +21,11 @@ postfix_virtual_mailbox_base: "/srv/imap"
 postfix_virtual_mailbox_format: "maildir:/srv/imap/%d/%n/"
 
 # TLS settings
-postfix_tls_cert_file: "/etc/ssl/certs/ssl-cert-snakeoil.pem"
-postfix_tls_key_file: "/etc/ssl/private/ssl-cert-snakeoil.key"
+# Certificates are managed by the certbot role and guaranteed to exist.
+# The certbot role also writes these paths directly into main.cf via lineinfile,
+# so these defaults serve as documentation / fallback only.
+postfix_tls_cert_file: "/etc/letsencrypt/live/{{ mail_virtual_domains[0].mx_hostname }}/fullchain.pem"
+postfix_tls_key_file: "/etc/letsencrypt/live/{{ mail_virtual_domains[0].mx_hostname }}/privkey.pem"
 postfix_smtp_tls_security_level: "may"
 postfix_smtpd_tls_security_level: "may"
 postfix_smtpd_tls_auth_only: yes

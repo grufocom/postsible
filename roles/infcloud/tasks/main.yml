@@ -117,28 +117,6 @@
     mode: '0755'
   tags: infcloud
 
-# ── Nginx configuration for subdomain option ─────────────────────────────────
-
-- name: Deploy Nginx configuration (subdomain)
-  template:
-    src: nginx-subdomain.conf.j2
-    dest: "/etc/nginx/sites-available/infcloud.conf"
-    owner: root
-    group: root
-    mode: '0644'
-  when: infcloud_use_subdomain
-  notify: reload nginx
-  tags: infcloud
-
-- name: Enable InfCloud site (subdomain)
-  file:
-    src: "/etc/nginx/sites-available/infcloud.conf"
-    dest: "/etc/nginx/sites-enabled/infcloud.conf"
-    state: link
-  when: infcloud_use_subdomain
-  notify: reload nginx
-  tags: infcloud
-
 # ── Nginx configuration for main domain (insert into all vhosts) ─────────────
 
 - name: Get list of existing nginx vhosts for mail domains
@@ -146,7 +124,6 @@
     path: "/etc/nginx/sites-available/{{ item.mx_hostname }}.conf"
   register: nginx_vhost_check
   loop: "{{ mail_virtual_domains }}"
-  when: not infcloud_use_subdomain
   tags: infcloud
 
 - name: Remove existing InfCloud blocks from all vhosts (cleanup)
@@ -156,7 +133,6 @@
   register: cleanup_result
   changed_when: false
   failed_when: false
-  when: not infcloud_use_subdomain
   tags: infcloud
 
 - name: Ensure marker line exists in vhosts (for insertion)
@@ -166,7 +142,6 @@
     insertafter: "    # END ANSIBLE MANAGED BLOCK - Baïkal"
     state: present
   loop: "{{ nginx_vhost_check.results | selectattr('stat.exists', 'equalto', true) | list }}"
-  when: not infcloud_use_subdomain
   tags: infcloud
 
 - name: Insert InfCloud location block into each domain vhost
@@ -211,7 +186,6 @@
   loop: "{{ nginx_vhost_check.results | selectattr('stat.exists', 'equalto', true) | list }}"
   loop_control:
     label: "{{ item.item.mx_hostname }}"
-  when: not infcloud_use_subdomain
   notify: reload nginx
   tags: infcloud
 
@@ -238,15 +212,11 @@
       InfCloud CalDAV/CardDAV Web Client
       ========================================
       
-      {% if infcloud_use_subdomain %}
-      Access URL: https://{{ infcloud_subdomain }}/
-      {% else %}
       InfCloud is now available on all domains:
       {% for domain in mail_virtual_domains %}
         • https://{{ domain.mx_hostname }}{{ infcloud_base_path }}/
         • https://{{ domain.mx_hostname }}/contacts/
       {% endfor %}
-      {% endif %}
       
       Configuration file: {{ infcloud_install_path }}/config.js
       

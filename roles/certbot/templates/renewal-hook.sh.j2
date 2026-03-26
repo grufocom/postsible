@@ -1,15 +1,21 @@
 #!/bin/bash
 # {{ ansible_managed }}
-# Certbot post-renewal hook – reloads services after certificate renewal.
+# Certbot pre/post renewal hooks for automatic renewal (certbot.timer).
+# Automatic renewal uses --webroot (nginx serves /.well-known/acme-challenge/).
+# This is different from the initial issuance which uses --standalone.
+#
+# Deploy this as:
+#   /etc/letsencrypt/renewal-hooks/pre/stop-nothing.sh   (no-op, nginx stays up)
+#   /etc/letsencrypt/renewal-hooks/post/reload-services.sh
 
 set -euo pipefail
 
 {% for svc in certbot_reload_services %}
 if systemctl is-active --quiet {{ svc }}; then
     systemctl reload {{ svc }} 2>/dev/null || systemctl restart {{ svc }} 2>/dev/null || true
-    echo "✓ Reloaded: {{ svc }}"
+    echo "OK Reloaded: {{ svc }}"
 else
-    echo "– Skipped (not running): {{ svc }}"
+    echo "- Skipped (not running): {{ svc }}"
 fi
 {% endfor %}
 

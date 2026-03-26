@@ -12,8 +12,6 @@ infcloud_web_group: "www-data"
 
 # Domain configuration
 infcloud_domain: "{{ ansible_fqdn }}"
-infcloud_subdomain: "cal"  # Only used if infcloud_use_subdomain is true
-infcloud_use_subdomain: false  # Set to true for subdomain (cal.{{ mail_primary_domain }}), false for path (/cal/)
 infcloud_base_path: "/cal"  # Path when using path-based deployment
 
 # Baikal integration
@@ -29,10 +27,6 @@ infcloud_first_day_of_week: 1  # 0=Sunday, 1=Monday
 infcloud_enable_calendar: true
 infcloud_enable_contacts: true
 infcloud_enable_projects: false  # Tasks/Projects (requires CalDAV VTODO support)
-
-# SSL
-infcloud_ssl_cert: "/etc/letsencrypt/live/{{ infcloud_subdomain }}.{{ infcloud_domain }}/fullchain.pem"
-infcloud_ssl_key: "/etc/letsencrypt/live/{{ infcloud_subdomain }}.{{ infcloud_domain }}/privkey.pem"
 
 # UI customization
 infcloud_title: "Calendar & Contacts"

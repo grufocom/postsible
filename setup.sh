@@ -357,7 +357,6 @@ snappymail_admin_user: "admin"
 snappymail_admin_password: "{{ vault_snappymail_admin_password }}"
 
 # ── InfCloud ──────────────────────────────────────────────────────────────────
-infcloud_use_subdomain: false
 infcloud_base_path: "/cal"
 infcloud_language: "de_DE"
 infcloud_timezone: "Europe/Vienna"
