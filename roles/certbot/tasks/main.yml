@@ -216,12 +216,13 @@
 
 - name: Build certificate status summary
   ansible.builtin.shell: |
+    set +o noglob
     echo "SSL Certificate Status:"
-    for f in {{ certbot_pending_dir }}/*.ok 2>/dev/null; do
-      [ -f "$f" ] && echo "  ✓ $(basename "$f" .ok)  [Let's Encrypt]"
+    find {{ certbot_pending_dir }} -maxdepth 1 -name '*.ok' 2>/dev/null | sort | while read -r f; do
+      echo "  OK $(basename "$f" .ok)  [Let's Encrypt]"
     done
-    for f in {{ certbot_pending_dir }}/*.pending 2>/dev/null; do
-      [ -f "$f" ] && echo "  ⚠ $(basename "$f" .pending)  [self-signed – DNS pending]"
+    find {{ certbot_pending_dir }} -maxdepth 1 -name '*.pending' 2>/dev/null | sort | while read -r f; do
+      echo "  PENDING $(basename "$f" .pending)  [self-signed - DNS pending]"
     done
     echo ""
     echo "To retry after DNS changes:"
