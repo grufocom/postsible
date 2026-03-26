@@ -1,19 +1,22 @@
 #!/bin/bash
 # {{ ansible_managed }}
-# Certbot deploy hook – runs after every successful renewal
-# Fixes permissions so dovecot/postfix can read the new certs
+# Certbot deploy hook – runs after every successful renewal.
+# Fixes permissions so dovecot/postfix can read the new certs.
 
 set -euo pipefail
 
+PENDING_DIR="{{ certbot_pending_dir }}"
+
 for DOMAIN_DIR in /etc/letsencrypt/live/*/; do
-    chown -R root:ssl-cert "${DOMAIN_DIR}" 2>/dev/null || true
+    [ -d "${DOMAIN_DIR}" ] || continue
+    chown root:ssl-cert "${DOMAIN_DIR}" 2>/dev/null || true
     chmod 750 "${DOMAIN_DIR}" 2>/dev/null || true
-    chmod 640 "${DOMAIN_DIR}"privkey.pem 2>/dev/null || true
-    chmod 644 "${DOMAIN_DIR}"fullchain.pem "${DOMAIN_DIR}"chain.pem 2>/dev/null || true
+    [ -f "${DOMAIN_DIR}privkey.pem"   ] && chmod 640 "${DOMAIN_DIR}privkey.pem"   2>/dev/null || true
+    [ -f "${DOMAIN_DIR}fullchain.pem" ] && chmod 644 "${DOMAIN_DIR}fullchain.pem" 2>/dev/null || true
+    [ -f "${DOMAIN_DIR}chain.pem"     ] && chmod 644 "${DOMAIN_DIR}chain.pem"     2>/dev/null || true
 done
 
 # Update .ok markers for renewed domains
-PENDING_DIR="{{ certbot_pending_dir }}"
 if [ -n "${RENEWED_DOMAINS:-}" ]; then
     for d in $RENEWED_DOMAINS; do
         touch "${PENDING_DIR}/${d}.ok" 2>/dev/null || true
@@ -21,3 +24,4 @@ if [ -n "${RENEWED_DOMAINS:-}" ]; then
         echo "✓ Renewed: ${d}"
     done
 fi
+

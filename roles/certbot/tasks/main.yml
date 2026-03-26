@@ -1,20 +1,22 @@
 ---
 # roles/certbot/tasks/main.yml
-# Issues one certificate per mx_hostname.
-# Falls back to self-signed when DNS is not yet pointing to this server.
-# On the next run, if DNS is correct, Let's Encrypt replaces self-signed.
+#
+# Cert issuance is completely nginx-independent:
+#   - webroot is used when nginx is already active (it serves /.well-known/acme-challenge/)
+#   - standalone is used when nginx is not yet running (certbot briefly binds port 80)
+# After all certs are issued, postfix/dovecot configs are updated and services reloaded.
+# nginx is reloaded only per-host in cert_for_host.yml, and only when a new cert was issued.
 
-# ── 1. Install packages ───────────────────────────────────────────────────────
+# ── 1. Packages ───────────────────────────────────────────────────────────────
 
 - name: Install certbot and tools
   ansible.builtin.apt:
     name:
       - certbot
-      - python3-certbot-nginx
       - openssl
       - dnsutils
     state: present
-    update_cache: yes
+    update_cache: true
   tags: certbot
 
 - name: Ensure webroot directory exists
@@ -26,7 +28,7 @@
     mode: '0755'
   tags: certbot
 
-- name: Ensure pending/cert status directory exists
+- name: Ensure cert status directory exists
   ansible.builtin.file:
     path: "{{ certbot_pending_dir }}"
     state: directory
@@ -35,14 +37,28 @@
     mode: '0755'
   tags: certbot
 
+- name: Ensure ssl-cert group exists
+  ansible.builtin.group:
+    name: ssl-cert
+    state: present
+    system: true
+  tags: certbot
+
 - name: Add dovecot to ssl-cert group
   ansible.builtin.user:
     name: dovecot
     groups: ssl-cert
-    append: yes
+    append: true
   tags: certbot
 
-# ── 2. Deploy self-signed generator script ────────────────────────────────────
+- name: Add postfix to ssl-cert group
+  ansible.builtin.user:
+    name: postfix
+    groups: ssl-cert
+    append: true
+  tags: certbot
+
+# ── 2. Self-signed generator script ──────────────────────────────────────────
 
 - name: Deploy self-signed certificate generator
   ansible.builtin.template:
@@ -53,24 +69,45 @@
     mode: '0750'
   tags: certbot
 
-# ── 3. Get server's public IP ─────────────────────────────────────────────────
+# ── 3. Detect public server IP ────────────────────────────────────────────────
 
-- name: Get server public IP
+- name: Get server public IP (ipify)
   ansible.builtin.uri:
     url: https://api.ipify.org
-    return_content: yes
+    return_content: true
     timeout: 5
-  register: public_ip_result
+  register: _public_ip_ipify
   failed_when: false
   changed_when: false
   tags: certbot
 
-- name: Set server IP fact
-  ansible.builtin.set_fact:
-    certbot_server_ip: "{{ public_ip_result.content | default(ansible_default_ipv4.address) | trim }}"
+- name: Get server public IP (fallback via ifconfig.me)
+  ansible.builtin.uri:
+    url: https://ifconfig.me/ip
+    return_content: true
+    timeout: 5
+  register: _public_ip_fallback
+  failed_when: false
+  changed_when: false
+  when: _public_ip_ipify.content is not defined or _public_ip_ipify.content | trim == ''
   tags: certbot
 
-# ── 4. Process each mx_hostname ───────────────────────────────────────────────
+- name: Set server IP fact
+  ansible.builtin.set_fact:
+    certbot_server_ip: >-
+      {{
+        (_public_ip_ipify.content | default('') | trim)
+        if (_public_ip_ipify.content | default('') | trim != '')
+        else (_public_ip_fallback.content | default(ansible_default_ipv4.address) | trim)
+      }}
+  tags: certbot
+
+- name: Show detected server IP
+  ansible.builtin.debug:
+    msg: "Server public IP: {{ certbot_server_ip }}"
+  tags: certbot
+
+# ── 4. Issue certs per mx_hostname ────────────────────────────────────────────
 
 - name: Process SSL certificate for each mx_hostname
   ansible.builtin.include_tasks: cert_for_host.yml
@@ -80,13 +117,12 @@
     label: "{{ vdomain.mx_hostname }}"
   tags: certbot
 
-# ── 5. Configure services with certificates ───────────────────────────────────
-# Use the primary domain's certificate for Postfix/Dovecot
+# ── 5. Configure postfix and dovecot with primary cert ───────────────────────
 
-- name: Set primary certificate facts
+- name: Set primary certificate paths
   ansible.builtin.set_fact:
     primary_cert_fullchain: "{{ certbot_cert_path }}/{{ mail_virtual_domains[0].mx_hostname }}/fullchain.pem"
-    primary_cert_privkey:   "{{ certbot_cert_path }}/{{ mail_virtual_domains[0].mx_hostname }}/privkey.pem"
+    primary_cert_privkey: "{{ certbot_cert_path }}/{{ mail_virtual_domains[0].mx_hostname }}/privkey.pem"
   tags: certbot
 
 - name: Update Postfix TLS configuration
@@ -138,25 +174,19 @@
 
 # ── 6. Renewal hooks ──────────────────────────────────────────────────────────
 
-- name: Create renewal hooks directory
+- name: Ensure renewal-hooks directories exist
   ansible.builtin.file:
-    path: /etc/letsencrypt/renewal-hooks/deploy
+    path: "{{ item }}"
     state: directory
     owner: root
     group: root
     mode: '0755'
+  loop:
+    - /etc/letsencrypt/renewal-hooks/deploy
+    - /etc/letsencrypt/renewal-hooks/post
   tags: certbot
 
-- name: Create renewal hooks directory (post)
-  ansible.builtin.file:
-    path: /etc/letsencrypt/renewal-hooks/post
-    state: directory
-    owner: root
-    group: root
-    mode: '0755'
-  tags: certbot
-
-- name: Deploy certbot deploy hook
+- name: Deploy certbot deploy hook (fix permissions)
   ansible.builtin.template:
     src: deploy-hook.sh.j2
     dest: /etc/letsencrypt/renewal-hooks/deploy/fix-permissions.sh
@@ -165,7 +195,7 @@
     mode: '0755'
   tags: certbot
 
-- name: Deploy certbot post-renewal hook
+- name: Deploy certbot post-renewal hook (reload services)
   ansible.builtin.template:
     src: renewal-hook.sh.j2
     dest: /etc/letsencrypt/renewal-hooks/post/reload-services.sh
@@ -175,10 +205,10 @@
   when: certbot_renewal_hooks_enabled
   tags: certbot
 
-- name: Enable certbot timer
+- name: Enable certbot renewal timer
   ansible.builtin.systemd:
     name: certbot.timer
-    enabled: yes
+    enabled: true
     state: started
   tags: certbot
 
@@ -187,28 +217,28 @@
 - name: Build certificate status summary
   ansible.builtin.shell: |
     echo "SSL Certificate Status:"
-    for f in {{ certbot_pending_dir }}/*.ok; do
-      [ -f "$f" ] && echo "  ✓ $(basename $f .ok)  [Let's Encrypt]"
+    for f in {{ certbot_pending_dir }}/*.ok 2>/dev/null; do
+      [ -f "$f" ] && echo "  ✓ $(basename "$f" .ok)  [Let's Encrypt]"
     done
-    for f in {{ certbot_pending_dir }}/*.pending; do
-      [ -f "$f" ] && echo "  ⚠ $(basename $f .pending)  [self-signed – DNS pending]"
+    for f in {{ certbot_pending_dir }}/*.pending 2>/dev/null; do
+      [ -f "$f" ] && echo "  ⚠ $(basename "$f" .pending)  [self-signed – DNS pending]"
     done
     echo ""
-    echo "Re-run after DNS is set:"
+    echo "To retry after DNS changes:"
     echo "  ansible-playbook playbooks/site.yml --tags certbot"
-  register: cert_summary
+  register: _cert_summary
   changed_when: false
   tags: certbot
 
 - name: Display certificate status
   ansible.builtin.debug:
-    msg: "{{ cert_summary.stdout_lines }}"
+    msg: "{{ _cert_summary.stdout_lines }}"
   tags: certbot
 
-- name: Add certificate status to deployment summary
+- name: Write certificate status to deployment summary
   ansible.builtin.blockinfile:
     path: /etc/postsible/deployment_summary.txt
     marker: "# {mark} ANSIBLE MANAGED - certificate status"
-    create: yes
-    block: "{{ cert_summary.stdout }}"
+    create: true
+    block: "{{ _cert_summary.stdout }}"
   tags: certbot

@@ -1,10 +1,15 @@
 #!/bin/bash
 # {{ ansible_managed }}
-# Certbot post-renewal hook – reloads services after certificate renewal
+# Certbot post-renewal hook – reloads services after certificate renewal.
 
 set -euo pipefail
 
 {% for svc in certbot_reload_services %}
-systemctl reload {{ svc }} 2>/dev/null || systemctl restart {{ svc }} 2>/dev/null || true
-echo "✓ Reloaded: {{ svc }}"
+if systemctl is-active --quiet {{ svc }}; then
+    systemctl reload {{ svc }} 2>/dev/null || systemctl restart {{ svc }} 2>/dev/null || true
+    echo "✓ Reloaded: {{ svc }}"
+else
+    echo "– Skipped (not running): {{ svc }}"
+fi
 {% endfor %}
+

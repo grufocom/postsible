@@ -1,38 +1,30 @@
 ---
-# Certbot handlers
+# roles/certbot/handlers/main.yml
 
 - name: reload nginx
-  systemd:
+  ansible.builtin.systemd:
     name: nginx
     state: reloaded
-  become: yes
-
-- name: reload postfix
-  systemd:
-    name: postfix
-    state: reloaded
-  become: yes
-
-- name: reload dovecot
-  systemd:
-    name: dovecot
-    state: reloaded
-  become: yes
+  become: true
+  failed_when: false
 
 - name: restart nginx
-  systemd:
+  ansible.builtin.systemd:
     name: nginx
     state: restarted
-  become: yes
+  become: true
+  failed_when: false
 
-- name: restart postfix
-  systemd:
+- name: reload postfix
+  ansible.builtin.systemd:
     name: postfix
-    state: restarted
-  become: yes
+    state: reloaded
+  become: true
+  failed_when: false
 
-- name: restart dovecot
-  systemd:
+- name: reload dovecot
+  ansible.builtin.systemd:
     name: dovecot
-    state: restarted
-  become: yes
+    state: reloaded
+  become: true
+  failed_when: false

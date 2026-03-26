@@ -1,37 +1,51 @@
 #!/bin/bash
 # {{ ansible_managed }}
 # Generate a self-signed certificate in the Let's Encrypt path layout.
-# Usage: postsible-generate-selfsigned <hostname>
+# Used as bootstrap so nginx/postfix/dovecot can start before DNS is set.
+#
+# Usage: postsible-generate-selfsigned <hostname> [extra_san1 extra_san2 ...]
 
 set -euo pipefail
 
-HOSTNAME="${1:?Usage: $0 <hostname>}"
+HOSTNAME="${1:?Usage: $0 <hostname> [extra_san ...]}"
+shift || true
+EXTRA_SANS=("$@")
+
 CERT_DIR="/etc/letsencrypt/live/${HOSTNAME}"
 FULLCHAIN="${CERT_DIR}/fullchain.pem"
 PRIVKEY="${CERT_DIR}/privkey.pem"
 CHAIN="${CERT_DIR}/chain.pem"
 
 mkdir -p "${CERT_DIR}"
+chown root:ssl-cert "${CERT_DIR}" 2>/dev/null || true
+chmod 750 "${CERT_DIR}" 2>/dev/null || true
 
 if [ -f "${FULLCHAIN}" ] && [ -f "${PRIVKEY}" ]; then
     echo "✓ Certificate for ${HOSTNAME} already exists – skipping generation."
     exit 0
 fi
 
-echo "Generating self-signed certificate for ${HOSTNAME} ..."
+# Build SAN extension string
+SAN="DNS:${HOSTNAME}"
+for san in "${EXTRA_SANS[@]}"; do
+    SAN="${SAN},DNS:${san}"
+done
+
+echo "Generating self-signed certificate for ${HOSTNAME} (SANs: ${SAN}) ..."
 
 openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
     -keyout "${PRIVKEY}" \
     -out    "${FULLCHAIN}" \
     -subj   "/CN=${HOSTNAME}/O=Postsible Self-Signed/C=AT" \
-    -addext "subjectAltName=DNS:${HOSTNAME}"
+    -addext "subjectAltName=${SAN}"
 
-# chain.pem = same as fullchain for self-signed (no intermediate)
-ln -sf "${FULLCHAIN}" "${CHAIN}"
+# chain.pem = same as fullchain for self-signed (no intermediate CA)
+cp -f "${FULLCHAIN}" "${CHAIN}"
 
-chown root:ssl-cert "${PRIVKEY}" "${FULLCHAIN}"
-chmod 640 "${PRIVKEY}" "${FULLCHAIN}"
-chmod 644 "${CHAIN}"
+chown root:ssl-cert "${PRIVKEY}" "${FULLCHAIN}" "${CHAIN}" 2>/dev/null || true
+chmod 640 "${PRIVKEY}" 2>/dev/null || true
+chmod 644 "${FULLCHAIN}" "${CHAIN}" 2>/dev/null || true
 
 echo "✓ Self-signed certificate created: ${CERT_DIR}/"
-openssl x509 -in "${FULLCHAIN}" -noout -subject -dates
+openssl x509 -in "${FULLCHAIN}" -noout -subject -dates 2>/dev/null || true
+

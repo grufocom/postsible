@@ -2,7 +2,6 @@
 # roles/certbot/defaults/main.yml
 
 certbot_email: "{{ mail_letsencrypt_email }}"
-certbot_plugin: "nginx"
 certbot_staging: false
 certbot_force_renewal: false
 certbot_rsa_key_size: 4096
@@ -18,4 +17,12 @@ certbot_cert_path: "/etc/letsencrypt/live"
 certbot_selfsigned_script: "/usr/local/bin/postsible-generate-selfsigned"
 certbot_pending_dir: "/var/lib/postsible/certs"
 
-certbot_enable_dry_run: false
+# Extra subdomains to include per mx_hostname.
+# These are checked individually – only those with correct DNS are added to the SAN.
+certbot_extra_subdomain_prefixes:
+  - autoconfig
+  - autodiscover
+
+# Skip certbot entirely (use only self-signed) – useful for local/dev environments
+certbot_skip: false
+
