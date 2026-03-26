@@ -24,8 +24,13 @@
   check_mode: false
   tags: certbot
 
+- name: "[{{ vdomain.mx_hostname }}] Set base domain from vdomain.domain"
+  ansible.builtin.set_fact:
+    _base_domain: "{{ vdomain.domain }}"
+  tags: certbot
+
 - name: "[{{ vdomain.mx_hostname }}] Check DNS for each extra subdomain"
-  ansible.builtin.command: "dig +short {{ item }}.{{ vdomain.mail_domain }} A"
+  ansible.builtin.command: "dig +short {{ item }}.{{ _base_domain }} A"
   register: _dns_extra_results
   changed_when: false
   failed_when: false
@@ -39,14 +44,14 @@
     _cert_dir: "{{ certbot_cert_path }}/{{ vdomain.mx_hostname }}"
     _marker_ok: "{{ certbot_pending_dir }}/{{ vdomain.mx_hostname }}.ok"
     _marker_pending: "{{ certbot_pending_dir }}/{{ vdomain.mx_hostname }}.pending"
-    # Build list of extra SANs where DNS actually points to this server
+    # Build list of extra SANs where DNS actually resolves to this server
     _extra_sans: >-
       {{
         _dns_extra_results.results
         | selectattr('stdout', 'defined')
         | selectattr('stdout', 'equalto', certbot_server_ip | trim)
         | map(attribute='item')
-        | map('regex_replace', '^(.*)$', '\1.' + vdomain.mail_domain)
+        | map('regex_replace', '^(.*)$', '\1.' + _base_domain)
         | list
       }}
   tags: certbot
@@ -288,7 +293,7 @@
       Action required:
         Add DNS A record: {{ vdomain.mx_hostname }} → {{ certbot_server_ip }}
       {% for s in certbot_extra_subdomain_prefixes %}
-        Add DNS A record: {{ s }}.{{ vdomain.mail_domain }} → {{ certbot_server_ip }}   (optional, for SAN)
+        Add DNS A record: {{ s }}.{{ _base_domain }} → {{ certbot_server_ip }}   (optional, for SAN)
       {% endfor %}
 
         Then re-run:
