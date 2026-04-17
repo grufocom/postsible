@@ -20,7 +20,7 @@ define('DB_PASS',          '{{ signature_db_pass }}');
 define('SESSION_TIMEOUT',  3600);
 define('MAX_IMG_BYTES',    {{ signature_max_image_bytes }});
 define('IMG_MAX_PX',       {{ signature_image_max_px }});
-define('FALLBACK_DOMAINS', json_encode({{ signature_fallback_domains | tojson }}));
+define('FALLBACK_DOMAINS', '{{ signature_fallback_domains | tojson }}');
 
 // ─── Database ─────────────────────────────────────────────────────────────────
 function db(): PDO {
