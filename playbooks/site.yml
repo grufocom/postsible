@@ -275,7 +275,7 @@
 
           👥 Contacts Integration (CardDAV)
           ----------------------------------
-          URL: https://{{ item.mx_hostname }}/dav/dav.php/addressbooks/{{ item.admin_email }}/default/
+          URL: https://{{ item.mx_hostname }}/dav/dav.php/addressbooks/{{ item.admin_email }}/{{ item.admin_email.split('@')[0] }}-contacts/
           Username: {{ item.admin_email }}
 
           📱 Mobile Setup (iOS/Android)
