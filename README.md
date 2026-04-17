@@ -142,6 +142,11 @@ cp inventory/group_vars/mailservers/vault.yml.example \
 # Edit passwords (replace all CHANGE_ME values)
 nano inventory/group_vars/mailservers/vault.yml
 
+# Before running the playbook, review `inventory/group_vars/mailservers/vars.yml`
+# and adjust the settings to match your environment. In particular, check the
+# firewall (UFW) rules if you want to restrict SSH access to specific IP addresses
+# or ranges — the defaults allow SSH from anywhere.
+
 ansible-vault encrypt --ask-vault-password \
    inventory/group_vars/mailservers/vault.yml
 ```
