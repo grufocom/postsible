@@ -143,8 +143,12 @@
 
     - name: Check if admin user exists per domain
       shell: |
-        mysql -u root -p'{{ mariadb_root_password }}' {{ mariadb_database }} -sN \
-          -e "SELECT COUNT(*) FROM virtual_users WHERE email='{{ item.admin_email }}';"
+        if [ ! -f /root/admin-credentials-{{ item.domain }}.txt ]; then
+          echo "0"
+        else
+          mysql -u root -p'{{ mariadb_root_password }}' {{ mariadb_database }} -sN \
+            -e "SELECT COUNT(*) FROM virtual_users WHERE email='{{ item.admin_email }}';"
+        fi
       register: admin_user_check
       changed_when: false
       no_log: true
