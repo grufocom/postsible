@@ -195,10 +195,12 @@ ansible-playbook playbooks/site.yml --tags phase1 --ask-vault-pass
 ### 6. Admin User Credentials
 
 ```bash
-cat /root/admin-credentials.txt
+cat /root/admin-credentials-example.com.txt
 # Save password, then:
-rm /root/admin-credentials.txt
+rm /root/admin-credentials-example.com.txt
 ```
+
+Repeat for every additional domain.
 
 ---
 
