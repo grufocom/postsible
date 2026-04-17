@@ -3,6 +3,6 @@
 # Format: hostname  cert_file key_file
 {% for domain in mail_virtual_domains %}
 {% if domain.mx_hostname is defined %}
-{{ domain.mx_hostname }}  {{ domain.ssl_cert | default('/etc/letsencrypt/live/' + domain.mx_hostname + '/fullchain.pem') }} {{ domain.ssl_key | default('/etc/letsencrypt/live/' + domain.mx_hostname + '/privkey.pem') }}
+{{ domain.mx_hostname }}  {{ domain.ssl_key | default('/etc/letsencrypt/live/' + domain.mx_hostname + '/privkey.pem') }} {{ domain.ssl_cert | default('/etc/letsencrypt/live/' + domain.mx_hostname + '/fullchain.pem') }}
 {% endif %}
 {% endfor %}

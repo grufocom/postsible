@@ -48,7 +48,7 @@ smtpd_tls_loglevel = {{ postfix_smtpd_tls_loglevel }}
 
 {% if mail_virtual_domains | selectattr('mx_hostname', 'defined') | list | length > 1 %}
 # SNI: serve per-hostname certificates
-tls_server_sni_maps = hash:/etc/postfix/sni_map
+tls_server_sni_maps = texthash:/etc/postfix/sni_map
 {% endif %}
 
 # TLS parameters for outgoing connections (SMTP)
