@@ -198,6 +198,25 @@
         label: "{{ item.item.item.admin_email }}"
       tags: always
 
+    - name: Check if superadmin already set in vacation_admins
+      community.mysql.mysql_query:
+        login_user: root
+        login_password: "{{ mariadb_root_password }}"
+        login_db: "{{ vacation_db_name }}"
+        query: "SELECT COUNT(*) AS cnt FROM vacation_admins WHERE email='{{ mail_virtual_domains[0].admin_email }}' AND role='superadmin';"
+      register: superadmin_check
+      tags: vacation_superadmin
+
+    - name: Set primary domain admin as vacation superadmin
+      ansible.builtin.command:
+        cmd: "{{ vacation_maildb_manage }} set-superadmin {{ mail_virtual_domains[0].admin_email }}"
+      when: superadmin_check.query_result[0][0]['cnt'] | int == 0
+      register: superadmin_set
+      retries: 3
+      delay: 1
+      until: superadmin_set is success
+      tags: vacation_superadmin
+
     # ── Restart services ──────────────────────────────────────────────────────
 
     - name: Gather service facts

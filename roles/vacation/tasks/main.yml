@@ -150,31 +150,7 @@
   notify: reload nginx
   tags: vacation_nginx
 
-# ── 7. Superadmin ─────────────────────────────────────────────────────────────
-
-# Note: Admin user creation is handled centrally by post_tasks in site.yml
-# for all domains. Here we only set the superadmin role in vacation_admins.'''
-
-- name: Check if superadmin already set in vacation_admins
-  community.mysql.mysql_query:
-    login_user: root
-    login_password: "{{ mariadb_root_password }}"
-    login_db: "{{ vacation_db_name }}"
-    query: "SELECT COUNT(*) AS cnt FROM vacation_admins WHERE email='{{ mail_virtual_domains[0].admin_email }}' AND role='superadmin';"
-  register: superadmin_check
-  tags: vacation_superadmin
-
-- name: Set primary domain admin as vacation superadmin
-  ansible.builtin.command:
-    cmd: "{{ vacation_maildb_manage }} set-superadmin {{ mail_virtual_domains[0].admin_email }}"
-  when: superadmin_check.query_result[0][0]['cnt'] | int == 0
-  register: superadmin_set
-  retries: 3
-  delay: 1
-  until: superadmin_set is success
-  tags: vacation_superadmin
-
-# ── 8. Deployment summary ─────────────────────────────────────────────────────
+# ── 7. Deployment summary ─────────────────────────────────────────────────────
 
 - name: Add vacation info to deployment summary
   ansible.builtin.blockinfile:
@@ -187,3 +163,4 @@
       {% endfor %}
         Superadmin: {{ mail_virtual_domains[0].admin_email }}
   tags: vacation_summary
+

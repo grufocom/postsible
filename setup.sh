@@ -373,7 +373,13 @@ nginx_worker_connections: 1024
 
 # ── UFW ───────────────────────────────────────────────────────────────────────
 ufw_ssh_port: 22
-ufw_ssh_trusted_ips: []
+ufw_ssh_trusted_ips:
+#  - ip: "xxx.xxx.xxx.xxx"
+#    comment: "management IP 1"
+#  - ip: "xxx.xxx.xxx.xxx"
+#    comment: "management IP 2"
+#  - ip: "xxx.xxx.xxx.xxx"
+#    comment: "management IP 3"
 ufw_enable_smtps: true
 ufw_enable_pop3s: false
 ufw_rate_limit_smtp: false
