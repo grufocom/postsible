@@ -46,7 +46,7 @@ smtpd_tls_received_header = yes
 smtpd_tls_session_cache_database = btree:${data_directory}/smtpd_scache
 smtpd_tls_loglevel = {{ postfix_smtpd_tls_loglevel }}
 
-{% if mail_virtual_domains | selectattr('mail_hostname', 'defined') | list | length > 1 %}
+{% if mail_virtual_domains | selectattr('mx_hostname', 'defined') | list | length > 1 %}
 # SNI: serve per-hostname certificates
 tls_server_sni_maps = hash:/etc/postfix/sni_map
 {% endif %}

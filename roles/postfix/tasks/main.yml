@@ -121,7 +121,6 @@
     dest: /etc/postfix/sni_map
     mode: '0640'
     group: postfix
-  notify: rebuild postfix sni map
   tags: postfix
 
 - name: Build Postfix SNI map database

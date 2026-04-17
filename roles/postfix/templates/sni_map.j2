@@ -2,7 +2,7 @@
 # Postfix SNI map: hostname -> cert_file key_file
 # Format: hostname  cert_file key_file
 {% for domain in mail_virtual_domains %}
-{% if domain.mail_hostname is defined %}
-{{ domain.mail_hostname }}  {{ domain.ssl_cert | default('/etc/letsencrypt/live/' + domain.mail_hostname + '/fullchain.pem') }} {{ domain.ssl_key | default('/etc/letsencrypt/live/' + domain.mail_hostname + '/privkey.pem') }}
+{% if domain.mx_hostname is defined %}
+{{ domain.mx_hostname }}  {{ domain.ssl_cert | default('/etc/letsencrypt/live/' + domain.mx_hostname + '/fullchain.pem') }} {{ domain.ssl_key | default('/etc/letsencrypt/live/' + domain.mx_hostname + '/privkey.pem') }}
 {% endif %}
 {% endfor %}

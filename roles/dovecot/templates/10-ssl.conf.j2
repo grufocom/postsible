@@ -8,10 +8,10 @@ ssl_server_key_file = {{ dovecot_ssl_key }}
 
 # SNI: per-hostname certificates for additional domains
 {% for domain in mail_virtual_domains %}
-{% if domain.mail_hostname is defined and domain.mail_hostname != postfix_myhostname %}
-local_name {{ domain.mail_hostname }} {
-  ssl_server_cert_file = {{ domain.ssl_cert | default('/etc/letsencrypt/live/' + domain.mail_hostname + '/fullchain.pem') }}
-  ssl_server_key_file  = {{ domain.ssl_key  | default('/etc/letsencrypt/live/' + domain.mail_hostname + '/privkey.pem') }}
+{% if domain.mx_hostname is defined and domain.mx_hostname != postfix_myhostname %}
+local_name {{ domain.mx_hostname }} {
+  ssl_server_cert_file = {{ domain.ssl_cert | default('/etc/letsencrypt/live/' + domain.mx_hostname + '/fullchain.pem') }}
+  ssl_server_key_file  = {{ domain.ssl_key  | default('/etc/letsencrypt/live/' + domain.mx_hostname + '/privkey.pem') }}
 }
 {% endif %}
 {% endfor %}
