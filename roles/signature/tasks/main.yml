@@ -27,7 +27,7 @@
     state: directory
     owner: root
     group: _rspamd
-    mode: '0750'
+    mode: '0755'
   loop: [users, domains]
   tags: signature_dirs
 
@@ -51,7 +51,7 @@
     dest: "{{ signature_manage }}"
     owner: root
     group: root
-    mode: '0750'
+    mode: '0755'
   tags: signature_manage
 
 # ── 4. sudoers ────────────────────────────────────────────────────────────────
