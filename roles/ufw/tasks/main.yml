@@ -1,8 +1,9 @@
-# roles/ufw/tasks/main.yml
 ---
+# roles/ufw/tasks/main.yml
+
 - name: Install UFW
   apt:
-    name: 
+    name:
       - ufw
       - iptables
     state: present
@@ -57,12 +58,22 @@
     ipv6_regex: '^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$|^([0-9a-fA-F]{1,4}:){1,7}:$|^([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}$|^([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}$|^([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}$|^([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}$|^([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}$|^[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})$|^:((:[0-9a-fA-F]{1,4}){1,7}|:)$|^fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}$|^::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])$|^([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])$'
   tags: ufw
 
+# Normalize ufw_ssh_trusted_ips – handle None, empty string, or missing
+- name: Normalize ufw_ssh_trusted_ips to list
+  set_fact:
+    ufw_ssh_trusted_ips_normalized: >-
+      {{
+        ufw_ssh_trusted_ips
+        if (ufw_ssh_trusted_ips is iterable and ufw_ssh_trusted_ips is not string and ufw_ssh_trusted_ips is not none)
+        else []
+      }}
+  tags: ufw
+
 - name: Validate and filter trusted SSH IPs
   set_fact:
     ufw_ssh_trusted_ips_valid: >-
       {{
-        ufw_ssh_trusted_ips
-        | default([])
+        ufw_ssh_trusted_ips_normalized
         | selectattr('ip', 'defined')
         | selectattr('ip', 'match', ipv4_regex + '|' + ipv6_regex)
         | list
@@ -71,22 +82,21 @@
 
 - name: Warn about invalid IP entries
   debug:
-    msg: "⚠️  WARNING: Invalid IP address '{{ item.ip }}' will be ignored!"
-  loop: "{{ ufw_ssh_trusted_ips | default([]) }}"
+    msg: "WARNING: Invalid IP address '{{ item.ip }}' will be ignored!"
+  loop: "{{ ufw_ssh_trusted_ips_normalized }}"
   when:
-    - ufw_ssh_trusted_ips is defined
-    - ufw_ssh_trusted_ips | length > 0
+    - ufw_ssh_trusted_ips_normalized | length > 0
     - item.ip is defined
     - item.ip is not match(ipv4_regex + '|' + ipv6_regex)
   tags: ufw
 
 - name: Show valid trusted IPs
   debug:
-    msg: "✓ Valid trusted IPs: {{ ufw_ssh_trusted_ips_valid | map(attribute='ip') | join(', ') }}"
+    msg: "Valid trusted IPs: {{ ufw_ssh_trusted_ips_valid | map(attribute='ip') | join(', ') }}"
   when: ufw_ssh_trusted_ips_valid | length > 0
   tags: ufw
 
-- name: Allow SSH from validated trusted IPs
+- name: Allow SSH from validated trusted IPs only
   ufw:
     rule: allow
     port: "{{ ufw_ssh_port }}"
@@ -106,47 +116,28 @@
   when: ufw_ssh_trusted_ips_valid | length > 0
   tags: ufw
 
-- name: Apply rate limiting for SSH (fallback when no valid trusted IPs)
+- name: Allow SSH from anywhere with rate limiting (no trusted IPs configured)
   ufw:
     rule: limit
     port: "{{ ufw_ssh_port }}"
     proto: tcp
-    comment: "SSH rate limiting (no trusted IPs configured)"
+    comment: "SSH rate limiting - open to all"
   when: ufw_ssh_trusted_ips_valid | length == 0
   tags: ufw
 
-- name: Display SSH access configuration (with trusted IPs)
+- name: Display SSH access configuration (restricted)
   debug:
     msg:
-      - "==========================================="
-      - "SSH Access Configuration:"
-      - "==========================================="
-      - "Port: {{ ufw_ssh_port }}"
-      - "Valid trusted IPs: {{ ufw_ssh_trusted_ips_valid | length }}"
-      - "Trusted IPs: {{ ufw_ssh_trusted_ips_valid | map(attribute='ip') | join(', ') }}"
+      - "SSH restricted to: {{ ufw_ssh_trusted_ips_valid | map(attribute='ip') | join(', ') }}"
       - "All other IPs: DENIED"
-      - "==========================================="
   when: ufw_ssh_trusted_ips_valid | length > 0
   tags: ufw
 
-- name: Display SSH access configuration (fallback mode)
+- name: Display SSH access configuration (open)
   debug:
     msg:
-      - "==========================================="
-      - "⚠️  SSH Access Configuration (FALLBACK MODE)"
-      - "==========================================="
-      - "Port: {{ ufw_ssh_port }}"
-      - "No valid trusted IPs configured!"
-      - ""
-      - "SSH is accessible from ANYWHERE with rate limiting"
-      - ""
-      - "To restrict SSH, add valid IPs to ufw_ssh_trusted_ips:"
-      - "  ufw_ssh_trusted_ips:"
-      - "    - ip: 192.168.1.100"
-      - "      comment: 'Office'"
-      - "    - ip: 2001:db8::1"
-      - "      comment: 'IPv6 Office'"
-      - "==========================================="
+      - "No trusted IPs configured – SSH open to ALL with rate limiting"
+      - "To restrict SSH add IPs to ufw_ssh_trusted_ips in vars.yml"
   when: ufw_ssh_trusted_ips_valid | length == 0
   tags: ufw
 
@@ -172,7 +163,7 @@
     rule: allow
     port: "{{ mail_smtp_port }}"
     proto: tcp
-    comment: "SMTPS - SMTP over SSL (optional)"
+    comment: "SMTPS - SMTP over SSL"
   when: ufw_enable_smtps | default(true)
   tags: ufw
 
@@ -210,7 +201,6 @@
     comment: "HTTPS - Webmail and Rspamd WebUI"
   tags: ufw
 
-# Optional: Rate limiting for mail ports (anti-spam measure)
 - name: Apply rate limiting to SMTP
   ufw:
     rule: limit
@@ -220,7 +210,6 @@
   when: ufw_rate_limit_smtp | default(false)
   tags: ufw
 
-# Optional: Custom ports
 - name: Allow custom ports
   ufw:
     rule: allow
@@ -232,7 +221,6 @@
   when: ufw_custom_ports is defined and ufw_custom_ports | length > 0
   tags: ufw
 
-# Deny commonly attacked ports
 - name: Deny potentially dangerous ports
   ufw:
     rule: deny
@@ -246,7 +234,6 @@
     - ufw_deny_ports | length > 0
   tags: ufw
 
-# Enable UFW
 - name: Enable UFW
   ufw:
     state: enabled
@@ -263,7 +250,6 @@
     var: ufw_status.stdout_lines
   tags: ufw
 
-# Create UFW management script
 - name: Create UFW management script
   template:
     src: ufw-manage.sh.j2
@@ -278,11 +264,9 @@
     mode: '0755'
   tags: ufw
 
-# Systemd service to ensure UFW starts before network
 - name: Ensure UFW starts before network services
   systemd:
     name: ufw
     enabled: true
     state: started
   tags: ufw
-
