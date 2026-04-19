@@ -158,7 +158,46 @@ function has_sig(string $dir): bool {
     return is_file($dir . '/signature.html') || is_file($dir . '/signature.txt');
 }
 function fallback_domains(): array {
-    return json_decode(FALLBACK_DOMAINS, true) ?: [];
+    $decoded = json_decode(FALLBACK_DOMAINS, true);
+
+    // If not valid JSON or empty
+    if (!is_array($decoded) || empty($decoded)) {
+        return [];
+    }
+
+    $domains = [];
+
+    // Process different JSON structures
+    foreach ($decoded as $item) {
+        // Case 1: Direct domain string
+        if (is_string($item)) {
+            $domains[] = $item;
+        }
+        // Case 2: Object/Array with 'domain' field (your structure)
+        elseif (is_array($item) && isset($item['domain'])) {
+            $domains[] = (string)$item['domain'];
+        }
+        // Case 3: Object/Array with 'name' field (alternative)
+        elseif (is_array($item) && isset($item['name'])) {
+            $domains[] = (string)$item['name'];
+        }
+        // Case 4: Nested array - try the first element
+        elseif (is_array($item) && !empty($item)) {
+            $first = reset($item);
+            if (is_string($first)) {
+                $domains[] = $first;
+            }
+        }
+    }
+
+    // Remove duplicates and empty values
+    $domains = array_unique($domains);
+    $domains = array_filter($domains);
+
+    // Sort for consistent display
+    sort($domains);
+
+    return $domains;
 }
 function email_domain(string $email): string {
     return substr(strrchr($email, '@'), 1);
