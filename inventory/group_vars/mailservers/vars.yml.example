@@ -113,3 +113,10 @@ fail2ban_destemail: "{{ mail_virtual_domains[0].admin_email }}"
 eset_icap_enabled: false
 eset_icap_host: "localhost"
 eset_icap_port: 1344
+
+# ── alermime ──────────────────────────────────────────────────────────────────
+altermime_path: /usr/bin/altermime
+altermime_tmp_dir: /tmp
+altermime_log: /var/log/altermime.log
+postfix_sendmail_path: /usr/sbin/sendmail
+

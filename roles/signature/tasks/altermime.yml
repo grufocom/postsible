@@ -66,3 +66,12 @@
   notify: reload postfix
   tags: signature_altermime
 
+# ── 7. deploy logrotate file ──────────────────────────────────────────────────
+- name: Deploy altermime logrotate config
+  ansible.builtin.template:
+    src: altermime-logrotate.j2
+    dest: /etc/logrotate.d/altermime
+    owner: root
+    group: root
+    mode: '0644'
+  tags: signature_altermime

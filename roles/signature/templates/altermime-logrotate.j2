@@ -1,0 +1,14 @@
+# {{ ansible_managed }}
+/var/log/altermime.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0640 nobody nogroup
+    sharedscripts
+    postrotate
+        /usr/lib/postfix/sbin/postfix reload > /dev/null 2>&1 || true
+    endscript
+}

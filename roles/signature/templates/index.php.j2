@@ -650,16 +650,16 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 
           <div class="form-group">
             <label>Signature (HTML)</label>
-												<div id="quill-editor"><?php echo $edit_html; ?></div>
+            <div id="quill-editor"></div>
           </div>
 
           <div class="form-group" style="margin-top:16px">
             <label>Logo / Image <span style="font-weight:400;text-transform:none">(optional – PNG, JPG or SVG, max <?= MAX_IMG_BYTES/1024 ?> KB)</span></label>
-            <div class="upload-area" onclick="document.getElementById('logo-input').click()">
-              <input type="file" id="logo-input" name="logo" accept=".png,.jpg,.jpeg,.svg,image/png,image/jpeg,image/svg+xml"
-                     onchange="previewLogo(this)">
-              <span id="upload-label">📎 Click to choose image…</span>
-            </div>
+<input type="file" id="logo-input" name="logo" accept=".png,.jpg,.jpeg,.svg,image/png,image/jpeg,image/svg+xml"
+       onchange="previewLogo(this)" style="display:none">
+<div class="upload-area" onclick="document.getElementById('logo-input').click()">
+  <span id="upload-label">📎 Click to choose image…</span>
+</div>
             <?php if ($has_user_sig && $user_sig['logo']): ?>
             <div id="current-logo" style="margin-top:8px;font-size:13px;color:var(--text-muted)">
               Current logo: <img src="data:image/png;base64,<?= base64_encode(file_get_contents(sig_dir_user($view_email).'/logo.png')) ?>"
@@ -816,11 +816,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 
           <div class="form-group" style="margin-top:16px">
             <label>Logo / Image <span style="font-weight:400;text-transform:none">(optional)</span></label>
-            <div class="upload-area" onclick="document.getElementById('dom-logo-input').click()">
-              <input type="file" id="dom-logo-input" name="logo" accept=".png,.jpg,.jpeg,.svg,image/png,image/jpeg,image/svg+xml"
-                     onchange="previewDomLogo(this)">
-              <span id="dom-upload-label">📎 Click to choose image…</span>
-            </div>
+<input type="file" id="dom-logo-input" name="logo" accept=".png,.jpg,.jpeg,.svg,image/png,image/jpeg,image/svg+xml"
+       onchange="previewDomLogo(this)" style="display:none">
+<div class="upload-area" onclick="document.getElementById('dom-logo-input').click()">
+  <span id="dom-upload-label">📎 Click to choose image…</span>
+</div>
             <?php if ($has_dom_sig && $dom_sig['logo']): ?>
             <img src="data:image/png;base64,<?= base64_encode(file_get_contents($dom_sig_dir.'/logo.png')) ?>"
                  class="logo-preview" id="dom-logo-preview-img" alt="Domain logo">
@@ -929,6 +929,8 @@ function switchTab(name) {
   const url = new URL(window.location);
   url.searchParams.set('tab', name);
   history.pushState({}, '', url);
+  if (name === 'signature') setTimeout(() => quill.update(), 10);
+  if (name === 'domains')   setTimeout(() => domQuill.update(), 10);
 }
 (function(){
   const tab = new URL(window.location).searchParams.get('tab');
@@ -949,6 +951,16 @@ const quill = new Quill('#quill-editor', {
     ]
   }
 });
+
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (btn.textContent.includes('Signature') || btn.textContent.includes('User')) {
+      setTimeout(() => quill.update(), 10);
+    }
+  });
+});
+
+quill.clipboard.dangerouslyPasteHTML(<?= json_encode($edit_html) ?>);
 
 function updatePreview() {
   const html = quill.root.innerHTML;

@@ -69,8 +69,7 @@ install_sig() {
     fi
 
     chown -R root:_rspamd "$dir"
-    chmod 0755 "$dir"
-    chmod 644 "$dir"/signature.html "$dir"/signature.txt 2>/dev/null
+    chmod 0750 "$dir"
     echo "OK: signature saved to $dir"
 }
 
