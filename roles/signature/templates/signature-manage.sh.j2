@@ -18,6 +18,9 @@ DB_NAME="{{ signature_db_name }}"
 DB_USER="{{ signature_db_user }}"
 DB_PASS="{{ signature_db_pass }}"
 
+find "$BASE_DIR" -type d -exec chmod 755 {} \;
+find "$BASE_DIR" -type f -exec chmod 644 {} \;
+
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 die() { echo "ERROR: $*" >&2; exit 1; }
@@ -58,18 +61,18 @@ install_sig() {
     (( html_size <= 262144 )) || die "HTML file too large"
     (( txt_size  <= 262144 )) || die "TXT file too large"
 
-    install -m 0640 -o root -g _rspamd "$html" "$dir/signature.html"
-    install -m 0640 -o root -g _rspamd "$txt"  "$dir/signature.txt"
+    install -m 0644 -o root -g _rspamd "$html" "$dir/signature.html"
+    install -m 0644 -o root -g _rspamd "$txt"  "$dir/signature.txt"
 
     if [[ -n "$img" && -f "$img" ]]; then
         local img_size
         img_size=$(stat -c%s "$img")
         (( img_size <= {{ signature_max_image_bytes }} )) || die "Image file too large"
-        install -m 0640 -o root -g _rspamd "$img" "$dir/logo.png"
+        install -m 0644 -o root -g _rspamd "$img" "$dir/logo.png"
     fi
 
     chown -R root:_rspamd "$dir"
-    chmod 0750 "$dir"
+    chmod 0755 "$dir"
     echo "OK: signature saved to $dir"
 }
 
