@@ -1,6 +1,8 @@
-{% raw %}#!/bin/bash
+#!/bin/bash
+# {{ ansible_managed }}
 # altermime-filter – Postfix content_filter for per-user email signatures
-#
+SIG_BASE="{{ signature_base_dir }}"
+{% raw %}
 # Called by Postfix as:
 #   altermime-filter -f <sender> -- <recipients...>
 
@@ -10,9 +12,6 @@ SENDMAIL="/usr/sbin/sendmail"
 ALTERMIME="/usr/bin/altermime"
 TMPDIR="/tmp"
 LOGFILE="/var/log/altermime.log"
-{% endraw %}
-SIG_BASE="{{ signature_base_dir }}"
-{% raw %}
 
 log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') altermime-filter: $*" >> "$LOGFILE"
