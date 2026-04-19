@@ -1,0 +1,68 @@
+# roles/signature/tasks/altermime.yml
+# {{ ansible_managed }}
+# Installs altermime and configures Postfix content_filter for signatures
+
+# ── 1. Install altermime ──────────────────────────────────────────────────────
+
+- name: Install altermime
+  ansible.builtin.apt:
+    name: altermime
+    state: present
+  tags: signature_altermime
+
+# ── 2. Deploy wrapper script ──────────────────────────────────────────────────
+
+- name: Deploy altermime-filter wrapper script
+  ansible.builtin.template:
+    src: altermime-filter.sh.j2
+    dest: /usr/local/bin/altermime-filter
+    owner: root
+    group: root
+    mode: '0755'
+  tags: signature_altermime
+
+# ── 3. Create log file ────────────────────────────────────────────────────────
+
+- name: Create altermime log file
+  ansible.builtin.file:
+    path: /var/log/altermime.log
+    state: touch
+    owner: postfix
+    group: postfix
+    mode: '0640'
+  tags: signature_altermime
+
+# ── 4. Postfix master.cf – add filter transport ───────────────────────────────
+
+- name: Add altermime filter transport to Postfix master.cf
+  ansible.builtin.blockinfile:
+    path: /etc/postfix/master.cf
+    marker: "# {mark} ANSIBLE MANAGED - altermime signature filter"
+    block: |
+      # altermime signature content filter
+      altermime-filter unix  -       n       n       -       10      pipe
+        flags=Rq user=nobody null_sender=
+        argv=/usr/local/bin/altermime-filter -f ${sender} -- ${recipient}
+  notify: reload postfix
+  tags: signature_altermime
+
+# ── 5. Postfix submission – add content_filter ────────────────────────────────
+
+- name: Add content_filter to submission transport in master.cf
+  ansible.builtin.replace:
+    path: /etc/postfix/master.cf
+    regexp: '(submission inet[^\n]*\n(?:  -o [^\n]*\n)*)(  -o smtpd_client_restrictions[^\n]*)'
+    replace: '\1\2\n  -o content_filter=altermime-filter:dummy'
+  notify: reload postfix
+  tags: signature_altermime
+
+# ── 6. Same for smtps (465) ───────────────────────────────────────────────────
+
+- name: Add content_filter to smtps transport in master.cf
+  ansible.builtin.replace:
+    path: /etc/postfix/master.cf
+    regexp: '(smtps\s+inet[^\n]*\n(?:  -o [^\n]*\n)*)(  -o smtpd_sasl_auth_enable[^\n]*)'
+    replace: '\1\2\n  -o content_filter=altermime-filter:dummy'
+  notify: reload postfix
+  tags: signature_altermime
+

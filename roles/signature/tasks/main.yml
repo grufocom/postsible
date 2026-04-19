@@ -66,29 +66,7 @@
     validate: 'visudo -cf %s'
   tags: signature_sudo
 
-# ── 5. rspamd Lua module ──────────────────────────────────────────────────────
-
-- name: Deploy rspamd signature Lua module
-  ansible.builtin.template:
-    src: rspamd-signatures.lua.j2
-    dest: /etc/rspamd/local.d/signatures.lua
-    owner: _rspamd
-    group: _rspamd
-    mode: '0644'
-  notify: restart rspamd
-  tags: signature_rspamd
-
-- name: Deploy rspamd signature module config
-  ansible.builtin.template:
-    src: rspamd-signatures.conf.j2
-    dest: /etc/rspamd/local.d/signatures.conf
-    owner: _rspamd
-    group: _rspamd
-    mode: '0644'
-  notify: restart rspamd
-  tags: signature_rspamd
-
-# ── 6. PHP-FPM pool ───────────────────────────────────────────────────────────
+# ── 5. PHP-FPM pool ───────────────────────────────────────────────────────────
 
 - name: Deploy PHP-FPM pool for signature
   ansible.builtin.template:
@@ -100,7 +78,7 @@
   notify: restart php-fpm
   tags: signature_php
 
-# ── 7. Web root & PHP app ─────────────────────────────────────────────────────
+# ── 6. Web root & PHP app ─────────────────────────────────────────────────────
 
 - name: Create signature web root directory
   ansible.builtin.file:
@@ -130,7 +108,7 @@
   notify: reload nginx
   tags: signature_web
 
-# ── 8. nginx: signature location in EVERY domain vhost ───────────────────────
+# ── 7. nginx: signature location in EVERY domain vhost ───────────────────────
 
 - name: Insert signature location into each domain vhost
   ansible.builtin.blockinfile:
@@ -158,13 +136,13 @@
   notify: reload nginx
   tags: signature_nginx
 
-# ── 9. Build XPI ──────────────────────────────────────────────────────────────
+# ── 8. Build XPI ──────────────────────────────────────────────────────────────
 
 - name: Build and deploy Postsible Tools XPI
   ansible.builtin.include_tasks: build_xpi.yml
   tags: signature_xpi
 
-# ── 10. Database table ────────────────────────────────────────────────────────
+# ── 9. Database table ────────────────────────────────────────────────────────
 
 - name: Create signature_admins table
   community.mysql.mysql_query:
@@ -191,7 +169,7 @@
       VALUES ('{{ mail_virtual_domains[0].admin_email }}', 'superadmin', 'ansible');
   tags: signature_db
 
-# ── 11. Deployment summary ────────────────────────────────────────────────────
+# ── 10. Deployment summary ────────────────────────────────────────────────────
 
 - name: Add signature info to deployment summary
   ansible.builtin.blockinfile:
@@ -204,3 +182,9 @@
       {% endfor %}
         Signatures stored: {{ signature_base_dir }}/
   tags: signature_summary
+
+# ── 11. altermime signature filter ───────────────────────────────────────────
+
+- name: Deploy altermime signature filter
+  ansible.builtin.include_tasks: altermime.yml
+  tags: signature_altermime
