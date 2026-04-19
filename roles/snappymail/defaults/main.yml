@@ -8,7 +8,7 @@ snappymail_download_url: "https://github.com/the-djmaze/snappymail/releases/down
 
 # Installation paths
 snappymail_install_path: "/var/www/snappymail"
-snappymail_data_path: "/var/www/snappymail-data"
+snappymail_data_path: "/var/www/snappymail/data"
 
 # Web user/group
 snappymail_user: "www-data"

@@ -79,6 +79,44 @@
     force: yes
   tags: snappymail
 
+# ── Create domains directory ───────────────────────────────────────────────────
+- name: Ensure domains directory exists
+  ansible.builtin.file:
+    path: "{{ snappymail_data_path }}/_data_/_default_/domains"
+    state: directory
+    owner: "{{ snappymail_user }}"
+    group: "{{ snappymail_group }}"
+    mode: '0755'
+  tags: snappymail
+
+# roles/snappymail/tasks/main.yml
+- name: Deploy domain configuration for each domain
+  ansible.builtin.template:
+    src: domain.json.j2
+    dest: "{{ snappymail_data_path }}/_data_/_default_/domains/{{ item.domain }}.json"
+    owner: "{{ snappymail_user }}"
+    group: "{{ snappymail_group }}"
+    mode: '0640'
+  loop: "{{ mail_virtual_domains }}"
+  tags: snappymail
+
+# ── Clear cache after domain changes ──────────────────────────────────────────
+- name: Clear SnappyMail cache
+  ansible.builtin.file:
+    path: "{{ snappymail_data_path }}/_data_/_default_/cache"
+    state: absent
+  notify: restart php-fpm
+  tags: snappymail
+
+- name: Recreate cache directory
+  ansible.builtin.file:
+    path: "{{ snappymail_data_path }}/_data_/_default_/cache"
+    state: directory
+    owner: "{{ snappymail_user }}"
+    group: "{{ snappymail_group }}"
+    mode: '0755'
+  tags: snappymail
+
 # ── Plugin JS files ───────────────────────────────────────────────────────────
 
 - name: Create SnappyMail plugin directory

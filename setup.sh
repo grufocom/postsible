@@ -326,7 +326,7 @@ mail_ssl_cert_path: "/etc/letsencrypt/live"
 
 # ── Ports ─────────────────────────────────────────────────────────────────────
 mail_imap_port: 993
-mail_smtp_port: 465
+mail_smtp_port: 587
 
 # ── MariaDB ───────────────────────────────────────────────────────────────────
 mariadb_database: "mailserver"
