@@ -27,8 +27,8 @@
   ansible.builtin.file:
     path: /var/log/altermime.log
     state: touch
-    owner: postfix
-    group: postfix
+    owner: nobody
+    group: nogroup
     mode: '0640'
   tags: signature_altermime
 
