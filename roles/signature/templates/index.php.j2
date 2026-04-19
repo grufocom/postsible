@@ -92,22 +92,69 @@ function get_all_admins(): array {
         )->fetchAll();
     } catch (Exception $e) { return []; }
 }
-
 // ─── Signature file helpers ───────────────────────────────────────────────────
-function sig_dir_user(string $email): string {
+function sig_dir_user($email): string {
+    // Typ prüfen und korrigieren
+    if (is_array($email)) {
+        $email = !empty($email) ? (string)$email[0] : '';
+    }
+    
+    $email = (string)$email;
+    
+    if (empty($email)) {
+        throw new InvalidArgumentException('Email address cannot be empty');
+    }
+    
+    // Entferne mögliche schädliche Zeichen
+    $email = trim($email);
+    $email = preg_replace('/[^a-zA-Z0-9@._-]/', '', $email);
+    
+    if (empty($email) || !str_contains($email, '@')) {
+        throw new InvalidArgumentException('Invalid email address');
+    }
+    
     return SIG_BASE_DIR . '/users/' . $email;
 }
-function sig_dir_domain(string $domain): string {
+
+function sig_dir_domain($domain): string {
+    // Typ prüfen und korrigieren
+    if (is_array($domain)) {
+        // Falls es ein Array ist, nimm das erste Element
+        $domain = !empty($domain) ? (string)$domain[0] : '';
+    }
+
+    $domain = (string)$domain;
+
+    if (empty($domain)) {
+        throw new InvalidArgumentException('Domain cannot be empty');
+    }
+
+    // Entferne mögliche Slashes und schädliche Zeichen
+    $domain = trim($domain, '/\\');
+    $domain = preg_replace('/[^a-zA-Z0-9.-]/', '', $domain);
+
+    if (empty($domain)) {
+        throw new InvalidArgumentException('Invalid domain name after sanitization');
+    }
+
     return SIG_BASE_DIR . '/domains/' . $domain;
 }
+
 function read_sig(string $dir): array {
+    if (empty($dir)) {
+        return ['html' => '', 'txt' => '', 'logo' => false];
+    }
     return [
         'html' => is_file($dir . '/signature.html') ? file_get_contents($dir . '/signature.html') : '',
         'txt'  => is_file($dir . '/signature.txt')  ? file_get_contents($dir . '/signature.txt')  : '',
         'logo' => is_file($dir . '/logo.png'),
     ];
 }
+
 function has_sig(string $dir): bool {
+    if (empty($dir)) {
+        return false;
+    }
     return is_file($dir . '/signature.html') || is_file($dir . '/signature.txt');
 }
 function fallback_domains(): array {
@@ -738,12 +785,45 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 
   <!-- ── Tab: Domain Defaults ───────────────────────────────────────────── -->
   <div class="tab-panel <?= $active_tab==='domains'?'active':'' ?>" id="tab-domains">
-    <?php
-    $domains = fallback_domains();
-    $sel_domain = $view_domain ?: ($domains[0] ?? '');
-    $dom_sig_dir = $sel_domain ? sig_dir_domain($sel_domain) : '';
-    $dom_sig     = ($dom_sig_dir && has_sig($dom_sig_dir)) ? read_sig($dom_sig_dir) : ['html'=>'','txt'=>'','logo'=>false];
-    $has_dom_sig = $dom_sig_dir && has_sig($dom_sig_dir);
+  <?php
+    try {
+      $domains = fallback_domains();
+    
+      if (!is_array($domains)) {
+          $domains = [];
+      }
+    
+      // convert all domains to strings
+      $domains = array_map('strval', $domains);
+      $domains = array_filter($domains);
+    
+      $sel_domain = '';
+      if (!empty($view_domain) && is_string($view_domain) && in_array($view_domain, $domains)) {
+          $sel_domain = $view_domain;
+      } elseif (!empty($domains)) {
+          $sel_domain = $domains[0];
+      }
+    
+      // continue only with domain
+      if (!empty($sel_domain) && is_string($sel_domain)) {
+          $dom_sig_dir = sig_dir_domain($sel_domain);
+          $dom_sig = read_sig($dom_sig_dir);
+          $has_dom_sig = has_sig($dom_sig_dir);
+      } else {
+          // no domain - error
+          echo '<div class="card"><div class="card-body">';
+          echo '<div class="alert alert-warning">⚠️ No valid domains configured. Please check the signature_fallback_domains setting.</div>';
+          echo '</div></div>';
+          $has_dom_sig = false;
+          $sel_domain = '';
+      }
+    } catch (Exception $e) {
+      echo '<div class="card"><div class="card-body">';
+      echo '<div class="alert alert-error">❌ Error loading domains: ' . h($e->getMessage()) . '</div>';
+      echo '</div></div>';
+      $has_dom_sig = false;
+      $sel_domain = '';
+    }
     ?>
 
     <div class="card">
@@ -1030,6 +1110,7 @@ function previewDomLogo(input) {
   reader.readAsDataURL(file);
 }
 </script>
+
 <?php endif; // session_valid ?>
 </body>
 </html>
