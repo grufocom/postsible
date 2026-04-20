@@ -39,8 +39,8 @@
         ]
     },
     "SMTP": {
-        "host": "{{ mail_smtp_host }}",
-        "port": {{ mail_smtp_port | default(587) }},
+        "host": "{{ snappymail_smtp_host }}",
+        "port": {{ snappymail_smtp_port | default(587) }},
         "type": 2,
         "timeout": 60,
         "shortLogin": false,
