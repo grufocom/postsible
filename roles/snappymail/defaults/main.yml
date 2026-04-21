@@ -32,7 +32,7 @@ snappymail_imap_host: "127.0.0.1"
 snappymail_imap_port: 143
 snappymail_imap_secure: "tls"  # STARTTLS on port 143
 
-snappymail_smtp_host: "127.0.0.1"
+snappymail_smtp_host: "{{ mail_virtual_domains[0].mx_hostname }}"
 snappymail_smtp_port: 587
 snappymail_smtp_secure: "tls"  # tls or ssl
 snappymail_smtp_auth: true
