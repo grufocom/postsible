@@ -47,6 +47,16 @@
     mode: '0770'
   loop:
     - /srv/imap
+  tags: dovecot
+
+- name: Ensure mail directories have correct permissions
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: vmail
+    group: root
+    mode: '0770'
+  loop:
     - /var/log/dovecot
   tags: dovecot
 

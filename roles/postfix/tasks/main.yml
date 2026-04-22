@@ -105,6 +105,16 @@
     mode: '0770'
   loop:
     - /srv/imap
+  tags: postfix
+
+- name: Ensure mail directories exist with correct permissions
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: vmail
+    group: root
+    mode: '0770'
+  loop:
     - /var/log/mail
   tags: postfix
 
