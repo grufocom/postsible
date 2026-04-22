@@ -94,49 +94,34 @@ function get_all_admins(): array {
 }
 // ─── Signature file helpers ───────────────────────────────────────────────────
 function sig_dir_user($email): string {
-    // Typ prüfen und korrigieren
     if (is_array($email)) {
         $email = !empty($email) ? (string)$email[0] : '';
     }
-    
     $email = (string)$email;
-    
     if (empty($email)) {
         throw new InvalidArgumentException('Email address cannot be empty');
     }
-    
-    // Entferne mögliche schädliche Zeichen
     $email = trim($email);
     $email = preg_replace('/[^a-zA-Z0-9@._-]/', '', $email);
-    
     if (empty($email) || !str_contains($email, '@')) {
         throw new InvalidArgumentException('Invalid email address');
     }
-    
     return SIG_BASE_DIR . '/users/' . $email;
 }
 
 function sig_dir_domain($domain): string {
-    // Typ prüfen und korrigieren
     if (is_array($domain)) {
-        // Falls es ein Array ist, nimm das erste Element
         $domain = !empty($domain) ? (string)$domain[0] : '';
     }
-
     $domain = (string)$domain;
-
     if (empty($domain)) {
         throw new InvalidArgumentException('Domain cannot be empty');
     }
-
-    // Entferne mögliche Slashes und schädliche Zeichen
     $domain = trim($domain, '/\\');
     $domain = preg_replace('/[^a-zA-Z0-9.-]/', '', $domain);
-
     if (empty($domain)) {
         throw new InvalidArgumentException('Invalid domain name after sanitization');
     }
-
     return SIG_BASE_DIR . '/domains/' . $domain;
 }
 
@@ -159,44 +144,27 @@ function has_sig(string $dir): bool {
 }
 function fallback_domains(): array {
     $decoded = json_decode(FALLBACK_DOMAINS, true);
-
-    // If not valid JSON or empty
     if (!is_array($decoded) || empty($decoded)) {
         return [];
     }
-
     $domains = [];
-
-    // Process different JSON structures
     foreach ($decoded as $item) {
-        // Case 1: Direct domain string
         if (is_string($item)) {
             $domains[] = $item;
-        }
-        // Case 2: Object/Array with 'domain' field (your structure)
-        elseif (is_array($item) && isset($item['domain'])) {
+        } elseif (is_array($item) && isset($item['domain'])) {
             $domains[] = (string)$item['domain'];
-        }
-        // Case 3: Object/Array with 'name' field (alternative)
-        elseif (is_array($item) && isset($item['name'])) {
+        } elseif (is_array($item) && isset($item['name'])) {
             $domains[] = (string)$item['name'];
-        }
-        // Case 4: Nested array - try the first element
-        elseif (is_array($item) && !empty($item)) {
+        } elseif (is_array($item) && !empty($item)) {
             $first = reset($item);
             if (is_string($first)) {
                 $domains[] = $first;
             }
         }
     }
-
-    // Remove duplicates and empty values
     $domains = array_unique($domains);
     $domains = array_filter($domains);
-
-    // Sort for consistent display
     sort($domains);
-
     return $domains;
 }
 function email_domain(string $email): string {
@@ -204,10 +172,6 @@ function email_domain(string $email): string {
 }
 
 // ─── Image processing ─────────────────────────────────────────────────────────
-/**
- * Accepts PNG/JPG/SVG upload, resizes to max IMG_MAX_PX on longest edge,
- * saves as PNG to $dest.  Returns [ok, error].
- */
 function process_image(array $file, string $dest): array {
     if ($file['size'] > MAX_IMG_BYTES)
         return [false, 'Image too large (max ' . (MAX_IMG_BYTES/1024) . ' KB).'];
@@ -215,7 +179,6 @@ function process_image(array $file, string $dest): array {
     $tmp  = $file['tmp_name'];
     $mime = mime_content_type($tmp);
 
-    // SVG → rasterize via Imagick if available, else reject
     if ($mime === 'image/svg+xml') {
         if (!extension_loaded('imagick'))
             return [false, 'SVG upload requires the Imagick PHP extension. Please upload PNG/JPG instead.'];
@@ -232,7 +195,6 @@ function process_image(array $file, string $dest): array {
         }
     }
 
-    // PNG / JPG via GD
     if (!in_array($mime, ['image/png', 'image/jpeg']))
         return [false, 'Unsupported image type. Please upload PNG, JPG or SVG.'];
 
@@ -250,12 +212,10 @@ function process_image(array $file, string $dest): array {
     }
 
     $dst = imagecreatetruecolor($nw, $nh);
-    // Preserve transparency
     imagealphablending($dst, false);
     imagesavealpha($dst, true);
     $trans = imagecolorallocatealpha($dst, 0, 0, 0, 127);
     imagefilledrectangle($dst, 0, 0, $nw, $nh, $trans);
-
     imagecopyresampled($dst, $src, 0, 0, 0, 0, $nw, $nh, $ow, $oh);
     imagedestroy($src);
 
@@ -315,20 +275,39 @@ if (session_valid()) {
     $me   = $_SESSION['email'];
     $role = $_SESSION['role'];
 
-    // SAVE signature (user or domain)
     if ($action === 'save_signature') {
-        $scope  = $_POST['scope'] ?? 'user';   // 'user' or 'domain'
+        $scope  = $_POST['scope'] ?? 'user';
         $target = ($scope === 'domain')
             ? trim($_POST['target_domain'] ?? '')
             : (($role !== 'user') ? trim($_POST['target_email'] ?? $me) : $me);
 
         $html_raw = trim($_POST['sig_html'] ?? '');
-        // Auto-generate plain text from HTML
-        $txt_raw  = trim(strip_tags(
-            str_replace(['<br>', '<br/>', '<br />', '</p>', '</div>'],
-                        ["\n",   "\n",    "\n",     "\n",   "\n"],
-                        $html_raw)
-        ));
+        // Convert HTML to plain text, handling tables and block elements cleanly
+        $txt_tmp = $html_raw;
+        // Table cell/row separators → readable whitespace BEFORE strip_tags
+        $txt_tmp = preg_replace('/<\/th>(\s*<th[^>]*>)/i', ' | ', $txt_tmp);
+        $txt_tmp = preg_replace('/<\/td>(\s*<td[^>]*>)/i', ' | ', $txt_tmp);
+        $txt_tmp = str_replace(
+            ['<tr', '<TR', '</tr>', '</TR>', '</th>', '</TD>', '</td>', '</TH>',
+             '<table', '<TABLE', '</table>', '</TABLE>',
+             '<thead', '<THEAD', '</thead>', '</THEAD>',
+             '<tbody', '<TBODY', '</tbody>', '</TBODY>',
+             '<tfoot', '<TFOOT', '</tfoot>', '</TFOOT>',
+             '<br>', '<br/>', '<br />', '<BR>', '<BR/>',
+             '</p>', '</P>', '</div>', '</DIV>'],
+            ["\n<tr", "\n<TR", "\n", "\n", "\n", "\n", "\n", "\n",
+             "\n<table", "\n<TABLE", "\n", "\n",
+             "\n<thead", "\n<THEAD", "\n", "\n",
+             "\n<tbody", "\n<TBODY", "\n", "\n",
+             "\n<tfoot", "\n<TFOOT", "\n", "\n",
+             "\n", "\n", "\n", "\n", "\n",
+             "\n", "\n", "\n", "\n"],
+            $txt_tmp
+        );
+        $txt_tmp = strip_tags($txt_tmp);
+        // Collapse runs of blank lines (more than 2 in a row → 1 blank line)
+        $txt_tmp = preg_replace('/\n{3,}/', "\n\n", $txt_tmp);
+        $txt_raw = trim($txt_tmp);
 
         if (empty($html_raw)) {
             $error = 'Signature HTML cannot be empty.';
@@ -337,13 +316,11 @@ if (session_valid()) {
         } elseif ($scope === 'user' && !validate_email($target)) {
             $error = 'Invalid email address.';
         } else {
-            // Write temp files (php-fpm user owns them, signature-manage copies as root)
             $tmp_html = tempnam(sys_get_temp_dir(), 'sig_html_');
             $tmp_txt  = tempnam(sys_get_temp_dir(), 'sig_txt_');
             file_put_contents($tmp_html, $html_raw);
             file_put_contents($tmp_txt,  $txt_raw);
 
-            // Handle image upload
             $tmp_img = '';
             if (!empty($_FILES['logo']['name']) && $_FILES['logo']['error'] === UPLOAD_ERR_OK) {
                 $tmp_img_dest = tempnam(sys_get_temp_dir(), 'sig_img_');
@@ -376,7 +353,6 @@ if (session_valid()) {
         }
     }
 
-    // DELETE signature
     if ($action === 'delete_signature') {
         $scope  = $_POST['scope'] ?? 'user';
         $target = ($scope === 'domain')
@@ -392,7 +368,6 @@ if (session_valid()) {
         }
     }
 
-    // Admin management
     if ($action === 'add_admin' && $role === 'superadmin') {
         $target = trim($_POST['admin_email'] ?? '');
         if (!validate_email($target)) { $error = 'Invalid email.'; }
@@ -433,13 +408,10 @@ if (session_valid()) {
 
     $view_domain = trim($_GET['domain'] ?? '');
 
-    // Load signature for display
     $user_sig_dir = sig_dir_user($view_email);
     $user_sig     = read_sig($user_sig_dir);
     $has_user_sig = has_sig($user_sig_dir);
 
-    // Determine what to pre-fill in editor
-    // Priority: user sig → domain fallback sig → empty
     $edit_html = $user_sig['html'];
     $edit_from_fallback = false;
     if (!$has_user_sig) {
@@ -564,12 +536,63 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 .tab-panel.active{display:block}
 
 /* Quill editor customization */
-.ql-container{border-bottom-left-radius:var(--radius);border-bottom-right-radius:var(--radius);
+.ql-container{border-bottom-left-radius:0;border-bottom-right-radius:0;
   font-family:inherit;font-size:14px;min-height:180px}
 .ql-toolbar{border-top-left-radius:var(--radius);border-top-right-radius:var(--radius);
   border-color:var(--border) !important;background:var(--surface2)}
 .ql-container{border-color:var(--border) !important}
 .ql-editor:focus{outline:none}
+
+/* ── HTML source editor ───────────────────────────────────────────────────── */
+.editor-wrap{position:relative}
+.editor-mode-bar{
+  display:flex;align-items:center;justify-content:space-between;
+  background:var(--surface2);border:1.5px solid var(--border);
+  border-top:none; /* sits below toolbar */
+  padding:4px 8px;font-size:12px;color:var(--text-muted)}
+.editor-mode-bar .mode-btns{display:flex;gap:4px}
+.mode-btn{padding:3px 10px;border-radius:4px;border:1.5px solid var(--border);
+  background:var(--surface);cursor:pointer;font-size:12px;font-weight:600;
+  font-family:inherit;color:var(--text-muted);transition:all .15s}
+.mode-btn.active{background:var(--nc-blue);border-color:var(--nc-blue);color:#fff}
+.mode-btn:hover:not(.active){background:var(--nc-blue-bg);border-color:var(--nc-blue);color:var(--nc-blue)}
+
+.html-source-editor{
+  display:none;width:100%;min-height:220px;
+  border:1.5px solid var(--border);border-top:none;
+  border-bottom-left-radius:var(--radius);border-bottom-right-radius:var(--radius);
+  padding:12px;font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;
+  font-size:13px;line-height:1.6;color:var(--text);background:#fafbfc;
+  resize:vertical;outline:none;tab-size:2}
+.html-source-editor:focus{border-color:var(--nc-blue);box-shadow:0 0 0 3px rgba(0,130,201,.10)}
+.html-source-editor.visible{display:block}
+
+/* When source mode active: hide Quill container but keep toolbar */
+.source-mode-active .ql-container{display:none}
+/* Round bottom corners of toolbar when source editor is shown */
+.source-mode-active .ql-toolbar{border-bottom-left-radius:0;border-bottom-right-radius:0}
+
+/* ── Table insert dialog ──────────────────────────────────────────────────── */
+.table-dialog-overlay{
+  display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);
+  z-index:9999;align-items:center;justify-content:center}
+.table-dialog-overlay.open{display:flex}
+.table-dialog{background:var(--surface);border-radius:var(--radius);
+  box-shadow:var(--shadow-lg);padding:24px;width:320px;max-width:95vw}
+.table-dialog h3{font-size:15px;font-weight:700;margin-bottom:16px;
+  display:flex;align-items:center;gap:8px}
+.table-grid{display:grid;grid-template-columns:repeat(8,28px);gap:3px;margin-bottom:14px}
+.table-grid-cell{width:28px;height:28px;border:1.5px solid var(--border);border-radius:3px;
+  cursor:pointer;transition:background .1s,border-color .1s;background:var(--surface)}
+.table-grid-cell.hovered{background:var(--nc-blue-bg);border-color:var(--nc-blue)}
+.table-grid-label{font-size:13px;color:var(--text-muted);margin-bottom:14px;min-height:18px}
+.table-dialog-actions{display:flex;gap:8px;justify-content:flex-end}
+
+/* ── Quill table styles (rendered output) ────────────────────────────────── */
+.ql-editor table{border-collapse:collapse;width:100%;margin:8px 0}
+.ql-editor td,.ql-editor th{
+  border:1px solid #c8d0da;padding:6px 10px;min-width:60px;vertical-align:top}
+.ql-editor th{background:var(--nc-blue-bg);font-weight:700}
 
 /* Preview iframe */
 .preview-wrap{border:1.5px solid var(--border);border-radius:var(--radius);
@@ -736,16 +759,32 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 
           <div class="form-group">
             <label>Signature (HTML)</label>
-            <div id="quill-editor"></div>
+            <!-- Editor wrapper: toolbar + mode-bar + quill + source textarea -->
+            <div class="editor-wrap" id="user-editor-wrap">
+              <div id="quill-editor"></div>
+              <div class="editor-mode-bar">
+                <span id="user-mode-label" style="font-size:11px">WYSIWYG mode</span>
+                <div class="mode-btns">
+                  <button type="button" class="mode-btn active" id="user-btn-wysiwyg"
+                          onclick="setEditorMode('user','wysiwyg')">✏️ Visual</button>
+                  <button type="button" class="mode-btn" id="user-btn-source"
+                          onclick="setEditorMode('user','source')">⟨/⟩ HTML</button>
+                  <button type="button" class="mode-btn" id="user-btn-table"
+                          onclick="openTableDialog('user')" title="Insert table">⊞ Table</button>
+                </div>
+              </div>
+              <textarea class="html-source-editor" id="user-source-editor"
+                        spellcheck="false" placeholder="Type or paste raw HTML here…"></textarea>
+            </div>
           </div>
 
           <div class="form-group" style="margin-top:16px">
             <label>Logo / Image <span style="font-weight:400;text-transform:none">(optional – PNG, JPG or SVG, max <?= MAX_IMG_BYTES/1024 ?> KB)</span></label>
-<input type="file" id="logo-input" name="logo" accept=".png,.jpg,.jpeg,.svg,image/png,image/jpeg,image/svg+xml"
-       onchange="previewLogo(this)" style="display:none">
-<div class="upload-area" onclick="document.getElementById('logo-input').click()">
-  <span id="upload-label">📎 Click to choose image…</span>
-</div>
+            <input type="file" id="logo-input" name="logo" accept=".png,.jpg,.jpeg,.svg,image/png,image/jpeg,image/svg+xml"
+                   onchange="previewLogo(this)" style="display:none">
+            <div class="upload-area" onclick="document.getElementById('logo-input').click()">
+              <span id="upload-label">📎 Click to choose image…</span>
+            </div>
             <?php if ($has_user_sig && $user_sig['logo']): ?>
             <div id="current-logo" style="margin-top:8px;font-size:13px;color:var(--text-muted)">
               Current logo: <img src="data:image/png;base64,<?= base64_encode(file_get_contents(sig_dir_user($view_email).'/logo.png')) ?>"
@@ -827,29 +866,22 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
   <?php
     try {
       $domains = fallback_domains();
-    
-      if (!is_array($domains)) {
-          $domains = [];
-      }
-    
-      // convert all domains to strings
+      if (!is_array($domains)) { $domains = []; }
       $domains = array_map('strval', $domains);
       $domains = array_filter($domains);
-    
+
       $sel_domain = '';
       if (!empty($view_domain) && is_string($view_domain) && in_array($view_domain, $domains)) {
           $sel_domain = $view_domain;
       } elseif (!empty($domains)) {
           $sel_domain = $domains[0];
       }
-    
-      // continue only with domain
+
       if (!empty($sel_domain) && is_string($sel_domain)) {
           $dom_sig_dir = sig_dir_domain($sel_domain);
           $dom_sig = read_sig($dom_sig_dir);
           $has_dom_sig = has_sig($dom_sig_dir);
       } else {
-          // no domain - error
           echo '<div class="card"><div class="card-body">';
           echo '<div class="alert alert-warning">⚠️ No valid domains configured. Please check the signature_fallback_domains setting.</div>';
           echo '</div></div>';
@@ -930,16 +962,31 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 
           <div class="form-group">
             <label>Signature (HTML)</label>
-            <div id="dom-quill-editor"><?= $dom_sig['html'] ?></div>
+            <div class="editor-wrap" id="dom-editor-wrap">
+              <div id="dom-quill-editor"><?= $dom_sig['html'] ?></div>
+              <div class="editor-mode-bar">
+                <span id="dom-mode-label" style="font-size:11px">WYSIWYG mode</span>
+                <div class="mode-btns">
+                  <button type="button" class="mode-btn active" id="dom-btn-wysiwyg"
+                          onclick="setEditorMode('dom','wysiwyg')">✏️ Visual</button>
+                  <button type="button" class="mode-btn" id="dom-btn-source"
+                          onclick="setEditorMode('dom','source')">⟨/⟩ HTML</button>
+                  <button type="button" class="mode-btn" id="dom-btn-table"
+                          onclick="openTableDialog('dom')" title="Insert table">⊞ Table</button>
+                </div>
+              </div>
+              <textarea class="html-source-editor" id="dom-source-editor"
+                        spellcheck="false" placeholder="Type or paste raw HTML here…"></textarea>
+            </div>
           </div>
 
           <div class="form-group" style="margin-top:16px">
             <label>Logo / Image <span style="font-weight:400;text-transform:none">(optional)</span></label>
-<input type="file" id="dom-logo-input" name="logo" accept=".png,.jpg,.jpeg,.svg,image/png,image/jpeg,image/svg+xml"
-       onchange="previewDomLogo(this)" style="display:none">
-<div class="upload-area" onclick="document.getElementById('dom-logo-input').click()">
-  <span id="dom-upload-label">📎 Click to choose image…</span>
-</div>
+            <input type="file" id="dom-logo-input" name="logo" accept=".png,.jpg,.jpeg,.svg,image/png,image/jpeg,image/svg+xml"
+                   onchange="previewDomLogo(this)" style="display:none">
+            <div class="upload-area" onclick="document.getElementById('dom-logo-input').click()">
+              <span id="dom-upload-label">📎 Click to choose image…</span>
+            </div>
             <?php if ($has_dom_sig && $dom_sig['logo']): ?>
             <img src="data:image/png;base64,<?= base64_encode(file_get_contents($dom_sig_dir.'/logo.png')) ?>"
                  class="logo-preview" id="dom-logo-preview-img" alt="Domain logo">
@@ -1039,8 +1086,24 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 
 </div><!-- /page -->
 
+<!-- ── Table insert dialog ──────────────────────────────────────────────────── -->
+<div class="table-dialog-overlay" id="table-dialog-overlay" onclick="closeTableDialog(event)">
+  <div class="table-dialog" onclick="event.stopPropagation()">
+    <h3>⊞ Insert Table</h3>
+    <div class="table-grid" id="table-grid"></div>
+    <div class="table-grid-label" id="table-grid-label">Hover to select size</div>
+    <div class="table-dialog-actions">
+      <button type="button" class="btn btn-ghost btn-sm" onclick="closeTableDialog()">Cancel</button>
+      <button type="button" class="btn btn-primary btn-sm" id="table-insert-btn"
+              onclick="confirmInsertTable()" disabled>Insert</button>
+    </div>
+  </div>
+</div>
+
 <script>
-// ── Tab switching ──────────────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+// Tab switching
+// ══════════════════════════════════════════════════════════════════════════════
 function switchTab(name) {
   const names = ['signature','users','domains','admins'];
   document.querySelectorAll('.tab-btn').forEach((b,i) => b.classList.toggle('active', names[i]===name));
@@ -1056,7 +1119,9 @@ function switchTab(name) {
   if (tab && document.getElementById('tab-'+tab)) switchTab(tab);
 })();
 
-// ── Quill – user signature editor ─────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+// Quill – user signature editor
+// ══════════════════════════════════════════════════════════════════════════════
 const quill = new Quill('#quill-editor', {
   theme: 'snow',
   modules: {
@@ -1071,18 +1136,10 @@ const quill = new Quill('#quill-editor', {
   }
 });
 
-document.querySelectorAll('.tab-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    if (btn.textContent.includes('Signature') || btn.textContent.includes('User')) {
-      setTimeout(() => quill.update(), 10);
-    }
-  });
-});
-
 quill.clipboard.dangerouslyPasteHTML(<?= json_encode($edit_html) ?>);
 
 function updatePreview() {
-  const html = quill.root.innerHTML;
+  const html = getEditorHtml('user');
   document.getElementById('sig_html_input').value = html;
   const frame = document.getElementById('sig-preview');
   frame.srcdoc = "<html><body style='font-family:sans-serif;padding:12px'>" + html + "</body></html>";
@@ -1090,10 +1147,12 @@ function updatePreview() {
 quill.on('text-change', () => { clearTimeout(quill._previewTimer); quill._previewTimer = setTimeout(updatePreview, 600); });
 
 document.getElementById('sig-form').addEventListener('submit', function() {
-  document.getElementById('sig_html_input').value = quill.root.innerHTML;
+  document.getElementById('sig_html_input').value = getEditorHtml('user');
 });
 
-// ── Quill – domain signature editor ───────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+// Quill – domain signature editor
+// ══════════════════════════════════════════════════════════════════════════════
 <?php if ($show_tabs): ?>
 const domQuill = new Quill('#dom-quill-editor', {
   theme: 'snow',
@@ -1110,7 +1169,7 @@ const domQuill = new Quill('#dom-quill-editor', {
 });
 
 function updateDomPreview() {
-  const html = domQuill.root.innerHTML;
+  const html = getEditorHtml('dom');
   document.getElementById('dom_sig_html_input').value = html;
   const frame = document.getElementById('dom-sig-preview');
   frame.srcdoc = "<html><body style='font-family:sans-serif;padding:12px'>" + html + "</body></html>";
@@ -1118,11 +1177,168 @@ function updateDomPreview() {
 domQuill.on('text-change', () => { clearTimeout(domQuill._previewTimer); domQuill._previewTimer = setTimeout(updateDomPreview, 600); });
 
 document.getElementById('dom-sig-form').addEventListener('submit', function() {
-  document.getElementById('dom_sig_html_input').value = domQuill.root.innerHTML;
+  document.getElementById('dom_sig_html_input').value = getEditorHtml('dom');
 });
 <?php endif; ?>
 
-// ── Logo preview helpers ───────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+// Editor mode switcher  (WYSIWYG ↔ HTML source)
+// ══════════════════════════════════════════════════════════════════════════════
+const _editorState = { user: 'wysiwyg', dom: 'wysiwyg' };
+
+function getQuill(prefix) { return prefix === 'user' ? quill : (typeof domQuill !== 'undefined' ? domQuill : null); }
+
+function getEditorHtml(prefix) {
+  if (_editorState[prefix] === 'source') {
+    return document.getElementById(prefix + '-source-editor').value;
+  }
+  const q = getQuill(prefix);
+  return q ? q.root.innerHTML : '';
+}
+
+function setEditorMode(prefix, mode) {
+  const q        = getQuill(prefix);
+  const wrap     = document.getElementById(prefix + '-editor-wrap');
+  const srcArea  = document.getElementById(prefix + '-source-editor');
+  const btnVisual = document.getElementById(prefix + '-btn-wysiwyg');
+  const btnSource = document.getElementById(prefix + '-btn-source');
+  const modeLabel = document.getElementById(prefix + '-mode-label');
+
+  if (mode === 'source') {
+    // Sync Quill → textarea
+    if (q) srcArea.value = q.root.innerHTML;
+    srcArea.classList.add('visible');
+    wrap.classList.add('source-mode-active');
+    btnVisual.classList.remove('active');
+    btnSource.classList.add('active');
+    modeLabel.textContent = 'HTML source mode';
+  } else {
+    // Sync textarea → Quill
+    if (q && srcArea.value.trim() !== '') {
+      q.clipboard.dangerouslyPasteHTML(srcArea.value);
+    }
+    srcArea.classList.remove('visible');
+    wrap.classList.remove('source-mode-active');
+    btnVisual.classList.add('active');
+    btnSource.classList.remove('active');
+    modeLabel.textContent = 'WYSIWYG mode';
+  }
+  _editorState[prefix] = mode;
+}
+
+// Live source → preview sync (debounced)
+['user','dom'].forEach(pfx => {
+  const ta = document.getElementById(pfx + '-source-editor');
+  if (!ta) return;
+  ta.addEventListener('input', () => {
+    clearTimeout(ta._pt);
+    ta._pt = setTimeout(() => {
+      if (_editorState[pfx] === 'source') {
+        const html = ta.value;
+        const frameId = pfx === 'user' ? 'sig-preview' : 'dom-sig-preview';
+        const frame = document.getElementById(frameId);
+        if (frame) frame.srcdoc = "<html><body style='font-family:sans-serif;padding:12px'>" + html + "</body></html>";
+      }
+    }, 600);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Table insert dialog
+// ══════════════════════════════════════════════════════════════════════════════
+let _tableTarget = 'user';
+let _tableRows   = 0;
+let _tableCols   = 0;
+
+function buildTableGrid() {
+  const grid = document.getElementById('table-grid');
+  grid.innerHTML = '';
+  for (let r = 1; r <= 6; r++) {
+    for (let c = 1; c <= 8; c++) {
+      const cell = document.createElement('div');
+      cell.className = 'table-grid-cell';
+      cell.dataset.r = r;
+      cell.dataset.c = c;
+      cell.addEventListener('mouseover', () => highlightGrid(r, c));
+      cell.addEventListener('click',     () => selectGridSize(r, c));
+      grid.appendChild(cell);
+    }
+  }
+}
+
+function highlightGrid(rows, cols) {
+  _tableRows = rows; _tableCols = cols;
+  document.querySelectorAll('.table-grid-cell').forEach(cell => {
+    cell.classList.toggle('hovered', +cell.dataset.r <= rows && +cell.dataset.c <= cols);
+  });
+  document.getElementById('table-grid-label').textContent = rows + ' × ' + cols + ' table';
+  document.getElementById('table-insert-btn').disabled = false;
+}
+
+function selectGridSize(rows, cols) {
+  _tableRows = rows; _tableCols = cols;
+  confirmInsertTable();
+}
+
+function openTableDialog(prefix) {
+  _tableTarget = prefix;
+  _tableRows = 0; _tableCols = 0;
+  buildTableGrid();
+  document.getElementById('table-grid-label').textContent = 'Hover to select size';
+  document.getElementById('table-insert-btn').disabled = true;
+  document.getElementById('table-dialog-overlay').classList.add('open');
+}
+
+function closeTableDialog(e) {
+  if (!e || e.target === document.getElementById('table-dialog-overlay'))
+    document.getElementById('table-dialog-overlay').classList.remove('open');
+}
+
+function confirmInsertTable() {
+  if (!_tableRows || !_tableCols) return;
+  document.getElementById('table-dialog-overlay').classList.remove('open');
+
+  const rows = _tableRows, cols = _tableCols;
+
+  if (_editorState[_tableTarget] === 'source') {
+    // Insert into raw HTML textarea
+    const ta = document.getElementById(_tableTarget + '-source-editor');
+    const tableHtml = buildTableHtml(rows, cols);
+    const pos = ta.selectionStart;
+    ta.value = ta.value.slice(0, pos) + tableHtml + ta.value.slice(ta.selectionEnd);
+    ta.selectionStart = ta.selectionEnd = pos + tableHtml.length;
+    ta.dispatchEvent(new Event('input'));
+    ta.focus();
+  } else {
+    // Insert into Quill via clipboard
+    const q = getQuill(_tableTarget);
+    if (!q) return;
+    const tableHtml = buildTableHtml(rows, cols);
+    const range = q.getSelection(true);
+    const idx   = range ? range.index : q.getLength();
+    q.clipboard.dangerouslyPasteHTML(idx, tableHtml);
+    // Move cursor after table
+    q.setSelection(idx + 1, 0);
+  }
+}
+
+function buildTableHtml(rows, cols) {
+  const cellStyle = 'border:1px solid #c8d0da;padding:6px 10px;min-width:60px;';
+  let html = '<table style="border-collapse:collapse;width:100%;margin:8px 0"><tbody>';
+  for (let r = 0; r < rows; r++) {
+    html += '<tr>';
+    for (let c = 0; c < cols; c++) {
+      html += '<td style="' + cellStyle + '">&nbsp;</td>';
+    }
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  return html;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Logo preview helpers
+// ══════════════════════════════════════════════════════════════════════════════
 function previewLogo(input) {
   if (!input.files || !input.files[0]) return;
   const file = input.files[0];
@@ -1153,3 +1369,4 @@ function previewDomLogo(input) {
 <?php endif; // session_valid ?>
 </body>
 </html>
+

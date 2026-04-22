@@ -31,7 +31,7 @@ done
 
 if [[ -z "$SENDER" || ${#RECIPIENTS[@]} -eq 0 ]]; then
     log "ERROR: missing sender or recipients"
-    cat | "$SENDMAIL" -i "${RECIPIENTS[@]}"
+    cat | "$SENDMAIL" -f "$SENDER" -i "${RECIPIENTS[@]}"
     exit 0
 fi
 
@@ -65,7 +65,7 @@ fi
 # No signature found – pass through unchanged
 if [[ -z "$SIG_HTML" && -z "$SIG_TXT" ]]; then
     log "no signature for <$SENDER_LOWER>, passing through"
-    cat | "$SENDMAIL" -i "${RECIPIENTS[@]}"
+    cat | "$SENDMAIL" -f "$SENDER" -i "${RECIPIENTS[@]}"
     exit 0
 fi
 
@@ -91,12 +91,13 @@ ALTERMIME_ARGS+=("--force-for-bad-html")
 
 if ! "$ALTERMIME" "${ALTERMIME_ARGS[@]}"; then
     log "ERROR: altermime failed for <$SENDER_LOWER>, passing through original"
-    "$SENDMAIL" -i "${RECIPIENTS[@]}" < "$TMPFILE"
+    "$SENDMAIL" -f "$SENDER" -i "${RECIPIENTS[@]}" < "$TMPFILE"
     exit 0
 fi
 
 log "signature appended for <$SENDER_LOWER>"
 
 # Reinject into Postfix
-"$SENDMAIL" -i "${RECIPIENTS[@]}" < "$TMPFILE"
+"$SENDMAIL" -f "$SENDER" -i "${RECIPIENTS[@]}" < "$TMPFILE"
 {% endraw %}
+
