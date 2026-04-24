@@ -44,6 +44,15 @@
     label: "{{ item.domain }}"
   tags: signature_dirs
 
+- name: Create plugins directory for rspamd
+  ansible.builtin.file:
+    path: /etc/rspamd/plugins.d
+    state: directory
+    owner: root
+    group: _rspamd
+    mode: '0750'
+  tags: signature_dirs
+
 # ── 3. signature-manage helper script ────────────────────────────────────────
 
 - name: Deploy signature-manage script
@@ -151,10 +160,15 @@
 
 - name: Ensure footer.lua is enabled in rspamd local configuration
   ansible.builtin.blockinfile:
-    path: /etc/rspamd/rspamd.conf.local
+    path: /etc/rspamd/local.d/footer.conf
+    create: true
+    owner: root
+    group: _rspamd
+    mode: '0640'
     marker: "# {mark} ANSIBLE MANAGED - footer lua"
     block: |
-      lua = "/etc/rspamd/plugins.d/footer.lua";
+      enabled = true;
+      source = "/etc/rspamd/modules.local.d/footer.lua";
   notify: reload rspamd
   tags: signature_rspamd
 
