@@ -319,6 +319,12 @@ create_maildir() {
 # ============================================
 # Baikal Integration
 # ============================================
+# Neue Hilfsfunktion: Führt mehrere SQL-Statements in einer Verbindung aus
+mysql_multi() {
+    local sql="$1"
+    mysql -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" -sN -e "$sql" 2>/dev/null
+}
+
 create_baikal_user() {
     local email=$1
     local password=$2
@@ -353,25 +359,31 @@ create_baikal_user() {
     fi
 
     local principal="principals/$email"
+    
+    # Check if calendar instance already exists for this user
     local calendar_id=$(baikal_cmd "SELECT calendarid FROM calendarinstances WHERE principaluri='$principal' AND uri='default' LIMIT 1;")
 
     if [[ -z "$calendar_id" ]]; then
-        local existing_count=$(baikal_cmd "SELECT COUNT(*) FROM calendars;")
-        if [[ "$existing_count" -eq 0 ]]; then
-            baikal_cmd "INSERT INTO calendars (id, synctoken, components) VALUES (1, 1, 'VEVENT,VTODO');"
-            calendar_id=1
+        # Create calendar and instance in ONE transaction (same connection)
+        local sql="
+            START TRANSACTION;
+            INSERT INTO calendars (synctoken, components) VALUES (1, 'VEVENT,VTODO');
+            INSERT INTO calendarinstances (calendarid, principaluri, access, displayname, uri, description, calendarorder, calendarcolor, timezone, transparent, share_invitestatus) 
+            VALUES (LAST_INSERT_ID(), '$principal', 1, 'Personal', 'default', 'Default calendar', 0, '#3a87adff', 'Europe/Vienna', 0, 2);
+            COMMIT;
+            SELECT LAST_INSERT_ID();
+        "
+        
+        local new_calendar_id=$(mysql_multi "$sql")
+        
+        if [[ -n "$new_calendar_id" && "$new_calendar_id" -gt 0 ]]; then
+            echo -e "${GREEN}✓ Calendar created with ID $new_calendar_id${NC}"
         else
-            baikal_cmd "INSERT INTO calendars (synctoken, components) VALUES (1, 'VEVENT,VTODO');"
-            calendar_id=$(baikal_cmd "SELECT LAST_INSERT_ID();")
-        fi
-
-        if baikal_cmd "INSERT INTO calendarinstances (calendarid, principaluri, access, displayname, uri, description, calendarorder, calendarcolor, timezone, transparent, share_invitestatus) VALUES ($calendar_id, '$principal', 1, 'Personal', 'default', 'Default calendar', 0, '#3a87adff', 'Europe/Vienna', 0, 2);" 2>/dev/null; then
-            echo -e "${GREEN}✓ Calendar created${NC}"
-        else
-            echo -e "${YELLOW}Warning: Could not create calendar instance${NC}"
+            echo -e "${RED}Error: Could not create calendar instance${NC}"
+            return 1
         fi
     else
-        echo "existing calendar (ID $calendar_id) - reuse"
+        echo -e "${GREEN}✓ Calendar already exists for this user (ID $calendar_id) - reusing${NC}"
     fi
 
     echo -e "${GREEN}✓ Baikal setup complete for $email${NC}"
