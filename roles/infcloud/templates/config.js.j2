@@ -22,7 +22,7 @@ var globalHideInfoMessageAfter = 1000;
 var globalNetworkCheckSettings = {
     href: 'https://{{ ansible_fqdn }}/dav/dav.php/principals/',
     crossDomain: false,
-    withCredentials: false,
+    withCredentials: true,
     settingsAccount: true,
     timeOut: 90000,
     lockTimeOut: 10000,
@@ -58,7 +58,7 @@ function onLogin() {
         settingsAccount: true,
         loadedcalendarcollections: [
             {
-                href: 'https://{{ ansible_fqdn }}/dav/dav.php/calendars/' + username + '/' + usernamePart + '-calendar/',
+                href: 'https://{{ ansible_fqdn }}/dav/dav.php/calendars/' + username + '/default/',
                 displayname: 'My Calendar'
             }
         ],
@@ -147,4 +147,3 @@ var globalActiveApp = {% if infcloud_enable_calendar %}'CalDavZAP'{% elif infclo
 
 // Debugging
 var globalDebug = false;
-
