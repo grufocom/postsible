@@ -1,0 +1,39 @@
+/**
+ * Postsible Tools – Thunderbird Extension popup script
+ * Opens Vacation Manager or Signature Manager in the default browser.
+ */
+
+(function () {
+    'use strict';
+
+    // The hostname is injected at build/deploy time by Ansible.
+    // We derive it from the extension ID or fall back to a stored value.
+    const BASE_URL = 'https://{{ common_hostname }}';
+
+    const TOOLS = {
+        vacation:  BASE_URL + '/vacation/',
+        signature: BASE_URL + '/signature/',
+    };
+
+    function openTool(url) {
+        // messenger.windows.openDefaultBrowser is TB78+
+        if (typeof messenger !== 'undefined' && messenger.windows) {
+            messenger.windows.openDefaultBrowser(url);
+        } else if (typeof browser !== 'undefined') {
+            browser.tabs.create({ url });
+        } else {
+            window.open(url, '_blank');
+        }
+        window.close();
+    }
+
+    document.getElementById('btn-vacation').addEventListener('click', () => {
+        openTool(TOOLS.vacation);
+    });
+
+    document.getElementById('btn-signature').addEventListener('click', () => {
+        openTool(TOOLS.signature);
+    });
+
+})();
+
