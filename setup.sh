@@ -442,9 +442,15 @@ done
 
 printf "${BOLD}Next steps:${NC}\n\n"
 printf "1. Set passwords in vault:\n"
-printf "   cp inventory/group_vars/mailservers/vault.yml.example inventory/group_vars/mailservers/vault.yml\n"
-printf "   \$EDITOR inventory/group_vars/mailservers/vault.yml --ask-vault-pass\n"
-printf "   ansible-vault encrypt inventory/group_vars/mailservers/vault.yml\n\n"
+printf "   cp inventory/group_vars/mailservers/vault.yml.example inventory/group_vars/mailservers/vault.yml\n"a
+printf "   # Edit passwords (replace all CHANGE_ME values)\n"
+printf "   nano inventory/group_vars/mailservers/vault.yml \n"
+printf "   ansible-vault encrypt inventory/group_vars/mailservers/vault.yml --ask-vault-pass\n\n"
+
+printf "# Before running the playbook, review `inventory/group_vars/mailservers/vars.yml`\n"
+printf "# and adjust the settings to match your environment. In particular, check the\n"
+printf "# firewall (UFW) rules if you want to restrict SSH access to specific IP addresses\n"
+printf "# or ranges — the defaults allow SSH from anywhere.\n\n"
 
 printf "2. Test connection:\n"
 printf "   ansible mailservers -m ping --ask-vault-pass\n\n"
