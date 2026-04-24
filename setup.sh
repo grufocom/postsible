@@ -324,10 +324,6 @@ certbot_dns_check: true
 # ── SSL paths ─────────────────────────────────────────────────────────────────
 mail_ssl_cert_path: "/etc/letsencrypt/live"
 
-# ── Ports ─────────────────────────────────────────────────────────────────────
-mail_imap_port: 993
-mail_smtp_port: 587
-
 # ── MariaDB ───────────────────────────────────────────────────────────────────
 mariadb_database: "mailserver"
 mariadb_user: "mailuser"

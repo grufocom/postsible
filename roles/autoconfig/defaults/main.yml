@@ -6,9 +6,9 @@ autoconfig_imap_hostname: "{{ autoconfig_mail_hostname }}"
 autoconfig_smtp_hostname: "{{ autoconfig_mail_hostname }}"
 
 # Port configuration
-autoconfig_imap_port: "{{ mail_imap_port | default(993) }}"
+autoconfig_imap_port: "993"
 autoconfig_imap_socket_type: "SSL"  # SSL or STARTTLS
-autoconfig_smtp_port: "{{ mail_smtp_port | default(587) }}"
+autoconfig_smtp_port: "587"
 autoconfig_smtp_socket_type: "STARTTLS"  # SSL or STARTTLS
 
 # Authentication

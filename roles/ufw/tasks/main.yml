@@ -161,7 +161,7 @@
 - name: Allow SMTPS (Port 465)
   ufw:
     rule: allow
-    port: "{{ mail_smtp_port }}"
+    port: 465
     proto: tcp
     comment: "SMTPS - SMTP over SSL"
   when: ufw_enable_smtps | default(true)
@@ -170,7 +170,7 @@
 - name: Allow IMAPS (Port 993)
   ufw:
     rule: allow
-    port: "{{ mail_imap_port }}"
+    port: 993
     proto: tcp
     comment: "IMAPS - IMAP over SSL"
   tags: ufw

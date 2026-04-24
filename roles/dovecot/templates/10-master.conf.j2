@@ -7,7 +7,7 @@ service imap-login {
 				listen = 127.0.0.1
   }
   inet_listener imaps {
-    port = {{ mail_imap_port }}
+    port = 993
     ssl = yes
 				listen = *
   }
