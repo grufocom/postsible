@@ -1,8 +1,11 @@
-; {{ ansible_managed }}
-; PHP-FPM Pool for Postsible Signature Manager
+; /etc/php/8.4/fpm/pool.d/signature.conf
+; Managed by Ansible (roles/signature) — do not edit manually.
+;
+; Dedicated PHP-FPM pool for the Signature Manager.
+; Runs as www-data; exec() is allowed because writes go through the
+; signature-manage helper (via sudo) which validates all inputs.
 
 [signature]
-
 user  = {{ signature_webserver_user }}
 group = {{ signature_webserver_user }}
 
@@ -15,15 +18,26 @@ pm                   = dynamic
 pm.max_children      = 5
 pm.start_servers     = 1
 pm.min_spare_servers = 1
-pm.max_spare_servers = 2
+pm.max_spare_servers = 3
+pm.max_requests      = 500
 
-; Allow exec() for sudo signature-manage calls and GD image processing
-php_admin_value[disable_functions] = passthru,shell_exec,system,proc_open,popen,curl_exec,curl_multi_exec,parse_ini_file,show_source
+; Security: restrict which functions can be called.
+; exec() is needed for sudo signature-manage.
+php_admin_value[disable_functions] = passthru,shell_exec,system,popen,proc_open
 
-php_admin_value[error_log]      = /var/log/php8.4-fpm-signature.log
-php_flag[log_errors]            = on
-php_admin_value[display_errors] = off
+; Environment variables passed into PHP
+env[SIGNATURE_BASE_DIR]       = {{ signature_base_dir }}
+env[SIGNATURE_MANAGE]         = {{ signature_manage }}
+env[SIGNATURE_DB_HOST]        = {{ signature_db_host }}
+env[SIGNATURE_DB_NAME]        = {{ signature_db_name }}
+env[SIGNATURE_DB_USER]        = {{ signature_db_user }}
+env[SIGNATURE_DB_PASS]        = {{ signature_db_pass }}
+env[SIGNATURE_IMAP_HOST]      = {{ signature_imap_host }}
+env[SIGNATURE_IMAP_PORT]      = {{ signature_imap_port }}
+env[SIGNATURE_MAX_IMAGE_BYTES]= {{ signature_max_image_bytes }}
+env[SIGNATURE_IMAGE_MAX_PX]   = {{ signature_image_max_px }}
 
-; Allow file uploads (for logo images)
-php_admin_value[upload_max_filesize] = 2M
-php_admin_value[post_max_size]       = 4M
+; Logging
+php_flag[display_errors]      = off
+php_admin_value[error_log]    = /var/log/php8.4-fpm-signature.log
+php_admin_flag[log_errors]    = on

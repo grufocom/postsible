@@ -1,12 +1,11 @@
 ---
 # roles/signature/tasks/main.yml
-# Key change: signature location block inserted into EVERY domain vhost.
 
 # ── 1. PHP GD extension ───────────────────────────────────────────────────────
 
 - name: Ensure PHP GD extension is installed
   ansible.builtin.apt:
-    name: "php8.4-gd"
+    name: php8.4-gd
     state: present
   tags: signature_php
 
@@ -21,17 +20,19 @@
     mode: '0750'
   tags: signature_dirs
 
-- name: Create signature users/domains directories
+- name: Create signature users and domains subdirectories
   ansible.builtin.file:
     path: "{{ signature_base_dir }}/{{ item }}"
     state: directory
     owner: root
     group: _rspamd
     mode: '0755'
-  loop: [users, domains]
+  loop:
+    - users
+    - domains
   tags: signature_dirs
 
-- name: Create domain fallback directories
+- name: Create per-domain fallback directories
   ansible.builtin.file:
     path: "{{ signature_base_dir }}/domains/{{ item.domain }}"
     state: directory
@@ -78,7 +79,7 @@
   notify: restart php-fpm
   tags: signature_php
 
-# ── 6. Web root & PHP app ─────────────────────────────────────────────────────
+# ── 6. Web root & PHP application ─────────────────────────────────────────────
 
 - name: Create signature web root directory
   ansible.builtin.file:
@@ -98,7 +99,7 @@
     mode: '0640'
   tags: signature_web
 
-- name: Deploy signature-plugin.js
+- name: Deploy signature-plugin.js (Thunderbird extension helper)
   ansible.builtin.copy:
     src: signature-plugin.js
     dest: /var/www/signature-plugin.js
@@ -108,9 +109,9 @@
   notify: reload nginx
   tags: signature_web
 
-# ── 7. nginx: signature location in EVERY domain vhost ───────────────────────
+# ── 7. nginx: signature location block in every domain vhost ─────────────────
 
-- name: Insert signature location into each domain vhost
+- name: Insert signature location block into each domain vhost
   ansible.builtin.blockinfile:
     path: "/etc/nginx/sites-available/{{ item.mx_hostname }}.conf"
     marker: "# {mark} ANSIBLE MANAGED - signature location"
@@ -136,13 +137,34 @@
   notify: reload nginx
   tags: signature_nginx
 
-# ── 8. Build XPI ──────────────────────────────────────────────────────────────
+# ── 8. rspamd: footer.lua prefilter ──────────────────────────────────────────
+
+- name: Deploy rspamd footer.lua
+  ansible.builtin.template:
+    src: footer.lua.j2
+    dest: /etc/rspamd/plugins.d/footer.lua
+    owner: root
+    group: _rspamd
+    mode: '0640'
+  notify: reload rspamd
+  tags: signature_rspamd
+
+- name: Ensure footer.lua is enabled in rspamd local configuration
+  ansible.builtin.blockinfile:
+    path: /etc/rspamd/rspamd.conf.local
+    marker: "# {mark} ANSIBLE MANAGED - footer lua"
+    block: |
+      lua = "/etc/rspamd/plugins.d/footer.lua";
+  notify: reload rspamd
+  tags: signature_rspamd
+
+# ── 9. Build and deploy Thunderbird XPI extension ────────────────────────────
 
 - name: Build and deploy Postsible Tools XPI
   ansible.builtin.include_tasks: build_xpi.yml
   tags: signature_xpi
 
-# ── 9. Database table ────────────────────────────────────────────────────────
+# ── 10. Database: signature_admins table ─────────────────────────────────────
 
 - name: Create signature_admins table
   community.mysql.mysql_query:
@@ -151,9 +173,9 @@
     login_db: "{{ signature_db_name }}"
     query: |
       CREATE TABLE IF NOT EXISTS signature_admins (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        email VARCHAR(255) NOT NULL UNIQUE,
-        role ENUM('superadmin', 'admin') DEFAULT 'admin',
+        id         INT AUTO_INCREMENT PRIMARY KEY,
+        email      VARCHAR(255) NOT NULL UNIQUE,
+        role       ENUM('superadmin','admin') DEFAULT 'admin',
         granted_by VARCHAR(255),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -169,7 +191,7 @@
       VALUES ('{{ mail_virtual_domains[0].admin_email }}', 'superadmin', 'ansible');
   tags: signature_db
 
-# ── 10. Deployment summary ────────────────────────────────────────────────────
+# ── 11. Deployment summary ────────────────────────────────────────────────────
 
 - name: Add signature info to deployment summary
   ansible.builtin.blockinfile:
@@ -181,10 +203,5 @@
         - https://{{ d.mx_hostname }}{{ signature_web_path }}/
       {% endfor %}
         Signatures stored: {{ signature_base_dir }}/
+        rspamd footer:     /etc/rspamd/plugins.d/footer.lua
   tags: signature_summary
-
-# ── 11. altermime signature filter ───────────────────────────────────────────
-
-- name: Deploy altermime signature filter
-  ansible.builtin.include_tasks: altermime.yml
-  tags: signature_altermime

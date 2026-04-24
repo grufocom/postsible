@@ -1,0 +1,169 @@
+-- /etc/rspamd/plugins.d/footer.lua
+-- Managed by Ansible (roles/signature) — do not edit manually.
+--
+-- Appends per-user or per-domain HTML/plain-text signatures to outbound mail.
+-- Runs as a prefilter at priority 10 — executes BEFORE DKIM signing so that
+-- body hashes remain valid at the recipient's end.
+--
+-- Signature file locations:
+--   Per-user:   {{ signature_base_dir }}/users/<email>/signature.{html,txt}
+--   Per-domain: {{ signature_base_dir }}/domains/<domain>/signature.{html,txt}
+
+local rspamd_logger = require "rspamd_logger"
+local lua_mime      = require "lua_mime"
+local rspamd_text   = require "rspamd_text"
+
+rspamd_logger.infox(rspamd_config, "footer.lua: loading")
+
+-- ---------------------------------------------------------------------------
+-- Helpers
+-- ---------------------------------------------------------------------------
+
+--- Return the message newline string (\r\n, \n, or \r).
+local function get_newline(task)
+  local t = task:get_newlines_type()
+  if     t == 'lf' then return '\n'
+  elseif t == 'cr' then return '\r'
+  end
+  return '\r\n'
+end
+
+--- Try to read a file; returns content string or nil.
+local function read_file(path)
+  local f = io.open(path, "r")
+  if not f then return nil end
+  local content = f:read("*all")
+  f:close()
+  return content
+end
+
+--- Load HTML and plain-text signature for *user* (full e-mail address).
+-- Falls back to domain-level signature when no user signature exists.
+local function load_signature(user)
+  -- Per-user paths
+  local user_dir    = "{{ signature_base_dir }}/users/" .. user
+  local html        = read_file(user_dir .. "/signature.html")
+  local plain       = read_file(user_dir .. "/signature.txt")
+
+  if html or plain then
+    return html, plain
+  end
+
+  -- Domain fallback: extract domain part after '@'
+  local domain = user:match("@(.+)$")
+  if not domain then return nil, nil end
+
+  local domain_dir = "{{ signature_base_dir }}/domains/" .. domain
+  html  = read_file(domain_dir .. "/signature.html")
+  plain = read_file(domain_dir .. "/signature.txt")
+
+  return html, plain
+end
+
+-- ---------------------------------------------------------------------------
+-- Main callback
+-- ---------------------------------------------------------------------------
+
+local function footer_callback(task)
+  local user = task:get_user()
+  if not user then return false end
+
+  local footer_html, footer_plain = load_signature(user)
+  if not footer_html and not footer_plain then return false end
+
+  rspamd_logger.infox(task, "footer.lua: appending signature for %s", user)
+
+  -- Let lua_mime rebuild the body with the footer appended.
+  local rewrite = lua_mime.add_text_footer(task, footer_html, footer_plain)
+  if not rewrite or not rewrite.out then
+    rspamd_logger.warnx(task, "footer.lua: add_text_footer failed for %s", user)
+    return false
+  end
+
+  -- Rewrite Content-Type / Content-Transfer-Encoding headers when lua_mime
+  -- had to change the MIME structure (e.g. plain → multipart/alternative).
+  if rewrite.need_rewrite_ct then
+    if rewrite.new_ct then
+      task:set_header('Content-Type',
+        string.format('%s/%s; charset=utf-8',
+          rewrite.new_ct.type, rewrite.new_ct.subtype))
+    end
+    if rewrite.new_cte then
+      task:set_header('Content-Transfer-Encoding', rewrite.new_cte)
+    end
+  end
+
+  -- Assemble the full raw message as a list of rspamd_text chunks:
+  --   [original headers] + [blank separator line] + [rewritten body]
+  --
+  -- rewrite.out elements are one of:
+  --   string            → plain text token (boundary line, empty line, …)
+  --   rspamd_text       → already a text object
+  --   {data, bool}      → data is rspamd_text or string; bool = already encoded
+  --
+  -- Every element needs an explicit trailing newline because lua_mime emits
+  -- boundary lines WITHOUT a trailing newline — without this the boundary
+  -- and the following Content-Type header would be concatenated on one line,
+  -- which breaks MIME parsing in all mail clients.
+
+  local nl     = get_newline(task)
+  local parts  = {}
+
+  -- Original message headers (drop Content-Length — it will be wrong after
+  -- body modification and is not required by SMTP).
+  task:headers_foreach(function(name, hdr)
+    if name:lower() ~= 'content-length' then
+      parts[#parts + 1] = rspamd_text.fromstring(hdr.raw)
+    end
+  end, { full = true })
+
+  -- Blank line separating headers from body (RFC 5322 §2.1)
+  parts[#parts + 1] = rspamd_text.fromstring(nl)
+
+  -- Rewritten body from lua_mime
+  for _, o in ipairs(rewrite.out) do
+    if type(o) == 'table' then
+      -- {content, already_encoded}  — first element is the actual data
+      local data = o[1]
+      if type(data) == 'userdata' then
+        parts[#parts + 1] = data
+      elseif data ~= nil then
+        parts[#parts + 1] = rspamd_text.fromstring(tostring(data))
+      end
+      parts[#parts + 1] = rspamd_text.fromstring(nl)
+    elseif type(o) == 'userdata' then
+      parts[#parts + 1] = o
+      parts[#parts + 1] = rspamd_text.fromstring(nl)
+    elseif type(o) == 'string' then
+      -- Empty string = deliberate blank line (MIME part separator)
+      parts[#parts + 1] = rspamd_text.fromstring(o)
+      parts[#parts + 1] = rspamd_text.fromstring(nl)
+    end
+  end
+
+  local ok, err = pcall(function()
+    task:set_message(rspamd_text.fromtable(parts))
+  end)
+
+  if ok then
+    rspamd_logger.infox(task, "footer.lua: success for %s", user)
+    return true
+  else
+    rspamd_logger.warnx(task, "footer.lua: set_message error for %s: %s",
+      user, tostring(err))
+    return false
+  end
+end
+
+-- ---------------------------------------------------------------------------
+-- Symbol registration
+-- ---------------------------------------------------------------------------
+
+rspamd_config:register_symbol({
+  name     = 'FOOTER',
+  type     = 'prefilter',   -- runs before DKIM signing
+  callback = footer_callback,
+  priority = 10,
+})
+
+rspamd_logger.infox(rspamd_config, "footer.lua: registered (prefilter, priority 10)")

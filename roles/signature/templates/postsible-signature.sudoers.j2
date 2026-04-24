@@ -1,11 +1,8 @@
-# {{ ansible_managed }}
-# Postsible Signature Manager - sudoers rules
-# Allows php-fpm ({{ signature_webserver_user }}) to run signature-manage as root
+# /etc/sudoers.d/postsible-signature
+# Managed by Ansible (roles/signature) — do not edit manually.
+#
+# Allow the PHP-FPM worker to call signature-manage as root (no password).
+# The script itself validates all inputs strictly.
 
-{{ signature_webserver_user }} ALL=(root) NOPASSWD: {{ signature_manage }} save-user *
-{{ signature_webserver_user }} ALL=(root) NOPASSWD: {{ signature_manage }} delete-user *
-{{ signature_webserver_user }} ALL=(root) NOPASSWD: {{ signature_manage }} save-domain *
-{{ signature_webserver_user }} ALL=(root) NOPASSWD: {{ signature_manage }} delete-domain *
-{{ signature_webserver_user }} ALL=(root) NOPASSWD: {{ signature_manage }} add-admin *
-{{ signature_webserver_user }} ALL=(root) NOPASSWD: {{ signature_manage }} remove-admin *
-{{ signature_webserver_user }} ALL=(root) NOPASSWD: {{ signature_manage }} set-superadmin *
+Defaults!{{ signature_manage }} !requiretty
+{{ signature_webserver_user }} ALL=(root) NOPASSWD: {{ signature_manage }}
