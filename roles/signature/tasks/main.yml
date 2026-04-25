@@ -159,16 +159,12 @@
   tags: signature_rspamd
 
 - name: Ensure footer.lua is enabled in rspamd local configuration
-  ansible.builtin.blockinfile:
-    path: /etc/rspamd/local.d/footer.conf
-    create: true
+  ansible.builtin.template:
+    src: footer.conf.j2
+    path: /etc/rspamd/modules.d/footer.conf
     owner: root
     group: _rspamd
     mode: '0640'
-    marker: "# {mark} ANSIBLE MANAGED - footer lua"
-    block: |
-      enabled = true;
-      source = "/etc/rspamd/modules.local.d/footer.lua";
   notify: reload rspamd
   tags: signature_rspamd
 
