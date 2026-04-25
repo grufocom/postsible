@@ -161,7 +161,7 @@
 - name: Ensure footer.lua is enabled in rspamd local configuration
   ansible.builtin.template:
     src: footer.conf.j2
-    path: /etc/rspamd/modules.d/footer.conf
+    dest: /etc/rspamd/modules.d/footer.conf
     owner: root
     group: _rspamd
     mode: '0640'
