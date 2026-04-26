@@ -24,6 +24,65 @@
     group: root
     mode: '0755'
 
+- name: Check if nginx vhost files exist
+  ansible.builtin.stat:
+    path: "/etc/nginx/sites-available/{{ item.mx_hostname }}.conf"
+  register: nginx_vhost_check
+  loop: "{{ mail_virtual_domains }}"
+  tags: rspamd
+
+- name: Insert Rspamd location into each domain vhost
+  ansible.builtin.blockinfile:
+    path: "/etc/nginx/sites-available/{{ item.item.mx_hostname }}.conf"
+    marker: "    # {mark} ANSIBLE MANAGED BLOCK - Rspamd"
+    insertafter: "# INSERT RSPAMD HERE – {{ item.item.mx_hostname }}"
+    block: |2
+          # Rspamd WebUI
+          location /rspamd/ {
+            proxy_pass http://127.0.0.1:11334/;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+
+            # WebSocket support
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+  
+            # Timeouts
+            proxy_connect_timeout 60s;
+            proxy_send_timeout 60s;
+            proxy_read_timeout 60s;
+
+            # Security headers
+            add_header X-Frame-Options "SAMEORIGIN" always;
+            add_header X-Content-Type-Options "nosniff" always;
+            add_header X-XSS-Protection "1; mode=block" always;
+          }
+  loop: "{{ nginx_vhost_check.results | selectattr('stat.exists', 'equalto', true) | list }}"
+  loop_control:
+    label: "{{ item.item.mx_hostname }}"
+  when: item.stat.exists
+  notify: reload nginx
+  tags: rspamd
+
+# ── Reload nginx ──────────────────────────────────────────────────────────────
+
+- name: Check if nginx is currently running
+  ansible.builtin.command: systemctl is-active nginx
+  register: _rspamd_nginx_active
+  changed_when: false
+  failed_when: false
+  tags: rspamd
+
+- name: Reload nginx to pick up Rspamd config (only if already running)
+  ansible.builtin.systemd:
+    name: nginx
+    state: reloaded
+  when: _rspamd_nginx_active.stdout | trim == 'active'
+  tags: rspamd
+
 - name: Print WebUI access information
   debug:
     msg: |
