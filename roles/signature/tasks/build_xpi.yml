@@ -34,24 +34,31 @@
     mode: '0644'
   tags: signature_xpi
 
+- name: Create XPI popup directory
+  ansible.builtin.file:
+    path: "{{ xpi_build_dir.path }}/popup"
+    state: directory
+    mode: '0755'
+  tags: signature_xpi
+
 - name: Render XPI popup.html
   ansible.builtin.template:
     src: xpi/popup.html.j2
-    dest: "{{ xpi_build_dir.path }}/popup.html"
+    dest: "{{ xpi_build_dir.path }}/popup/popup.html"
     mode: '0644'
   tags: signature_xpi
 
 - name: Render XPI popup.js
   ansible.builtin.template:
     src: xpi/popup.js.j2
-    dest: "{{ xpi_build_dir.path }}/popup.js"
+    dest: "{{ xpi_build_dir.path }}/popup/popup.js"
     mode: '0644'
   tags: signature_xpi
 
 - name: Build XPI archive
   community.general.archive:
     path: "{{ xpi_build_dir.path }}/"
-    dest: "/var/www/postsible-tools.xpi"
+    dest: "/var/www/signature/postsible-tools.xpi"
     format: zip
     owner: "{{ signature_webserver_user }}"
     group: "{{ signature_webserver_user }}"

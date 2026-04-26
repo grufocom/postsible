@@ -292,6 +292,24 @@
                               --from YYYY-MM-DD --to YYYY-MM-DD \
                               --subject "..." --message "..."
 
+          🦅 Thunderbird Integration (Postsible Tools Extension)
+          -------------------------------------------------------
+          The Postsible Tools extension for Thunderbird gives you one-click
+          access to the Signature Manager and Vacation Manager directly from
+          your toolbar.
+
+          Installation:
+            1. Open Thunderbird
+            2. Go to Tools → Add-ons and Themes (or press Ctrl+Shift+A)
+            3. Click the gear icon → Install Add-on From File...
+            4. Enter the following URL in the address bar and save the file:
+               https://{{ item.mx_hostname }}/signature/postsible-tools.xpi
+            5. Confirm the installation prompt
+
+          After installation the Postsible Tools icon appears in your toolbar.
+          Click it to open the Signature Manager or Vacation Manager in your
+          default browser — no separate login URL required.
+
           📚 Documentation
           -----------------
           - Admin credentials: /root/admin-credentials-{{ item.domain }}.txt
