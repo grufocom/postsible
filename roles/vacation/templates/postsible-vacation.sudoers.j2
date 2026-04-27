@@ -1,5 +1,5 @@
 # {{ ansible_managed }}
-# Postsible Vacation Manager - sudoers rules
+# Postsible Vacation & Forwarding Manager - sudoers rules
 # Allows php-fpm ({{ vacation_webserver_user }}) to run maildb-manage vacation commands as root
 
 {{ vacation_webserver_user }} ALL=(root) NOPASSWD: {{ vacation_maildb_manage }} set-vacation *
@@ -7,3 +7,9 @@
 {{ vacation_webserver_user }} ALL=(root) NOPASSWD: {{ vacation_maildb_manage }} add-vacation-admin *
 {{ vacation_webserver_user }} ALL=(root) NOPASSWD: {{ vacation_maildb_manage }} remove-vacation-admin *
 {{ vacation_webserver_user }} ALL=(root) NOPASSWD: {{ vacation_maildb_manage }} set-superadmin *
+{{ vacation_webserver_user }} ALL=(root) NOPASSWD: {{ vacation_maildb_manage }} add-forward *
+{{ vacation_webserver_user }} ALL=(root) NOPASSWD: {{ vacation_maildb_manage }} remove-forward *
+{{ vacation_webserver_user }} ALL=(root) NOPASSWD: {{ vacation_maildb_manage }} enable-forward *
+{{ vacation_webserver_user }} ALL=(root) NOPASSWD: {{ vacation_maildb_manage }} disable-forward *
+{{ vacation_webserver_user }} ALL=(root) NOPASSWD: {{ vacation_maildb_manage }} list-forwards *
+

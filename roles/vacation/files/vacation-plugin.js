@@ -1,5 +1,5 @@
 /**
- * Postsible Vacation Manager - SnappyMail Integration
+ * Postsible Vacation & Forwarding Manager - SnappyMail Integration
  * Places the Vacation button directly after the
  * "Create folder" + "Folders" btn-group in the sidebar.
  * Upgrade-safe: 4 fallback strategies.
@@ -62,10 +62,10 @@
             <div class="pv-backdrop"></div>
             <div class="pv-modal">
                 <div class="pv-header">
-                    <span class="pv-title">✈️ Vacation Manager</span>
+                    <span class="pv-title">✈️ Vacation & Forwarding Manager</span>
                     <button class="pv-close" aria-label="Close">✕</button>
                 </div>
-                <iframe class="pv-frame" src="" title="Vacation Manager"></iframe>
+                <iframe class="pv-frame" src="" title="Vacation & Forwarding Manager"></iframe>
             </div>`;
         document.body.appendChild(overlay);
 
@@ -91,7 +91,7 @@
         const btn = document.createElement('a');
         btn.href      = '#';
         btn.className = 'btn';
-        btn.title     = 'Vacation Manager';
+        btn.title     = 'Vacation & Forwarding Manager';
         btn.style.cssText = `
             display: flex;
             align-items: center;
@@ -102,7 +102,7 @@
             font-size: 13px;
         `;
         btn.innerHTML = `<span style="font-size:15px;line-height:1">✈</span>
-                         <span data-i18n="VACATION/TITLE">Vacation</span>`;
+                         <span data-i18n="VACATION/TITLE">Vacation/Forwarding</span>`;
 
         btn.addEventListener('click', e => {
             e.preventDefault();

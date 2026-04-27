@@ -1,7 +1,7 @@
 <?php
 // {{ ansible_managed }}
 /**
- * Postsible Vacation Manager
+ * Postsible Vacation & Forwarding Manager
  * Material Design inspired, Nextcloud blue palette
  * Authenticates users via IMAP against Dovecot
  */
@@ -118,6 +118,21 @@ function get_vacation_status(string $email): ?array {
         return $stmt->fetch() ?: null;
     } catch (Exception $e) {
         return null;
+    }
+}
+
+function get_forwards(string $email): array {
+    try {
+        $stmt = db()->prepare(
+            'SELECT id, destination, active, vacation_only, created_at
+             FROM mail_forwards
+             WHERE email = ?
+             ORDER BY vacation_only ASC, destination ASC'
+        );
+        $stmt->execute([$email]);
+        return $stmt->fetchAll();
+    } catch (Exception $e) {
+        return [];
     }
 }
 
@@ -256,19 +271,66 @@ if (session_valid()) {
                           : $error   = 'Error: ' . h($result['output']);
         }
     }
+
+				    if ($action === 'add_forward') {
+        $target      = ($role !== 'user') ? trim($_POST['target_email'] ?? $me) : $me;
+        $destination = trim($_POST['destination'] ?? '');
+        $vonly       = isset($_POST['vacation_only']) ? '1' : '0';
+
+        if (!validate_email($destination)) {
+            $error = 'Please enter a valid destination email address.';
+        } elseif ($destination === $target) {
+            $error = 'Cannot forward to yourself.';
+        } else {
+            $args = ['add-forward', $target, '--to', $destination];
+            if ($vonly === '1') $args[] = '--vacation-only';
+            $result = run_maildb($args);
+            $result['ok']
+                ? $message = "Forward added: {$target} → {$destination}."
+                : $error   = 'Error: ' . h($result['output']);
+        }
+    }
+
+    if ($action === 'remove_forward') {
+        $target      = ($role !== 'user') ? trim($_POST['target_email'] ?? $me) : $me;
+        $destination = trim($_POST['destination'] ?? '');
+
+        if (!validate_email($destination)) {
+            $error = 'Invalid destination address.';
+        } else {
+            $result = run_maildb(['remove-forward', $target, $destination]);
+            $result['ok']
+                ? $message = "Forward removed: {$target} → {$destination}."
+                : $error   = 'Error: ' . h($result['output']);
+        }
+    }
+
+    if ($action === 'toggle_forward') {
+        $target      = ($role !== 'user') ? trim($_POST['target_email'] ?? $me) : $me;
+        $destination = trim($_POST['destination'] ?? '');
+        $enable      = ($_POST['enable'] ?? '0') === '1';
+
+        $cmd    = $enable ? 'enable-forward' : 'disable-forward';
+        $result = run_maildb([$cmd, $target, $destination]);
+        $result['ok']
+            ? $message = "Forward " . ($enable ? 'enabled' : 'disabled') . "."
+            : $error   = 'Error: ' . h($result['output']);
+    }
+
 }
 
 $view_email    = (session_valid() && $_SESSION['role'] !== 'user')
     ? (trim($_GET['view'] ?? '') ?: $_SESSION['email'])
     : (session_valid() ? $_SESSION['email'] : '');
 $view_vacation = $view_email ? get_vacation_status($view_email) : null;
+$view_forwards = $view_email ? get_forwards($view_email) : [];
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Postsible – Vacation Manager</title>
+<title>Postsible – Vacation & Forwarding Manager</title>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -387,7 +449,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 <div class="login-wrap">
   <div class="login-card">
     <div class="login-header">
-      <h1>✈️ Vacation Manager</h1>
+      <h1>✈️ Vacation & Forwarding Manager</h1>
       <p>{{ common_hostname }} – Out-of-office replies</p>
     </div>
     <div class="login-body">
@@ -416,7 +478,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 ?>
 <div class="topbar">
   <div class="topbar-logo">V</div>
-  <span class="topbar-title">Vacation Manager</span>
+  <span class="topbar-title">Vacation & Forwarding Manager</span>
   <?php if ($role !== 'user'): ?>
     <span class="badge badge-<?= $role === 'superadmin' ? 'super' : 'admin' ?>">
       <?= $role === 'superadmin' ? '★ Superadmin' : 'Admin' ?>
@@ -560,6 +622,109 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
       </div>
     </div>
   </div><!-- /tab-vacation -->
+
+  <div class="card">
+  <div class="card-header">
+    <span class="icon">📨</span> Mail Forwarding
+    <?php if ($role !== 'user'): ?>– <?= h($view_email) ?><?php endif; ?>
+  </div>
+  <div class="card-body">
+
+    <!-- Current forwards list -->
+    <?php if (!empty($view_forwards)): ?>
+    <div style="margin-bottom:16px">
+      <table class="admin-table">
+        <thead>
+          <tr>
+            <th>Destination</th>
+            <th>Mode</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+        <?php foreach ($view_forwards as $fwd): ?>
+          <tr>
+            <td style="font-family:monospace;font-size:13px"><?= h($fwd['destination']) ?></td>
+            <td>
+              <?php if ($fwd['vacation_only']): ?>
+                <span class="badge badge-admin" title="Active only during vacation period">✈️ Vacation-only</span>
+              <?php else: ?>
+                <span class="badge badge-active">🔄 Always-on</span>
+              <?php endif; ?>
+            </td>
+            <td>
+              <?= $fwd['active']
+                  ? '<span class="badge badge-active">● Active</span>'
+                  : '<span class="badge badge-inactive">○ Inactive</span>' ?>
+            </td>
+            <td style="display:flex;gap:6px;flex-wrap:wrap">
+              <!-- Toggle active/inactive -->
+              <form method="post" style="display:inline">
+                <input type="hidden" name="action"       value="toggle_forward">
+                <input type="hidden" name="target_email" value="<?= h($view_email) ?>">
+                <input type="hidden" name="destination"  value="<?= h($fwd['destination']) ?>">
+                <input type="hidden" name="enable"       value="<?= $fwd['active'] ? '0' : '1' ?>">
+                <button type="submit" class="btn btn-ghost btn-sm">
+                  <?= $fwd['active'] ? 'Disable' : 'Enable' ?>
+                </button>
+              </form>
+              <!-- Remove -->
+              <form method="post" style="display:inline"
+                    onsubmit="return confirm('Remove forward to <?= h($fwd['destination']) ?>?')">
+                <input type="hidden" name="action"       value="remove_forward">
+                <input type="hidden" name="target_email" value="<?= h($view_email) ?>">
+                <input type="hidden" name="destination"  value="<?= h($fwd['destination']) ?>">
+                <button type="submit" class="btn btn-danger btn-sm">✕ Remove</button>
+              </form>
+            </td>
+          </tr>
+        <?php endforeach; ?>
+        </tbody>
+      </table>
+    </div>
+    <?php else: ?>
+    <div class="alert alert-info" style="margin-bottom:16px">
+      📭 No forwarding configured for <?= h($view_email) ?>.
+    </div>
+    <?php endif; ?>
+
+    <!-- Add new forward form -->
+    <form method="post" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+      <input type="hidden" name="action"       value="add_forward">
+      <input type="hidden" name="target_email" value="<?= h($view_email) ?>">
+
+      <div class="form-group" style="margin:0;flex:2;min-width:220px">
+        <label>Forward to address</label>
+        <input type="email" name="destination" required
+               placeholder="recipient@example.com">
+      </div>
+
+      <div class="form-group" style="margin:0;align-self:flex-end;padding-bottom:2px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;
+                      text-transform:none;letter-spacing:0;font-size:13px;font-weight:600;color:var(--text)">
+          <input type="checkbox" name="vacation_only" value="1"
+                 style="width:auto;accent-color:var(--nc-blue)">
+          Vacation-only
+        </label>
+      </div>
+
+      <button type="submit" class="btn btn-primary" style="align-self:flex-end">
+        ➕ Add forward
+      </button>
+    </form>
+
+    <div class="alert alert-info" style="margin-top:14px;font-size:13px">
+      <div>
+        <strong>🔄 Always-on:</strong> Mails are forwarded regardless of vacation status.
+        A local copy is always kept in your mailbox.<br>
+        <strong>✈️ Vacation-only:</strong> Mails are only forwarded during your active vacation period
+        (same date range as the auto-reply).
+      </div>
+    </div>
+
+   </div>
+  </div>
 
   <?php if ($show_tabs): ?>
   <!-- Tab: All Users -->

@@ -38,6 +38,37 @@
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
   tags: vacation_db
 
+- name: Create mail_forwards table
+  community.mysql.mysql_query:
+    login_user: root
+    login_password: "{{ mariadb_root_password }}"
+    login_db: "{{ vacation_db_name }}"
+    query: |
+      CREATE TABLE IF NOT EXISTS mail_forwards (
+        id           INT AUTO_INCREMENT PRIMARY KEY,
+        email        VARCHAR(255) NOT NULL,
+        destination  VARCHAR(255) NOT NULL,
+        active       TINYINT(1)   DEFAULT 1,
+        vacation_only TINYINT(1)  DEFAULT 0,
+        created_at   TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
+        updated_at   TIMESTAMP    DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_email_dest (email, destination),
+        INDEX idx_email (email),
+        INDEX idx_active (active)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  tags: vacation_db
+
+- name: Grant SELECT/INSERT/UPDATE/DELETE on mail_forwards to mailuser
+  community.mysql.mysql_query:
+    login_user: root
+    login_password: "{{ mariadb_root_password }}"
+    login_db: "{{ vacation_db_name }}"
+    query: >
+      GRANT SELECT, INSERT, UPDATE, DELETE
+      ON {{ vacation_db_name }}.mail_forwards
+      TO '{{ vacation_db_user }}'@'{{ mariadb_host }}';
+  tags: vacation_db
+
 - name: Grant SELECT on vacation tables to mailuser
   community.mysql.mysql_query:
     login_user: root
@@ -130,7 +161,7 @@
     marker: "# {mark} ANSIBLE MANAGED - vacation location"
     insertafter: "# INSERT VACATION HERE – {{ item.mx_hostname }}"
     block: |
-      # Vacation Manager
+      # Vacation & Forwarding Manager
       location {{ vacation_web_path }}/ {
           alias {{ vacation_web_root }}/;
           index index.php;
@@ -157,7 +188,7 @@
     path: /etc/postsible/deployment_summary.txt
     marker: "# {mark} ANSIBLE MANAGED - vacation"
     block: |
-      Vacation Manager:
+      Vacation & Forwarding Manager:
       {% for d in mail_virtual_domains %}
         - https://{{ d.mx_hostname }}{{ vacation_web_path }}/
       {% endfor %}

@@ -70,3 +70,4 @@
     path: "{{ xpi_build_dir.path }}"
     state: absent
   tags: signature_xpi
+
