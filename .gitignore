@@ -8,6 +8,7 @@ ansible.log
 vault_pass.txt
 *.vault_pass
 inventory/group_vars/*/vault.yml
+inventory/group_vars/*/vars.yml
 *.vault.yml
 
 # Sensitive Files
