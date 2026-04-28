@@ -35,7 +35,7 @@
   ansible.builtin.blockinfile:
     path: "/etc/nginx/sites-available/{{ item.item.mx_hostname }}.conf"
     marker: "    # {mark} ANSIBLE MANAGED BLOCK - Rspamd"
-    insertafter: "# INSERT RSPAMD HERE – {{ item.item.mx_hostname }}"
+    insertafter: "# INSERT RSPAMD HERE"
     block: |2
           # Rspamd WebUI
           location /rspamd/ {

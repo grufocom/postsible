@@ -167,7 +167,7 @@
   ansible.builtin.blockinfile:
     path: "/etc/nginx/sites-available/{{ item.item.mx_hostname }}.conf"
     marker: "    # {mark} ANSIBLE MANAGED BLOCK - SnappyMail"
-    insertafter: "# INSERT SNAPPY HERE – {{ item.item.mx_hostname }}"
+    insertafter: "# INSERT SNAPPY HERE"
     block: |2
           # SnappyMail Webmail
           location {{ snappymail_url_path }}/ {

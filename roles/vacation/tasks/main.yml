@@ -159,7 +159,7 @@
   ansible.builtin.blockinfile:
     path: "/etc/nginx/sites-available/{{ item.mx_hostname }}.conf"
     marker: "# {mark} ANSIBLE MANAGED - vacation location"
-    insertafter: "# INSERT VACATION HERE – {{ item.mx_hostname }}"
+    insertafter: "# INSERT VACATION HERE"
     block: |
       # Vacation & Forwarding Manager
       location {{ vacation_web_path }}/ {

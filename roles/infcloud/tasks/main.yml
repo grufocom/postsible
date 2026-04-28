@@ -138,7 +138,7 @@
 - name: Ensure marker line exists in vhosts (for insertion)
   ansible.builtin.lineinfile:
     path: "/etc/nginx/sites-available/{{ item.item.mx_hostname }}.conf"
-    line: "    # INSERT INFCLOUD HERE"
+    line: "# INSERT INFCLOUD HERE"
     insertafter: "    # END ANSIBLE MANAGED BLOCK - Baïkal"
     state: present
   loop: "{{ nginx_vhost_check.results | selectattr('stat.exists', 'equalto', true) | list }}"

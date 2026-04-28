@@ -274,6 +274,12 @@ create_maildir_internal() {
     fi
 
     local maildir_path="/srv/imap/$domain/$username"
+    local domain_path="/srv/imap/$domain"
+				if [ ! -d "$domain_path" ]; then
+					mkdir -p "$domain_path"
+					chown -R vmail:vmail "$domain_path"
+					chmod -R 0700 "$domani_path"
+				fi
 
     mkdir -p "$maildir_path"/{Maildir/{cur,new,tmp},Maildir/.Drafts/{cur,new,tmp},Maildir/.Sent/{cur,new,tmp},Maildir/.Trash/{cur,new,tmp},Maildir/.Spam/{cur,new,tmp},Maildir/.Ham/{cur,new,tmp}}
 

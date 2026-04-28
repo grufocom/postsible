@@ -9,6 +9,7 @@
 --   Per-user:   {{ signature_base_dir }}/users/<email>/signature.{html,txt}
 --   Per-domain: {{ signature_base_dir }}/domains/<domain>/signature.{html,txt}
 
+-- /etc/rspamd/plugins.d/footer.lua
 local rspamd_logger = require "rspamd_logger"
 local lua_mime      = require "lua_mime"
 local rspamd_text   = require "rspamd_text"
@@ -16,13 +17,31 @@ local rspamd_text   = require "rspamd_text"
 rspamd_logger.warnx("footer: loading final version")
 
 local function read_signature(user)
-    local signature_dir = "{{ signature_base_dir }}/users/" .. user
-    local f, content
+    -- Per-user signature
+    local user_dir = "{{ signature_base_dir }}/users/" .. user
+    local f
     local html_content, txt_content = nil, nil
-    f = io.open(signature_dir .. "/signature.html", "r")
+
+    f = io.open(user_dir .. "/signature.html", "r")
     if f then html_content = f:read("*all"); f:close() end
-    f = io.open(signature_dir .. "/signature.txt", "r")
+
+    f = io.open(user_dir .. "/signature.txt", "r")
     if f then txt_content = f:read("*all"); f:close() end
+
+    -- Fallback to per-domain signature if no per-user signature found
+    if not html_content and not txt_content then
+        local domain = user:match("@(.+)$")
+        if domain then
+            local domain_dir = "{{ signature_base_dir }}/domains/" .. domain
+
+            f = io.open(domain_dir .. "/signature.html", "r")
+            if f then html_content = f:read("*all"); f:close() end
+
+            f = io.open(domain_dir .. "/signature.txt", "r")
+            if f then txt_content = f:read("*all"); f:close() end
+        end
+    end
+
     return html_content, txt_content
 end
 
@@ -43,53 +62,52 @@ local function footer_callback(task)
 
     -- Rewrite Content-Type / CTE headers if needed
     if rewrite.need_rewrite_ct then
+        local add_hdrs = {}
+        local remove_hdrs = {}
+
         if rewrite.new_ct then
-            task:set_header('Content-Type',
-                string.format('%s/%s; charset=utf-8',
-                    rewrite.new_ct.type, rewrite.new_ct.subtype))
+            local ct_value = string.format('%s/%s; charset=utf-8',
+                rewrite.new_ct.type, rewrite.new_ct.subtype)
+            add_hdrs['Content-Type'] = { value = ct_value, order = 1 }
+            remove_hdrs['Content-Type'] = 1
         end
+
         if rewrite.new_cte then
-            task:set_header('Content-Transfer-Encoding', rewrite.new_cte)
+            add_hdrs['Content-Transfer-Encoding'] = { value = rewrite.new_cte, order = 1 }
+            remove_hdrs['Content-Transfer-Encoding'] = 1
         end
+
+        lua_mime.modify_headers(task, {
+            add    = add_hdrs,
+            remove = remove_hdrs,
+        })
     end
 
-    -- rewrite.out contains the rewritten body — convert elements to rspamd_text chunks
-    -- Each element is one of:
-    --   string        -> use directly as rspamd_text
-    --   {data, bool}  -> data is rspamd_text or string (bool = already encoded)
-    --   rspamd_text   -> use directly
     local parts = {}
+    local nl = (task:get_newlines_type() == 'lf') and '\n' or '\r\n'
 
-    -- Collect original headers (skip Content-Length)
     task:headers_foreach(function(name, hdr)
         if name:lower() ~= 'content-length' then
-            -- hdr.raw includes the trailing CRLF
             parts[#parts + 1] = rspamd_text.fromstring(hdr.raw)
         end
     end, {full = true})
 
-    -- Blank line separating headers from body
-    local nl = (task:get_newlines_type() == 'lf') and '\n' or '\r\n'
     parts[#parts + 1] = rspamd_text.fromstring(nl)
 
-    -- Body from rewrite.out — each element gets an explicit trailing newline
     for _, o in ipairs(rewrite.out) do
         if type(o) == 'table' then
-            -- {content, already_encoded_bool}
             local data = o[1]
             if type(data) == 'userdata' then
                 parts[#parts + 1] = data
             elseif type(data) == 'string' then
                 parts[#parts + 1] = rspamd_text.fromstring(data)
             end
-            -- Append newline after each content block
             parts[#parts + 1] = rspamd_text.fromstring(nl)
         elseif type(o) == 'userdata' then
             parts[#parts + 1] = o
             parts[#parts + 1] = rspamd_text.fromstring(nl)
         elseif type(o) == 'string' then
             if o == '' then
-                -- Empty string = deliberate blank line (MIME part separator)
                 parts[#parts + 1] = rspamd_text.fromstring(nl)
             else
                 parts[#parts + 1] = rspamd_text.fromstring(o)
@@ -119,4 +137,5 @@ rspamd_config:register_symbol({
 })
 
 rspamd_logger.warnx("footer: final version registered")
+
 

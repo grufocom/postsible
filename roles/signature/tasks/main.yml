@@ -124,7 +124,7 @@
   ansible.builtin.blockinfile:
     path: "/etc/nginx/sites-available/{{ item.mx_hostname }}.conf"
     marker: "# {mark} ANSIBLE MANAGED - signature location"
-    insertafter: "# INSERT SIGNATURE HERE – {{ item.mx_hostname }}"
+    insertafter: "# INSERT SIGNATURE HERE"
     block: |
       # Signature Manager
       location {{ signature_web_path }}/ {
