@@ -132,12 +132,21 @@
     mode: '0644'
   notify: restart rspamd
 
-# histroy Configuration
-# r
+# history Configuration
 - name: Configure rspamd history_redis
   template:
     src: history_redis.conf.j2
     dest: /etc/rspamd/local.d/history_redis.conf
+    owner: _rspamd
+    group: _rspamd
+    mode: '0644'
+  notify: restart rspamd
+
+# statistics Configuration
+- name: Configure rspamd stat_redis
+  template:
+    src: stat_redis.conf.j2
+    dest: /etc/rspamd/local.d/stat_redis.conf
     owner: _rspamd
     group: _rspamd
     mode: '0644'
