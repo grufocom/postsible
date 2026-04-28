@@ -17,7 +17,7 @@
     state: directory
     owner: root
     group: _rspamd
-    mode: '0750'
+    mode: '0755'
   tags: signature_dirs
 
 - name: Create signature users and domains subdirectories
@@ -38,7 +38,7 @@
     state: directory
     owner: root
     group: _rspamd
-    mode: '0750'
+    mode: '0755'
   loop: "{{ mail_virtual_domains }}"
   loop_control:
     label: "{{ item.domain }}"
