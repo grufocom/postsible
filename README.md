@@ -237,14 +237,7 @@ ansible-playbook playbooks/site.yml --tags phase2 --ask-vault-pass
 - **postfix** - SMTP server with multi-domain support
 - **dovecot** - IMAP/POP3 with Sieve support
 
-### Phase 3: Spam Filter
-```bash
-ansible-playbook playbooks/site.yml --tags phase3 --ask-vault-pass
-```
-- **rspamd** - Spam filter, DKIM signing per domain, Bayes learning
-- **eset_icap** - Antivirus scanner (optional)
-
-### Phase 4: Web & SSL
+### Phase 3: Web & SSL
 ```bash
 ansible-playbook playbooks/site.yml --tags phase4 --ask-vault-pass
 ```
@@ -254,6 +247,13 @@ ansible-playbook playbooks/site.yml --tags phase4 --ask-vault-pass
 - **baikal** - CalDAV/CardDAV server
 - **infcloud** - Web CalDAV/CardDAV client
 - **autoconfig** - Per-domain mail client autoconfiguration
+
+### Phase 4: Spam Filter
+```bash
+ansible-playbook playbooks/site.yml --tags phase3 --ask-vault-pass
+```
+- **rspamd** - Spam filter, DKIM signing per domain, Bayes learning
+- **eset_icap** - Antivirus scanner (optional)
 
 ### Phase 5: Security
 ```bash

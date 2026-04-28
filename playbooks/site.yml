@@ -64,21 +64,7 @@
         - mail
         - phase2
 
-    # Phase 3: Spam & Antivirus
-    - role: rspamd
-      tags:
-        - rspamd
-        - spam
-        - phase3
-
-    - role: eset_icap
-      tags:
-        - eset
-        - antivirus
-        - phase3
-      when: eset_icap_enabled | default(false)
-
-    # Phase 4: Web & SSL
+    # Phase 3: Web & SSL
     - role: certbot
       tags:
         - certbot
@@ -112,6 +98,20 @@
       tags:
         - autoconfig
         - phase4
+
+    # Phase 4: Spam & Antivirus
+    - role: rspamd
+      tags:
+        - rspamd
+        - spam
+        - phase3
+
+    - role: eset_icap
+      tags:
+        - eset
+        - antivirus
+        - phase3
+      when: eset_icap_enabled | default(false)
 
     # Phase 5: Security
     - role: fail2ban
