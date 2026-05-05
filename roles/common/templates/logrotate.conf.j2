@@ -14,3 +14,19 @@
         systemctl reload rsyslog > /dev/null 2>&1 || true
     endscript
 }
+
+
+/var/log/dovecot/*.log {
+    daily
+    rotate 14
+    size 100M
+    missingok
+    notifempty
+    compress
+    delaycompress
+    sharedscripts
+    postrotate
+        systemctl reload dovecot > /dev/null 2>&1 || true
+    endscript
+}
+
