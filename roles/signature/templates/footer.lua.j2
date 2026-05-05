@@ -9,7 +9,6 @@
 --   Per-user:   {{ signature_base_dir }}/users/<email>/signature.{html,txt}
 --   Per-domain: {{ signature_base_dir }}/domains/<domain>/signature.{html,txt}
 
--- /etc/rspamd/plugins.d/footer.lua
 local rspamd_logger = require "rspamd_logger"
 local lua_mime      = require "lua_mime"
 local rspamd_text   = require "rspamd_text"
@@ -17,43 +16,19 @@ local rspamd_text   = require "rspamd_text"
 rspamd_logger.warnx("footer: loading final version")
 
 local function read_signature(user)
-    -- Per-user signature
-    local user_dir = "{{ signature_base_dir }}/users/" .. user
+    local signature_dir = "{{ signature_base_dir }}/users/" .. user
     local f
     local html_content, txt_content = nil, nil
-
-    f = io.open(user_dir .. "/signature.html", "r")
+    f = io.open(signature_dir .. "/signature.html", "r")
     if f then html_content = f:read("*all"); f:close() end
-
-    f = io.open(user_dir .. "/signature.txt", "r")
+    f = io.open(signature_dir .. "/signature.txt", "r")
     if f then txt_content = f:read("*all"); f:close() end
-
-    -- Fallback to per-domain signature if no per-user signature found
-    if not html_content and not txt_content then
-        local domain = user:match("@(.+)$")
-        if domain then
-            local domain_dir = "{{ signature_base_dir }}/domains/" .. domain
-
-            f = io.open(domain_dir .. "/signature.html", "r")
-            if f then html_content = f:read("*all"); f:close() end
-
-            f = io.open(domain_dir .. "/signature.txt", "r")
-            if f then txt_content = f:read("*all"); f:close() end
-        end
-    end
-
     return html_content, txt_content
 end
 
 local function footer_callback(task)
     local user = task:get_user()
     if not user then return false end
-
-    -- Nur für authentifizierte SMTP-Submissions (nicht eingehend, nicht weitergeleitet)
-    if not task:has_symbol('AUTHENTICATED') then
-        rspamd_logger.infox(task, "footer: skipping non-authenticated mail for user %s", user)
-        return false
-    end
 
     local footer_html, footer_plain = read_signature(user)
     if not footer_html and not footer_plain then return false end
@@ -66,42 +41,55 @@ local function footer_callback(task)
         return false
     end
 
-    -- Rewrite Content-Type / CTE headers if needed
+    -- Build the new Content-Type / CTE values (if rewrite requires it)
+    local new_ct_value, new_cte_value
     if rewrite.need_rewrite_ct then
-        local add_hdrs = {}
-        local remove_hdrs = {}
-
         if rewrite.new_ct then
-            local ct_value = string.format('%s/%s; charset=utf-8',
+            new_ct_value = string.format('%s/%s; charset=utf-8',
                 rewrite.new_ct.type, rewrite.new_ct.subtype)
-            add_hdrs['Content-Type'] = { value = ct_value, order = 1 }
-            remove_hdrs['Content-Type'] = 1
         end
-
         if rewrite.new_cte then
-            add_hdrs['Content-Transfer-Encoding'] = { value = rewrite.new_cte, order = 1 }
-            remove_hdrs['Content-Transfer-Encoding'] = 1
+            new_cte_value = rewrite.new_cte
         end
-
-        lua_mime.modify_headers(task, {
-            add    = add_hdrs,
-            remove = remove_hdrs,
-        })
     end
 
+    -- rewrite.out contains the rewritten body — convert elements to rspamd_text chunks
+    -- Each element is one of:
+    --   string        -> use directly as rspamd_text
+    --   {data, bool}  -> data is rspamd_text or string (bool = already encoded)
+    --   rspamd_text   -> use directly
     local parts = {}
+
     local nl = (task:get_newlines_type() == 'lf') and '\n' or '\r\n'
 
+    -- Collect original headers, replacing CT/CTE inline where needed
+    -- (task:set_header() does not exist in rspamd_proxy context)
     task:headers_foreach(function(name, hdr)
-        if name:lower() ~= 'content-length' then
+        local lname = name:lower()
+        if lname == 'content-length' then
+            -- Drop Content-Length — body length changes after footer insertion
+            return
+        elseif lname == 'content-type' and new_ct_value then
+            -- Replace with updated Content-Type
+            parts[#parts + 1] = rspamd_text.fromstring(
+                'Content-Type: ' .. new_ct_value .. nl)
+        elseif lname == 'content-transfer-encoding' and new_cte_value then
+            -- Replace with updated Content-Transfer-Encoding
+            parts[#parts + 1] = rspamd_text.fromstring(
+                'Content-Transfer-Encoding: ' .. new_cte_value .. nl)
+        else
+            -- hdr.raw includes the trailing CRLF already
             parts[#parts + 1] = rspamd_text.fromstring(hdr.raw)
         end
     end, {full = true})
 
+    -- Blank line separating headers from body
     parts[#parts + 1] = rspamd_text.fromstring(nl)
 
+    -- Body from rewrite.out — each element gets an explicit trailing newline
     for _, o in ipairs(rewrite.out) do
         if type(o) == 'table' then
+            -- {content, already_encoded_bool}
             local data = o[1]
             if type(data) == 'userdata' then
                 parts[#parts + 1] = data
@@ -114,6 +102,7 @@ local function footer_callback(task)
             parts[#parts + 1] = rspamd_text.fromstring(nl)
         elseif type(o) == 'string' then
             if o == '' then
+                -- Empty string = deliberate blank line (MIME part separator)
                 parts[#parts + 1] = rspamd_text.fromstring(nl)
             else
                 parts[#parts + 1] = rspamd_text.fromstring(o)
@@ -143,5 +132,3 @@ rspamd_config:register_symbol({
 })
 
 rspamd_logger.warnx("footer: final version registered")
-
-

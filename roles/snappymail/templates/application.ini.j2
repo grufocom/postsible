@@ -125,8 +125,8 @@ level = 4
 hide_passwords = On
 time_zone = "UTC"
 filename = "log-{date:Y-m-d}.txt"
-auth_logging = Off
-auth_logging_filename = "fail2ban/auth-{date:Y-m-d}.txt"
+auth_logging = On
+auth_logging_filename = "fail2ban.log"
 auth_logging_format = "[{date:Y-m-d H:i:s}] Auth failed: ip={request:ip} user={imap:login} host={imap:host} port={imap:port}"
 auth_syslog = Off
 json_response_write_limit = 300

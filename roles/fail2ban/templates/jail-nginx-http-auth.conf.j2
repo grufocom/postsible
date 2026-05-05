@@ -5,7 +5,8 @@
 enabled = true
 port = http,https
 filter = nginx-http-auth
-logpath = /var/log/nginx/error.log
+logpath = /var/log/nginx/*error.log
+backend = polling
 maxretry = {{ fail2ban_nginx_maxretry | default('3') }}
 bantime = {{ fail2ban_nginx_bantime | default(fail2ban_bantime | default('3600')) }}
 findtime = {{ fail2ban_findtime | default('600') }}

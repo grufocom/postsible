@@ -5,7 +5,7 @@
 - name: Configure SSH jail
   template:
     src: jail-sshd.conf.j2
-    dest: /etc/fail2ban/jail.d/sshd.conf
+    dest: /etc/fail2ban/jail.d/sshd.local
     owner: root
     group: root
     mode: '0644'
@@ -24,7 +24,7 @@
 - name: Configure Postfix SASL jail
   template:
     src: jail-postfix-sasl.conf.j2
-    dest: /etc/fail2ban/jail.d/postfix-sasl.conf
+    dest: /etc/fail2ban/jail.d/postfix-sasl.local
     owner: root
     group: root
     mode: '0644'
@@ -34,7 +34,7 @@
 - name: Configure Dovecot jail
   template:
     src: jail-dovecot.conf.j2
-    dest: /etc/fail2ban/jail.d/dovecot.conf
+    dest: /etc/fail2ban/jail.d/dovecot.loacl
     owner: root
     group: root
     mode: '0644'
@@ -44,7 +44,7 @@
 - name: Configure Nginx HTTP Auth jail
   template:
     src: jail-nginx-http-auth.conf.j2
-    dest: /etc/fail2ban/jail.d/nginx-http-auth.conf
+    dest: /etc/fail2ban/jail.d/nginx-http-auth.local
     owner: root
     group: root
     mode: '0644'
@@ -64,7 +64,7 @@
 - name: Configure Rspamd jail
   template:
     src: jail-rspamd.conf.j2
-    dest: /etc/fail2ban/jail.d/rspamd.conf
+    dest: /etc/fail2ban/jail.d/rspamd.local
     owner: root
     group: root
     mode: '0644'
@@ -84,7 +84,7 @@
 - name: Configure SnappyMail jail
   template:
     src: jail-snappymail.conf.j2
-    dest: /etc/fail2ban/jail.d/snappymail.conf
+    dest: /etc/fail2ban/jail.d/snappymail.local
     owner: root
     group: root
     mode: '0644'
