@@ -9,6 +9,7 @@ vault_pass.txt
 *.vault_pass
 inventory/group_vars/*/vault.yml
 inventory/group_vars/*/vars.yml
+inventory/hosts.yml
 *.vault.yml
 
 # Sensitive Files
