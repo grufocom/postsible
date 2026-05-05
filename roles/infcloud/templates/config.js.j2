@@ -20,7 +20,7 @@ var globalHideInfoMessageAfter = 1000;
 
 // LOGIN & NETWORK (Base URL, overridden later)
 var globalNetworkCheckSettings = {
-    href: 'https://{{ ansible_fqdn }}/dav/dav.php/principals/',
+    href: 'https://' + window.location.hostname + '/dav/dav.php/principals/',
     crossDomain: false,
     withCredentials: true,
     settingsAccount: true,
@@ -37,6 +37,15 @@ var globalNetworkCheckSettings = {
 // Placeholder for dynamic account settings
 var globalNetworkAccountSettings = [];
 
+function getBaseDomain() {
+    var hostname = window.location.hostname;
+    var parts = hostname.split('.');
+    if (parts.length >= 2) {
+        return parts.slice(-2).join('.');
+    }
+    return hostname;
+}
+
 // Function to extract username from email
 function getUsernameFromEmail(email) {
     return email.split('@')[0];
@@ -48,23 +57,23 @@ function onLogin() {
     var usernamePart = getUsernameFromEmail(username);
 
     // Update principal URL
-    globalNetworkCheckSettings.href = 'https://{{ ansible_fqdn }}/dav/dav.php/principals/' + username + '/';
+    globalNetworkCheckSettings.href = 'https://' + window.location.hostname + '/dav/dav.php/principals/' + username + '/';
 
     // Account settings with collections
     globalNetworkAccountSettings = [{
-        href: 'https://{{ ansible_fqdn }}/dav/dav.php/',
+        href: 'https://' + window.location.hostname + '/dav/dav.php/',
         crossDomain: false,
         withCredentials: false,
         settingsAccount: true,
         loadedcalendarcollections: [
             {
-                href: 'https://{{ ansible_fqdn }}/dav/dav.php/calendars/' + username + '/default/',
+                href: 'https://' + window.location.hostname + '/dav/dav.php/calendars/' + username + '/default/',
                 displayname: 'My Calendar'
             }
         ],
         loadedaddressbookcollections: [
             {
-                href: 'https://{{ ansible_fqdn }}/dav/dav.php/addressbooks/' + username + '/' + usernamePart + '-contacts/',
+                href: 'https://' + window.location.hostname + '/dav/dav.php/addressbooks/' + username + '/' + usernamePart + '-contacts/',
                 displayname: 'My Contacts'
             }
         ]
@@ -75,6 +84,8 @@ function onLogin() {
         loadConfig();
     }
 }
+
+var baseDomain = getBaseDomain();
 
 // Global settings (single definition)
 var globalSettings = {
@@ -99,7 +110,7 @@ var globalSettings = {
     defaultactiveapp: {% if infcloud_enable_calendar %}'CalDavZAP'{% elif infcloud_enable_contacts %}'CardDavMATE'{% else %}null{% endif %},
 
     // UI
-    appcustomlogo: '{{ infcloud_logo_text }}',
+    appcustomlogo: baseDomain,
 
     // Contact form
     contactstorefn: ['prefix', 'last', 'middle', 'first', 'suffix'],
