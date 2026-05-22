@@ -13,7 +13,79 @@ local rspamd_logger = require "rspamd_logger"
 local lua_mime      = require "lua_mime"
 local rspamd_text   = require "rspamd_text"
 
-rspamd_logger.warnx("footer: loading final version")
+rspamd_logger.warnx("footer: loading quoted-printable fixed version")
+
+-- ============================================================
+-- RFC 2045 compliant quoted-printable encoder
+-- ============================================================
+local function quoted_printable_encode(str)
+    if not str then return nil end
+    local encoded = {}
+    local line_len = 0
+    local max_line_len = 76  -- RFC 2045 requirement
+    
+    for i = 1, #str do
+        local byte = string.byte(str, i)
+        
+        -- '=' (61) must always be encoded
+        if byte == 61 then
+            encoded[#encoded + 1] = "=3D"
+            line_len = line_len + 3
+        -- TAB (9) at end of line must be encoded
+        elseif byte == 9 then
+            local next_byte = string.byte(str, i + 1)
+            if next_byte == 10 or next_byte == 13 then
+                encoded[#encoded + 1] = "=09"
+                line_len = line_len + 3
+            else
+                encoded[#encoded + 1] = "\t"
+                line_len = line_len + 1
+            end
+        -- SPACE (32) at end of line must be encoded
+        elseif byte == 32 then
+            local next_byte = string.byte(str, i + 1)
+            if next_byte == 10 or next_byte == 13 then
+                encoded[#encoded + 1] = "=20"
+                line_len = line_len + 3
+            else
+                encoded[#encoded + 1] = " "
+                line_len = line_len + 1
+            end
+        -- Printable ASCII characters (33-60, 62-126)
+        elseif (byte >= 33 and byte <= 60) or (byte >= 62 and byte <= 126) then
+            encoded[#encoded + 1] = string.char(byte)
+            line_len = line_len + 1
+        -- Newlines preserved as-is
+        elseif byte == 10 or byte == 13 then
+            encoded[#encoded + 1] = string.char(byte)
+            line_len = 0
+        -- Everything else (umlauts, special chars) encode
+        else
+            encoded[#encoded + 1] = string.format("=%02X", byte)
+            line_len = line_len + 3
+        end
+        
+        -- Soft line break after max 76 chars (RFC 2045)
+        if line_len >= max_line_len then
+            encoded[#encoded + 1] = "=\n"
+            line_len = 0
+        end
+    end
+    
+    return table.concat(encoded)
+end
+
+-- ============================================================
+-- Check if message uses quoted-printable encoding
+-- ============================================================
+local function is_quoted_printable(task)
+    local cte = task:get_header('Content-Transfer-Encoding')
+    if cte then
+        local lower_cte = cte:lower()
+        return lower_cte:find('quoted-printable') ~= nil
+    end
+    return false
+end
 
 local function read_signature(user)
     local signature_dir = "{{ signature_base_dir }}/users/" .. user
@@ -34,6 +106,18 @@ local function footer_callback(task)
     if not footer_html and not footer_plain then return false end
 
     rspamd_logger.infox(task, "footer: appending signature for %s", user)
+
+    -- Check if message uses quoted-printable encoding
+    local qp_mode = is_quoted_printable(task)
+    if qp_mode and footer_plain then
+        rspamd_logger.infox(task, "footer: quoted-printable detected, encoding text signature")
+        footer_plain = quoted_printable_encode(footer_plain)
+    end
+    
+    if qp_mode and footer_html then
+        rspamd_logger.infox(task, "footer: quoted-printable detected, encoding HTML signature")
+        footer_html = quoted_printable_encode(footer_html)
+    end
 
     local rewrite = lua_mime.add_text_footer(task, footer_html, footer_plain)
     if not rewrite or not rewrite.out then
@@ -116,7 +200,8 @@ local function footer_callback(task)
     end)
 
     if ok then
-        rspamd_logger.infox(task, "footer: success for %s", user)
+        rspamd_logger.infox(task, "footer: success for %s (qp_mode=%s)", 
+            user, tostring(qp_mode))
         return true
     else
         rspamd_logger.warnx(task, "footer: set_message error: %s", tostring(err))
@@ -131,4 +216,4 @@ rspamd_config:register_symbol({
     priority = 10,
 })
 
-rspamd_logger.warnx("footer: final version registered")
+rspamd_logger.warnx("footer: quoted-printable fixed version registered")
