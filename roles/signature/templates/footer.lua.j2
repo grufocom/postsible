@@ -13,119 +13,137 @@ local rspamd_logger = require "rspamd_logger"
 local lua_mime      = require "lua_mime"
 local rspamd_text   = require "rspamd_text"
 
-rspamd_logger.warnx("footer: loading quoted-printable fixed version")
+rspamd_logger.warnx("footer: loading version - skip problematic encodings")
 
--- ============================================================
--- RFC 2045 compliant quoted-printable encoder
--- ============================================================
-local function quoted_printable_encode(str)
-    if not str then return nil end
-    local encoded = {}
-    local line_len = 0
-    local max_line_len = 76  -- RFC 2045 requirement
-    
-    for i = 1, #str do
-        local byte = string.byte(str, i)
-        
-        -- '=' (61) must always be encoded
-        if byte == 61 then
-            encoded[#encoded + 1] = "=3D"
-            line_len = line_len + 3
-        -- TAB (9) at end of line must be encoded
-        elseif byte == 9 then
-            local next_byte = string.byte(str, i + 1)
-            if next_byte == 10 or next_byte == 13 then
-                encoded[#encoded + 1] = "=09"
-                line_len = line_len + 3
-            else
-                encoded[#encoded + 1] = "\t"
-                line_len = line_len + 1
-            end
-        -- SPACE (32) at end of line must be encoded
-        elseif byte == 32 then
-            local next_byte = string.byte(str, i + 1)
-            if next_byte == 10 or next_byte == 13 then
-                encoded[#encoded + 1] = "=20"
-                line_len = line_len + 3
-            else
-                encoded[#encoded + 1] = " "
-                line_len = line_len + 1
-            end
-        -- Printable ASCII characters (33-60, 62-126)
-        elseif (byte >= 33 and byte <= 60) or (byte >= 62 and byte <= 126) then
-            encoded[#encoded + 1] = string.char(byte)
-            line_len = line_len + 1
-        -- Newlines preserved as-is
-        elseif byte == 10 or byte == 13 then
-            encoded[#encoded + 1] = string.char(byte)
-            line_len = 0
-        -- Everything else (umlauts, special chars) encode
-        else
-            encoded[#encoded + 1] = string.format("=%02X", byte)
-            line_len = line_len + 3
-        end
-        
-        -- Soft line break after max 76 chars (RFC 2045)
-        if line_len >= max_line_len then
-            encoded[#encoded + 1] = "=\n"
-            line_len = 0
-        end
+local function get_mail_charset(task)
+    local content_type = task:get_header('Content-Type') or ''
+    local charset = content_type:match('charset="?([^";]+)"?')
+    if charset then
+        return charset:lower()
     end
-    
-    return table.concat(encoded)
+    return 'utf-8'
 end
 
--- ============================================================
--- Check if message uses quoted-printable encoding
--- ============================================================
-local function is_quoted_printable(task)
-    local cte = task:get_header('Content-Transfer-Encoding')
-    if cte then
-        local lower_cte = cte:lower()
-        return lower_cte:find('quoted-printable') ~= nil
-    end
-    return false
+local function get_content_transfer_encoding(task)
+    local cte = task:get_header('Content-Transfer-Encoding') or ''
+    return cte:lower()
 end
 
-local function read_signature(user)
-    local signature_dir = "{{ signature_base_dir }}/users/" .. user
-    local f
+-- Skip signatures for problematic charset/encoding combinations
+local function should_skip_signature(charset, encoding)
+    -- Skip US-ASCII charsets
+    local ascii_charsets = {
+        ['us-ascii'] = true,
+        ['ascii'] = true,
+        ['ansi_x3.4-1968'] = true,
+        ['iso-8859-1'] = true,
+        ['iso8859-1'] = true,
+        ['latin1'] = true,
+    }
+
+    if ascii_charsets[charset] then
+        return true, "charset is " .. charset
+    end
+
+    -- Skip base64 encoded mails (would break structure)
+    if encoding == 'base64' then
+        return true, "encoding is base64"
+    end
+
+    -- Skip quoted-printable if charset is not utf-8
+    if encoding == 'quoted-printable' and charset ~= 'utf-8' then
+        return true, "quoted-printable with non-UTF-8 charset"
+    end
+
+    return false, nil
+end
+
+local function read_signature_from_path(base_dir, identifier)
     local html_content, txt_content = nil, nil
-    f = io.open(signature_dir .. "/signature.html", "r")
-    if f then html_content = f:read("*all"); f:close() end
-    f = io.open(signature_dir .. "/signature.txt", "r")
-    if f then txt_content = f:read("*all"); f:close() end
+    local f
+
+    f = io.open(base_dir .. "/signature.html", "r")
+    if f then
+        html_content = f:read("*all")
+        f:close()
+    end
+
+    f = io.open(base_dir .. "/signature.txt", "r")
+    if f then
+        txt_content = f:read("*all")
+        f:close()
+    end
+
     return html_content, txt_content
+end
+
+local function get_user_domain(email)
+    local at_pos = email and email:find("@")
+    if at_pos then
+        return email:sub(at_pos + 1)
+    end
+    return nil
+end
+
+local function get_signature(user_email)
+    if not user_email then
+        return nil, nil
+    end
+
+    -- 1. Try user signature
+    local user_path = "{{ signature_base_dir }}/users/" .. user_email
+    local html, txt = read_signature_from_path(user_path)
+    if html or txt then
+        rspamd_logger.infox("footer: found user signature for %s", user_email)
+        return html, txt
+    end
+
+    -- 2. Try domain signature
+    local domain = get_user_domain(user_email)
+    if domain then
+        local domain_path = "{{ signature_base_dir }}/domains/" .. domain
+        html, txt = read_signature_from_path(domain_path)
+        if html or txt then
+            rspamd_logger.infox("footer: found domain signature for %s (%s)", user_email, domain)
+            return html, txt
+        end
+    end
+
+    return nil, nil
 end
 
 local function footer_callback(task)
     local user = task:get_user()
-    if not user then return false end
-
-    local footer_html, footer_plain = read_signature(user)
-    if not footer_html and not footer_plain then return false end
-
-    rspamd_logger.infox(task, "footer: appending signature for %s", user)
-
-    -- Check if message uses quoted-printable encoding
-    local qp_mode = is_quoted_printable(task)
-    if qp_mode and footer_plain then
-        rspamd_logger.infox(task, "footer: quoted-printable detected, encoding text signature")
-        footer_plain = quoted_printable_encode(footer_plain)
-    end
-    
-    if qp_mode and footer_html then
-        rspamd_logger.infox(task, "footer: quoted-printable detected, encoding HTML signature")
-        footer_html = quoted_printable_encode(footer_html)
-    end
-
-    local rewrite = lua_mime.add_text_footer(task, footer_html, footer_plain)
-    if not rewrite or not rewrite.out then
-        rspamd_logger.warnx(task, "footer: add_text_footer failed")
+    if not user then
         return false
     end
 
-    -- Build the new Content-Type / CTE values (if rewrite requires it)
+    -- Check charset and encoding FIRST
+    local charset = get_mail_charset(task)
+    local encoding = get_content_transfer_encoding(task)
+
+    local skip, reason = should_skip_signature(charset, encoding)
+
+    if skip then
+        rspamd_logger.infox(task, "footer: skipping signature - %s (charset=%s, encoding=%s)",
+            reason, charset, encoding)
+        return false
+    end
+
+    local footer_html, footer_plain = get_signature(user)
+    if not footer_html and not footer_plain then
+        return false
+    end
+
+    rspamd_logger.infox(task, "footer: appending signature for %s (charset=%s, encoding=%s)",
+        user, charset, encoding)
+
+    local rewrite = lua_mime.add_text_footer(task, footer_html, footer_plain)
+    if not rewrite or not rewrite.out then
+        rspamd_logger.warnx(task, "footer: add_text_footer failed for %s", user)
+        return false
+    end
+
     local new_ct_value, new_cte_value
     if rewrite.need_rewrite_ct then
         if rewrite.new_ct then
@@ -137,43 +155,28 @@ local function footer_callback(task)
         end
     end
 
-    -- rewrite.out contains the rewritten body — convert elements to rspamd_text chunks
-    -- Each element is one of:
-    --   string        -> use directly as rspamd_text
-    --   {data, bool}  -> data is rspamd_text or string (bool = already encoded)
-    --   rspamd_text   -> use directly
     local parts = {}
-
     local nl = (task:get_newlines_type() == 'lf') and '\n' or '\r\n'
 
-    -- Collect original headers, replacing CT/CTE inline where needed
-    -- (task:set_header() does not exist in rspamd_proxy context)
     task:headers_foreach(function(name, hdr)
         local lname = name:lower()
         if lname == 'content-length' then
-            -- Drop Content-Length — body length changes after footer insertion
             return
         elseif lname == 'content-type' and new_ct_value then
-            -- Replace with updated Content-Type
             parts[#parts + 1] = rspamd_text.fromstring(
                 'Content-Type: ' .. new_ct_value .. nl)
         elseif lname == 'content-transfer-encoding' and new_cte_value then
-            -- Replace with updated Content-Transfer-Encoding
             parts[#parts + 1] = rspamd_text.fromstring(
                 'Content-Transfer-Encoding: ' .. new_cte_value .. nl)
         else
-            -- hdr.raw includes the trailing CRLF already
             parts[#parts + 1] = rspamd_text.fromstring(hdr.raw)
         end
     end, {full = true})
 
-    -- Blank line separating headers from body
     parts[#parts + 1] = rspamd_text.fromstring(nl)
 
-    -- Body from rewrite.out — each element gets an explicit trailing newline
     for _, o in ipairs(rewrite.out) do
         if type(o) == 'table' then
-            -- {content, already_encoded_bool}
             local data = o[1]
             if type(data) == 'userdata' then
                 parts[#parts + 1] = data
@@ -186,7 +189,6 @@ local function footer_callback(task)
             parts[#parts + 1] = rspamd_text.fromstring(nl)
         elseif type(o) == 'string' then
             if o == '' then
-                -- Empty string = deliberate blank line (MIME part separator)
                 parts[#parts + 1] = rspamd_text.fromstring(nl)
             else
                 parts[#parts + 1] = rspamd_text.fromstring(o)
@@ -200,11 +202,11 @@ local function footer_callback(task)
     end)
 
     if ok then
-        rspamd_logger.infox(task, "footer: success for %s (qp_mode=%s)", 
-            user, tostring(qp_mode))
+        rspamd_logger.infox(task, "footer: success for %s", user)
         return true
     else
-        rspamd_logger.warnx(task, "footer: set_message error: %s", tostring(err))
+        rspamd_logger.warnx(task, "footer: set_message error for %s: %s",
+            user, tostring(err))
         return false
     end
 end
@@ -216,4 +218,4 @@ rspamd_config:register_symbol({
     priority = 10,
 })
 
-rspamd_logger.warnx("footer: quoted-printable fixed version registered")
+rspamd_logger.warnx("footer: version with problematic encoding skip registered")
