@@ -8,13 +8,36 @@
 -- Signature file locations:
 --   Per-user:   {{ signature_base_dir }}/users/<email>/signature.{html,txt}
 --   Per-domain: {{ signature_base_dir }}/domains/<domain>/signature.{html,txt}
+--
+-- Skip logic overview (see should_skip_signature()):
+--   1. No SMTP-authenticated user present
+--   2. Charset is ASCII-family (us-ascii, iso-8859-1, latin1, ...)
+--   3. Content-Transfer-Encoding is base64 (would break binary structure)
+--   4. Content-Transfer-Encoding is quoted-printable with non-UTF-8 charset
+--   5. Content-Type header is missing entirely
+--   6. No charset parameter present in Content-Type (e.g. "text/html" only)
+--      → indicates auto-generated mail or non-standard sender; appending
+--        a UTF-8 signature would create an encoding mismatch
+--   7. Content-Transfer-Encoding header is missing entirely
+--      → same risk: body may contain raw 8-bit sequences without declared
+--        encoding; mixing in UTF-8 footer is unsafe
+--   8. From-header address does not match the SMTP auth user
+--      → indicates mail sent by a daemon/script that forges the envelope
+--        (e.g. backup scripts running as root@ but authenticating as user@);
+--        these mails should not receive a personal signature
 
 local rspamd_logger = require "rspamd_logger"
 local lua_mime      = require "lua_mime"
 local rspamd_text   = require "rspamd_text"
 
-rspamd_logger.warnx("footer: loading version - skip problematic encodings")
+rspamd_logger.warnx("footer: loading version - extended skip logic")
 
+-- ---------------------------------------------------------------------------
+-- Helper: extract charset from Content-Type header value
+-- Returns lowercase charset string, or 'utf-8' as a safe fallback.
+-- Note: callers must separately check whether a charset was *explicitly*
+-- present; use get_raw_content_type() for that purpose.
+-- ---------------------------------------------------------------------------
 local function get_mail_charset(task)
     local content_type = task:get_header('Content-Type') or ''
     local charset = content_type:match('charset="?([^";]+)"?')
@@ -24,41 +47,140 @@ local function get_mail_charset(task)
     return 'utf-8'
 end
 
+-- ---------------------------------------------------------------------------
+-- Helper: return the full Content-Type header value (lowercased), or ''
+-- ---------------------------------------------------------------------------
+local function get_raw_content_type(task)
+    return (task:get_header('Content-Type') or ''):lower()
+end
+
+-- ---------------------------------------------------------------------------
+-- Helper: return the Content-Transfer-Encoding value (lowercased), or ''
+-- ---------------------------------------------------------------------------
 local function get_content_transfer_encoding(task)
     local cte = task:get_header('Content-Transfer-Encoding') or ''
     return cte:lower()
 end
 
--- Skip signatures for problematic charset/encoding combinations
-local function should_skip_signature(charset, encoding)
-    -- Skip US-ASCII charsets
-    local ascii_charsets = {
-        ['us-ascii'] = true,
-        ['ascii'] = true,
-        ['ansi_x3.4-1968'] = true,
-        ['iso-8859-1'] = true,
-        ['iso8859-1'] = true,
-        ['latin1'] = true,
-    }
+-- ---------------------------------------------------------------------------
+-- Helper: extract the bare address from a From header string.
+-- Handles both "Display Name <addr@example.com>" and plain "addr@example.com".
+-- Returns lowercase address or empty string.
+-- ---------------------------------------------------------------------------
+local function extract_address(header_value)
+    if not header_value then return '' end
+    -- Try angle-bracket form first: "Name <addr@example.com>"
+    local addr = header_value:match('<([^>]+)>')
+    if not addr then
+        -- Plain address form
+        addr = header_value:match('%S+@%S+')
+    end
+    return (addr or ''):lower():gsub('%s', '')
+end
 
+-- ---------------------------------------------------------------------------
+-- Decide whether the signature should be skipped for this message.
+-- Returns: skip (bool), reason (string)
+--
+-- Skip conditions (documented individually below):
+-- ---------------------------------------------------------------------------
+local function should_skip_signature(task)
+
+    local content_type_raw = get_raw_content_type(task)
+    local charset          = get_mail_charset(task)
+    local encoding         = get_content_transfer_encoding(task)
+
+    -- (1) Skip ASCII-family charsets — signature contains UTF-8 characters
+    --     that cannot be represented in these encodings without corruption.
+    --     Example charsets: us-ascii, iso-8859-1, latin1
+    local ascii_charsets = {
+        ['us-ascii']          = true,
+        ['ascii']             = true,
+        ['ansi_x3.4-1968']    = true,
+        ['iso-8859-1']        = true,
+        ['iso8859-1']         = true,
+        ['latin1']            = true,
+    }
     if ascii_charsets[charset] then
         return true, "charset is " .. charset
     end
 
-    -- Skip base64 encoded mails (would break structure)
+    -- (2) Skip base64 encoded mails — inserting plain text after a base64
+    --     body would break the MIME structure entirely.
     if encoding == 'base64' then
         return true, "encoding is base64"
     end
 
-    -- Skip quoted-printable if charset is not utf-8
+    -- (3) Skip quoted-printable mails with non-UTF-8 charset — the QP
+    --     encoding is charset-specific; a UTF-8 footer appended to a
+    --     windows-1252 QP body produces undecodable content.
     if encoding == 'quoted-printable' and charset ~= 'utf-8' then
         return true, "quoted-printable with non-UTF-8 charset"
+    end
+
+    -- (4) Skip mails with no Content-Type header at all — we cannot make
+    --     safe assumptions about charset or MIME type.
+    if content_type_raw == '' then
+        return true, "Content-Type header missing"
+    end
+
+    -- (5) Skip mails whose Content-Type is text/* but contains no charset
+    --     parameter. A bare "text/html" or "text/plain" without charset=
+    --     typically originates from automated senders (monitoring scripts,
+    --     WordPress notifications, cron jobs) that do not follow RFC 2045
+    --     strictly. Appending a UTF-8 signature to such messages risks
+    --     encoding inconsistency and display artefacts in mail clients.
+    --     Example: "Content-Type: text/html" — no charset declared.
+    --
+    --     multipart/* messages are explicitly excluded here: their top-level
+    --     Content-Type never carries a charset (it only has a boundary
+    --     parameter); the charset lives inside each individual part.
+    --     Example: "Content-Type: multipart/alternative; boundary=..."
+    --     — this is a normal Thunderbird/Outlook composed mail and must
+    --     not be skipped.
+    if content_type_raw:match('^text/') and not content_type_raw:match('charset') then
+        return true, "no charset parameter in text/* Content-Type"
+    end
+
+    -- (6) Skip text/* mails with no Content-Transfer-Encoding header.
+    --     When CTE is absent on a text/* message, the body transfer encoding
+    --     is undefined from our perspective. The actual body may contain raw
+    --     8-bit byte sequences (as produced by nullmailer, sendmail wrappers,
+    --     etc.). Mixing a well-formed UTF-8 footer into such a body is unsafe.
+    --     Example: backup notification mails sent by system daemons.
+    --
+    --     multipart/* messages are excluded: they never carry a top-level CTE
+    --     header by design (RFC 2045 §6.4); the CTE is declared per part.
+    if content_type_raw:match('^text/') and encoding == '' then
+        return true, "Content-Transfer-Encoding header missing on text/* mail"
+    end
+
+    -- (7) Skip mails where the From-header address does not match the
+    --     SMTP authenticated user.
+    --     This catches daemon-sent mails that authenticate as a shared
+    --     mailbox (e.g. user@example.com) but set From to an internal
+    --     system address (e.g. root@server.internal or
+    --     service@subsystem.example.com).
+    --     Such mails are automated and should not receive a personal
+    --     signature; appending one would also be misleading.
+    local smtp_user = (task:get_user() or ''):lower()
+    local from_hdr  = task:get_header('From') or ''
+    local from_addr = extract_address(from_hdr)
+
+    if smtp_user ~= '' and from_addr ~= '' and from_addr ~= smtp_user then
+        return true, string.format(
+            "From address (%s) does not match SMTP auth user (%s)",
+            from_addr, smtp_user)
     end
 
     return false, nil
 end
 
-local function read_signature_from_path(base_dir, identifier)
+-- ---------------------------------------------------------------------------
+-- Read HTML and plain-text signature files from a given base directory.
+-- Returns html_content (string|nil), txt_content (string|nil)
+-- ---------------------------------------------------------------------------
+local function read_signature_from_path(base_dir)
     local html_content, txt_content = nil, nil
     local f
 
@@ -77,6 +199,10 @@ local function read_signature_from_path(base_dir, identifier)
     return html_content, txt_content
 end
 
+-- ---------------------------------------------------------------------------
+-- Extract the domain part from an email address string.
+-- Returns domain string or nil.
+-- ---------------------------------------------------------------------------
 local function get_user_domain(email)
     local at_pos = email and email:find("@")
     if at_pos then
@@ -85,26 +211,32 @@ local function get_user_domain(email)
     return nil
 end
 
+-- ---------------------------------------------------------------------------
+-- Look up the signature for a given user email address.
+-- Tries per-user path first, falls back to per-domain path.
+-- Returns html_content (string|nil), txt_content (string|nil)
+-- ---------------------------------------------------------------------------
 local function get_signature(user_email)
     if not user_email then
         return nil, nil
     end
 
-    -- 1. Try user signature
+    -- 1. Try user-specific signature
     local user_path = "{{ signature_base_dir }}/users/" .. user_email
     local html, txt = read_signature_from_path(user_path)
     if html or txt then
-        rspamd_logger.infox("footer: found user signature for %s", user_email)
+        rspamd_logger.warnx("footer: found user signature for %s", user_email)
         return html, txt
     end
 
-    -- 2. Try domain signature
+    -- 2. Fall back to domain-wide signature
     local domain = get_user_domain(user_email)
     if domain then
         local domain_path = "{{ signature_base_dir }}/domains/" .. domain
         html, txt = read_signature_from_path(domain_path)
         if html or txt then
-            rspamd_logger.infox("footer: found domain signature for %s (%s)", user_email, domain)
+            rspamd_logger.warnx("footer: found domain signature for %s (%s)",
+                user_email, domain)
             return html, txt
         end
     end
@@ -112,38 +244,70 @@ local function get_signature(user_email)
     return nil, nil
 end
 
+-- ---------------------------------------------------------------------------
+-- Main callback — registered as Rspamd prefilter symbol FOOTER.
+-- ---------------------------------------------------------------------------
 local function footer_callback(task)
+
+    rspamd_logger.warnx(task, "footer: DEBUG step=1 callback entered")
+
+    -- Require an authenticated SMTP user; anonymous relays are skipped.
     local user = task:get_user()
+    rspamd_logger.warnx(task, "footer: DEBUG step=2 get_user=[%s]",
+        tostring(user))
     if not user then
+        rspamd_logger.warnx(task, "footer: DEBUG step=2a no user, skipping")
         return false
     end
 
-    -- Check charset and encoding FIRST
-    local charset = get_mail_charset(task)
+    rspamd_logger.warnx(task, "footer: DEBUG step=3 running skip checks")
+
+    -- Run all skip checks before any expensive operations.
+    local skip, reason = should_skip_signature(task)
+    rspamd_logger.warnx(task, "footer: DEBUG step=4 skip=[%s] reason=[%s]",
+        tostring(skip), tostring(reason))
+    if skip then
+        rspamd_logger.warnx(task,
+            "footer: skipping signature — %s (user=%s, ct=%s, cte=%s)",
+            reason,
+            user,
+            task:get_header('Content-Type') or '<none>',
+            task:get_header('Content-Transfer-Encoding') or '<none>')
+        return false
+    end
+
+    rspamd_logger.warnx(task, "footer: DEBUG step=5 loading signature for [%s]", user)
+
+    -- Load signature files for this user / domain.
+    local footer_html, footer_plain = get_signature(user)
+    rspamd_logger.warnx(task, "footer: DEBUG step=6 html=[%s] plain=[%s]",
+        tostring(footer_html ~= nil), tostring(footer_plain ~= nil))
+    if not footer_html and not footer_plain then
+        rspamd_logger.warnx(task, "footer: DEBUG step=6a no signature files found for [%s]", user)
+        return false
+    end
+
+    local charset  = get_mail_charset(task)
     local encoding = get_content_transfer_encoding(task)
 
-    local skip, reason = should_skip_signature(charset, encoding)
-
-    if skip then
-        rspamd_logger.infox(task, "footer: skipping signature - %s (charset=%s, encoding=%s)",
-            reason, charset, encoding)
-        return false
-    end
-
-    local footer_html, footer_plain = get_signature(user)
-    if not footer_html and not footer_plain then
-        return false
-    end
-
-    rspamd_logger.infox(task, "footer: appending signature for %s (charset=%s, encoding=%s)",
+    rspamd_logger.warnx(task,
+        "footer: DEBUG step=7 appending signature for %s (charset=%s, encoding=%s)",
         user, charset, encoding)
 
+    -- Let lua_mime handle the actual body rewrite.
     local rewrite = lua_mime.add_text_footer(task, footer_html, footer_plain)
+    rspamd_logger.warnx(task, "footer: DEBUG step=8 rewrite=[%s]",
+        tostring(rewrite ~= nil))
     if not rewrite or not rewrite.out then
-        rspamd_logger.warnx(task, "footer: add_text_footer failed for %s", user)
+        rspamd_logger.warnx(task,
+            "footer: add_text_footer failed for %s", user)
         return false
     end
 
+    rspamd_logger.warnx(task, "footer: DEBUG step=9 building output parts")
+
+    -- Rebuild headers, replacing Content-Type / Content-Transfer-Encoding
+    -- if lua_mime signalled that they need updating (e.g. plain → multipart).
     local new_ct_value, new_cte_value
     if rewrite.need_rewrite_ct then
         if rewrite.new_ct then
@@ -161,6 +325,7 @@ local function footer_callback(task)
     task:headers_foreach(function(name, hdr)
         local lname = name:lower()
         if lname == 'content-length' then
+            -- Drop Content-Length — it will be incorrect after body rewrite.
             return
         elseif lname == 'content-type' and new_ct_value then
             parts[#parts + 1] = rspamd_text.fromstring(
@@ -175,6 +340,7 @@ local function footer_callback(task)
 
     parts[#parts + 1] = rspamd_text.fromstring(nl)
 
+    -- Append rewritten body parts produced by lua_mime.
     for _, o in ipairs(rewrite.out) do
         if type(o) == 'table' then
             local data = o[1]
@@ -201,12 +367,15 @@ local function footer_callback(task)
         task:set_message(rspamd_text.fromtable(parts))
     end)
 
+    rspamd_logger.warnx(task, "footer: DEBUG step=10 set_message ok=[%s] err=[%s]",
+        tostring(ok), tostring(err))
+
     if ok then
-        rspamd_logger.infox(task, "footer: success for %s", user)
+        rspamd_logger.warnx(task, "footer: success for %s", user)
         return true
     else
-        rspamd_logger.warnx(task, "footer: set_message error for %s: %s",
-            user, tostring(err))
+        rspamd_logger.warnx(task,
+            "footer: set_message error for %s: %s", user, tostring(err))
         return false
     end
 end
@@ -218,4 +387,4 @@ rspamd_config:register_symbol({
     priority = 10,
 })
 
-rspamd_logger.warnx("footer: version with problematic encoding skip registered")
+rspamd_logger.warnx("footer: extended skip logic registered")
