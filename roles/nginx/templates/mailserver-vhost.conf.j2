@@ -10,7 +10,7 @@ server {
 
     # Let's Encrypt ACME challenge location
     location /.well-known/acme-challenge/ {
-        root /var/www/html;
+        root /var/www/certbot;
         default_type "text/plain";
         try_files $uri =404;
     }
@@ -62,7 +62,7 @@ server {
 
     # Let's Encrypt ACME challenge (for renewal)
     location /.well-known/acme-challenge/ {
-        root /var/www/html;
+        root /var/www/certbot;
         default_type "text/plain";
         try_files $uri =404;
     }
