@@ -194,7 +194,7 @@
     path: "/etc/letsencrypt/renewal/{{ item.mx_hostname }}.conf"
     marker: "# {mark} ANSIBLE MANAGED - webroot map"
     block: |
-      [webroot_map]
+      [[webroot_map]]
       {{ item.mx_hostname }} = {{ certbot_webroot }}
       {% for prefix in certbot_extra_subdomain_prefixes %}
       {{ prefix }}.{{ item.domain }} = {{ certbot_webroot }}
@@ -203,6 +203,15 @@
   loop_control:
     label: "{{ item.mx_hostname }}"
   failed_when: false
+  tags: certbot
+
+- name: Configure certbot global CLI defaults (webroot-path)
+  ansible.builtin.lineinfile:
+    path: /etc/letsencrypt/cli.ini
+    regexp: '^#?webroot-path\s*='
+    line: "webroot-path = {{ certbot_webroot }}"
+    create: true
+    mode: '0644'
   tags: certbot
 
 # ── 6c. Configure postfix and dovecot with primary cert ───────────────────────
