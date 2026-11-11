@@ -1,7 +1,7 @@
 # Logrotate configuration for SnappyMail
 # Managed by Ansible - DO NOT EDIT MANUALLY
 
-/var/www/snappymail-data/_data_/_default_/logs/log-*.txt {
+/var/www/snappymail/data/_data_/_default_/logs/log-*.txt {
     daily
     rotate {{ snappymail_logrotate_days | default('30') }}
     compress
@@ -14,7 +14,7 @@
     maxage {{ snappymail_logrotate_days | default('30') }}
 }
 
-/var/www/snappymail-data/_data_/_default_/logs/fail2ban.log {
+/var/www/snappymail/data/_data_/_default_/logs/fail2ban.log {
     daily
     rotate {{ snappymail_logrotate_days | default('30') }}
     compress
